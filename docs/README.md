@@ -14,7 +14,18 @@ Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, 
 
 Requisitos, bugs e tarefas técnicas são registrados em [GitHub Issues](https://github.com/adnerscarpelini/ouroboros-server/issues), com os templates de `.github/ISSUE_TEMPLATE/`, e não em arquivos deste diretório. Cada issue traz contexto, comportamento esperado e critérios de aceite; o PR que a implementa a fecha com `Closes #<número>`.
 
-Labels de tipo (`feature`, `bug`, `refactor`, `architecture`, `maintenance`) e de módulo (`module:<nome>`) classificam as issues.
+Labels de tipo (`feature`, `bug`, `refactor`, `architecture`, `maintenance`) e de módulo (`module:<nome>`) classificam as issues. O andamento é acompanhado no [GitHub Project Ouroboros](https://github.com/users/adnerscarpelini/projects/1).
+
+## Branches e pull requests
+
+O projeto segue o GitHub Flow: `main` é a única branch permanente, sempre compilável, e toda mudança chega a ela por pull request. Não há branch `develop`, pois existe uma única versão em evolução, sem releases paralelas para manter.
+
+1. Cada issue ganha uma branch curta criada a partir da `main`, no formato `<tipo>/<número>-<descrição>`, por exemplo `feature/12-open-account`. Tipos: `feature`, `fix`, `refactor`, `docs` e `chore`.
+2. O trabalho na branch inclui implementação, testes, validação de QA e documentação.
+3. O pull request para a `main` tem título em [Conventional Commits](https://www.conventionalcommits.org/) e descrição com resumo, decisões de design, resultado do QA, documentação afetada e `Closes #<número>`.
+4. O merge é feito por squash: cada pull request vira um único commit na `main`, com o título e a descrição do PR, e a branch é apagada em seguida.
+
+A `main` é protegida por um ruleset do GitHub: push direto, force push e exclusão são bloqueados, o histórico é linear e o merge só ocorre por pull request com squash.
 
 ## Fluxo de documentação
 
