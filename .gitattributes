@@ -1,0 +1,17 @@
+# Normaliza texto como LF no repositório e no checkout, alinhado ao .editorconfig.
+* text=auto eol=lf
+
+# Scripts do Windows precisam de CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binários
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.dll binary
+*.exe binary

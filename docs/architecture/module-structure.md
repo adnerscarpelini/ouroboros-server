@@ -44,6 +44,21 @@ Os métodos `AddIdentityModule`, `AddCustomersModule`, `AddAccountsModule` e `Ad
 
 Entidades, DTOs, handlers, repositórios, DbContexts, migrations, endpoints e dados de exemplo só serão adicionados mediante solicitação de funcionalidades. Criar um módulo não autoriza inferir seus casos de uso. Não há `BuildingBlocks`: nenhum mecanismo transversal é necessário nesta estrutura.
 
+## Visibilidade dos tipos
+
+Todo tipo de um módulo é `internal` por padrão. Somente dois pontos são `public`:
+
+- a classe `DependencyInjection` e seu método `Add<Module>Module`, usados pelo host;
+- os tipos em `Contracts`, que formam a API pública do módulo para os demais.
+
+Entidades, objetos de valor, casos de uso, repositórios e DbContexts das pastas `Domain`, `Application` e `Infrastructure` nunca são `public`. Assim, se um módulo referenciar outro, o compilador só lhe permite enxergar `Contracts`. Tornar um tipo `public` fora dessas exceções exige mover o tipo para `Contracts` ou registrar a decisão nesta nota.
+
+Quando houver projetos de teste, o acesso aos tipos internos será concedido com `InternalsVisibleTo` no `.csproj` do módulo, e não tornando tipos públicos.
+
+## Pacotes NuGet
+
+As versões dos pacotes são centralizadas em [Directory.Packages.props](../../Directory.Packages.props) (Central Package Management). Os `.csproj` declaram apenas `<PackageReference Include="..." />`, sem `Version`. Para adicionar ou atualizar um pacote, altere seu `PackageVersion` nesse arquivo.
+
 ## Fronteiras adotadas para a evolução
 
 As decisões abaixo orientam implementações futuras; não representam banco, contratos ou controles automáticos já existentes:
