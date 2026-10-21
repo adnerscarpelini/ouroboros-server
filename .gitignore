@@ -431,3 +431,6 @@ FodyWeavers.xsd
 .local/
 .env
 TestResults/
+
+# Configuração local do Claude Code (skills, settings e notas pessoais)
+.claude/
