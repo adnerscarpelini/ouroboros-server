@@ -1,0 +1,47 @@
+name: Bug
+description: Comportamento implementado que não corresponde ao esperado.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Módulo
+      multiple: true
+      options:
+        - Identity
+        - Customers
+        - Accounts
+        - Transactions
+        - Api
+        - Não identificado
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      description: Requisições, dados fictícios e estado necessário.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamento obtido
+      description: Inclua mensagens de erro e logs relevantes, sem segredos ou dados pessoais.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit ou versão
+      description: Hash do commit em que o problema foi observado, se souber.

@@ -1,0 +1,54 @@
+name: Funcionalidade
+description: Novo comportamento ou mudança em um comportamento existente.
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: Módulo
+      description: Módulo responsável pela funcionalidade. Se envolver mais de um, marque todos e explique em Contexto.
+      multiple: true
+      options:
+        - Identity
+        - Customers
+        - Accounts
+        - Transactions
+        - Api
+        - Ainda não definido
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Qual problema esta funcionalidade resolve e para quem.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Comportamento esperado
+      description: O que o sistema deve fazer, incluindo regras de negócio.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      description: Condições verificáveis que o QA usará para aprovar a entrega. Uma por linha.
+      placeholder: |
+        - [ ] Dado ..., quando ..., então ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Fora do escopo
+      description: O que explicitamente não faz parte desta issue.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Observações
+      description: Dúvidas em aberto, referências ou decisões já tomadas.

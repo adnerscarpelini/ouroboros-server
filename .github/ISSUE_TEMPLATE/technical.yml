@@ -1,0 +1,51 @@
+name: Tarefa técnica
+description: Refatoração, decisão de arquitetura, infraestrutura ou manutenção, sem mudança de comportamento para o usuário.
+title: "[Tech] "
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Tipo
+      options:
+        - Refatoração
+        - Arquitetura
+        - Manutenção
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Módulo
+      multiple: true
+      options:
+        - Identity
+        - Customers
+        - Accounts
+        - Transactions
+        - Api
+        - Transversal
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivação
+      description: Qual problema concreto justifica a mudança.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: O que será feito e alternativas consideradas.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Critérios de conclusão
+      description: Como saber que a tarefa terminou. Para refatorações, inclua o comportamento que deve ser preservado.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
