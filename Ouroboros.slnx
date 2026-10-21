@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ouroboros.Api/Ouroboros.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
+    <Project Path="src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj" />
+    <Project Path="src/Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
+    <Project Path="src/Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />
+  </Folder>
+</Solution>

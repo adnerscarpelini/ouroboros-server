@@ -1,7 +1,7 @@
 # Arquitetura
 
-Espaço reservado para notas gerais do Ouroboros, visão do sistema e decisões arquiteturais.
+Notas gerais e decisões do Ouroboros, distinguindo a estrutura implementada das regras para sua evolução.
 
-Adicione as notas em Markdown nesta pasta, com nomes de arquivo em inglês e kebab-case, e inclua os links abaixo conforme forem criadas. Diferencie propostas de decisões adotadas e da implementação existente.
+- [Estrutura dos módulos](module-structure.md): projetos da solution, pastas padrão, injeção de dependência e fronteiras adotadas.
 
 [Voltar à documentação](../README.md)

@@ -4,32 +4,44 @@
 
 # Ouroboros Server
 
-Projeto pessoal de estudos em C#/.NET, sem fim por design — assim como o ouroboros, a cobra que come o próprio rabo em um ciclo infinito, este projeto nunca é considerado "terminado", apenas continuamente revisitado e evoluído.
+Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e educacional, sem movimentação de dinheiro real. A proposta inicial de e-commerce foi substituída por esse contexto. O projeto evolui continuamente, com foco em aprendizado, simplicidade e decisões explicáveis.
 
-## Objetivo
+## Estado atual
 
-Construir e refinar, ao longo do tempo, o backend de um e-commerce, servindo como terreno de prática para:
+Somente a estrutura inicial de um monólito modular em .NET 10. Os casos de uso e os modelos de domínio ainda serão definidos.
 
-- Clean Architecture
-- Domain-Driven Design (DDD)
-- Princípios SOLID e boas práticas de C#
-- Desenvolvimento de APIs com ASP.NET Core
-- Testes automatizados e garantia de qualidade
-- Docker
-- Segurança de aplicações
-- E outros conceitos que forem surgindo pelo caminho
+A solution contém cinco projetos reais:
 
-Cada evolução é uma oportunidade de experimentar, entender as consequências das decisões técnicas e melhorar o que já foi construído. Os conceitos serão aplicados conforme as necessidades do projeto, com foco em aprendizado e simplicidade.
+- `Ouroboros.Api`: host ASP.NET Core e composição dos módulos, sem endpoints.
+- `Ouroboros.Modules.Identity`: estrutura para identidade.
+- `Ouroboros.Modules.Customers`: estrutura para clientes.
+- `Ouroboros.Modules.Accounts`: estrutura para contas.
+- `Ouroboros.Modules.Transactions`: estrutura para transações.
 
-## Evolução contínua
+Cada módulo é uma class library com pastas vazias `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. O método de registro apenas retorna a coleção de serviços; a persistência será configurada depois da definição dos casos de uso.
 
-O Ouroboros também faz parte do meu portfólio e registra minha evolução como desenvolvedor. Funcionalidades, arquitetura e escolhas técnicas poderão ser revisitadas à medida que novos conhecimentos forem adquiridos.
+Não há entidades, DTOs, handlers, repositórios, DbContexts, migrations, banco, Docker, autenticação ou operações financeiras implementadas. Não há testes funcionais nem workflow de CI nesta etapa.
 
-O projeto está em fase inicial de estruturação. Os tópicos acima representam objetivos de estudo, e não uma lista de recursos já implementados.
+## Visual Studio e compilação
+
+Requisito: .NET SDK 10.0.402, fixado em `global.json`, e Visual Studio compatível com .NET 10 e SLNX.
+
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src` e `Modules` são pastas organizadoras da solution; cada módulo é um projeto C# independente, compilável pelo menu de contexto **Compilar**.
+
+Defina `Ouroboros.Api` como projeto de inicialização para executar o host. As bibliotecas dos módulos não são executáveis independentes.
+
+Na raiz do repositório:
+
+```powershell
+dotnet restore Ouroboros.slnx
+dotnet build Ouroboros.slnx --no-restore
+dotnet build src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj
+dotnet run --project src/Ouroboros.Api --no-launch-profile --urls http://localhost:8080
+```
+
+O host não exige connection string e não acessa banco. Como não há rotas, requisições retornam 404. Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
 
 ## Documentação
 
-A documentação será mantida em Markdown, organizada por módulos conforme as funcionalidades forem implementadas e validadas.
-
-- [Índice da documentação](docs/README.md)
-- [Arquitetura e notas gerais](docs/architecture/README.md)
+- [Índice](docs/README.md)
+- [Arquitetura](docs/architecture/README.md)
