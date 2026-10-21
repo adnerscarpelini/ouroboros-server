@@ -1,7 +1,12 @@
 name: Tarefa técnica
 description: Refatoração, decisão de arquitetura, infraestrutura ou manutenção, sem mudança de comportamento para o usuário.
-title: "[Tech] "
+title: "[Módulo] "
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Transversal] Definir onde os endpoints são declarados`.
+        O tipo não entra no título: ele já está na label.
   - type: dropdown
     id: kind
     attributes:
