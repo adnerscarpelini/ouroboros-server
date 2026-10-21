@@ -1,8 +1,13 @@
 name: Funcionalidade
 description: Novo comportamento ou mudança em um comportamento existente.
-title: "[Feature] "
+title: "[Módulo] "
 labels: ["feature"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Identity] Fazer login com e-mail e senha`.
+        O tipo não entra no título: ele já está na label.
   - type: dropdown
     id: module
     attributes:
