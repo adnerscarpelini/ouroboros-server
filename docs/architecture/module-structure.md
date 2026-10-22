@@ -4,7 +4,7 @@
 
 O Ouroboros é uma fintech fictícia e educacional organizada como monólito modular: um host ASP.NET Core compõe os módulos e será a entrada HTTP da aplicação. Nesta etapa existe somente a estrutura dos projetos; os modelos de domínio e casos de uso ainda serão definidos.
 
-A [solution Ouroboros.slnx](../../Ouroboros.slnx) reúne seis projetos C# independentes:
+A [solution Ouroboros.slnx](../../Ouroboros.slnx) reúne sete projetos C# independentes:
 
 | Projeto | Papel |
 | --- | --- |
@@ -14,6 +14,7 @@ A [solution Ouroboros.slnx](../../Ouroboros.slnx) reúne seis projetos C# indepe
 | `Ouroboros.Modules.Accounts` | Estrutura reservada para contas. |
 | `Ouroboros.Modules.Transactions` | Estrutura reservada para transações. |
 | `Ouroboros.ArchitectureTests` | Testes de arquitetura da visibilidade dos módulos e da descoberta, das rotas e do versionamento dos controllers, na pasta `tests`. |
+| `Ouroboros.IntegrationTests` | Testes de integração da API contra um PostgreSQL real em container, na pasta `tests`; exigem Docker (veja [Testes de integração](integration-tests.md)). |
 
 Cada módulo tem seu próprio `.csproj` e pode ser compilado individualmente. As pastas `src`, `Modules` e `tests` apenas organizam os projetos na solution. Dentro de cada módulo, as pastas abaixo são divisões lógicas de uma única class library, sem isolamento de compilação entre elas.
 
@@ -57,7 +58,7 @@ Todo tipo de um módulo é `internal` por padrão. Somente dois pontos são `pub
 
 Entidades, objetos de valor, casos de uso, repositórios, DbContexts e controllers das pastas `Domain`, `Application`, `Infrastructure` e `Controllers` nunca são `public`. A única exceção são as classes de migration geradas pelo `dotnet ef`, explicada em [Migrations geradas](persistence.md#migrations-geradas). Assim, se um módulo referenciar outro, o compilador só lhe permite enxergar `Contracts`. Tornar um tipo `public` fora dessas exceções exige mover o tipo para `Contracts` ou registrar a decisão nesta nota. O [teste de arquitetura](http-controllers.md#testes-de-arquitetura) falha se um módulo expuser outro tipo `public` (exceto migrations) ou conceder `InternalsVisibleTo` a `Ouroboros.Api`.
 
-Quando houver projetos de teste que precisem de tipos internos, o acesso será concedido com `InternalsVisibleTo` no `.csproj` do módulo, nunca à Api, e não tornando tipos públicos.
+Quando houver projetos de teste que precisem de tipos internos, o acesso será concedido com `InternalsVisibleTo` no `.csproj` do módulo, nunca à Api, e não tornando tipos públicos. Os testes de integração não precisam disso: resolvem os DbContexts dos módulos pela DI, encontrando seus tipos por reflexão.
 
 ## Pacotes NuGet
 
@@ -73,13 +74,13 @@ As decisões abaixo orientam a evolução dos módulos. A base de persistência 
 - Transações locais serão o padrão. Operações futuras em vários módulos exigirão uma decisão explícita de consistência e coordenação; DbContexts diferentes não garantem atomicidade conjunta.
 - A API ficará responsável por HTTP e composição, enquanto regras de negócio pertencerão aos módulos. Casos de uso poderão seguir Vertical Slices sem criar subprojetos por camada.
 
-Essas fronteiras são escolhas do Ouroboros. Pastas e convenções, por si sós, não impedem violações em runtime. Hoje só a visibilidade dos tipos, as rotas e versões dos controllers e a exigência da connection string na subida são verificadas automaticamente; testes para as demais fronteiras e inspeções de mapeamentos deverão acompanhar a implementação que vier a necessitá-los.
+Essas fronteiras são escolhas do Ouroboros. Pastas e convenções, por si sós, não impedem violações em runtime. Hoje só a visibilidade dos tipos, as rotas e versões dos controllers, a exigência da connection string na subida e a aplicação das migrations dos módulos num PostgreSQL real são verificadas automaticamente; testes para as demais fronteiras e inspeções de mapeamentos deverão acompanhar a implementação que vier a necessitá-los.
 
 ## Execução e limites
 
-Consulte o [README](../../README.md) para abrir a solution no Visual Studio, compilar a solução ou um módulo, executar os testes e iniciar o host.
+Consulte o [README](../../README.md) para abrir a solution no Visual Studio, compilar a solução ou um módulo, [executar os testes](../../README.md#testes) e iniciar o host.
 
-O host exige a connection string `ConnectionStrings:Ouroboros` e não sobe sem ela; o README explica como [subir o PostgreSQL local com Docker Compose e aplicar as migrations](../../README.md#banco-de-dados-local). O host mapeia os controllers dos módulos, mas ainda não há controllers concretos, então responde 404 às requisições. Há apenas testes de arquitetura; não há testes funcionais ou contra o banco real, CI, autenticação ou operações financeiras nesta etapa. Ledger permanece fora do escopo.
+O host exige a connection string `ConnectionStrings:Ouroboros` e não sobe sem ela; o README explica como [subir o PostgreSQL local com Docker Compose e aplicar as migrations](../../README.md#banco-de-dados-local). O host mapeia os controllers dos módulos, mas ainda não há controllers concretos, então responde 404 às requisições. Há testes de arquitetura e [testes de integração contra um PostgreSQL real](integration-tests.md), estes ainda sem endpoints de módulo a exercitar; não há testes funcionais de casos de uso, CI, autenticação ou operações financeiras nesta etapa. Ledger permanece fora do escopo.
 
 O QA da estrutura inicial verificou a compilação da solution e dos quatro módulos individualmente, sem warnings ou erros, além da inicialização do host, que na época não exigia connection string (exigência introduzida na #5). A interface do Visual Studio não foi inspecionada; a validação usou os arquivos de projeto e a CLI. Não há comportamento de domínio a validar nesta entrega.
 

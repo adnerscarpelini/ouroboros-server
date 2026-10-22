@@ -10,5 +10,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj" />
+    <Project Path="tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj" />
   </Folder>
 </Solution>
