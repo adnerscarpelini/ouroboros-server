@@ -17,11 +17,11 @@ A solution contém seis projetos reais:
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
-- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos e da descoberta e das rotas dos controllers.
+- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos e da descoberta, das rotas e do versionamento dos controllers.
 
 Cada módulo é uma class library com pastas vazias `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. O método de registro apenas retorna a coleção de serviços (o Identity também registra seus controllers e já tem a base dos controllers de backoffice); a persistência será configurada depois da definição dos casos de uso.
 
-Não há entidades, DTOs, handlers, repositórios, DbContexts, migrations, banco, Docker, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md). Há apenas testes de arquitetura; não há testes funcionais nem workflow de CI nesta etapa.
+Não há entidades, DTOs, handlers, repositórios, DbContexts, migrations, banco, Docker, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há apenas testes de arquitetura; não há testes funcionais nem workflow de CI nesta etapa.
 
 ## Visual Studio e compilação
 
