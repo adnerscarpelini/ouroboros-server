@@ -3,6 +3,7 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -12,25 +13,35 @@ namespace Ouroboros.ArchitectureTests;
 // application part, como um módulo faria, para exercitar a descoberta e o versionamento.
 internal static class ProbeHost
 {
-    public static HttpClient CreateClient(
-        OuroborosApiFactory factory,
+    public static HttpClient CreateClient<TEntryPoint>(
+        WebApplicationFactory<TEntryPoint> factory,
         ProbeCallCounter counter,
-        CapturingLoggerProvider? logs = null) =>
-        factory
-            .WithWebHostBuilder(builder =>
+        CapturingLoggerProvider? logs = null)
+        where TEntryPoint : class => CreateClient(factory, counter, out _, logs);
+
+    // Também devolve o host configurado, para inspecionar seus serviços.
+    public static HttpClient CreateClient<TEntryPoint>(
+        WebApplicationFactory<TEntryPoint> factory,
+        ProbeCallCounter counter,
+        out WebApplicationFactory<TEntryPoint> host,
+        CapturingLoggerProvider? logs = null)
+        where TEntryPoint : class
+    {
+        host = factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
             {
-                builder.ConfigureServices(services =>
-                {
-                    services.AddControllers().AddApplicationPart(typeof(ProbeHost).Assembly);
-                    services.AddSingleton<ProbeGreeting>();
-                    services.AddSingleton(counter);
-                });
-                if (logs is not null)
-                {
-                    builder.ConfigureLogging(logging => logging.AddProvider(logs));
-                }
-            })
-            .CreateClient();
+                services.AddControllers().AddApplicationPart(typeof(ProbeHost).Assembly);
+                services.AddSingleton<ProbeGreeting>();
+                services.AddSingleton(counter);
+            });
+            if (logs is not null)
+            {
+                builder.ConfigureLogging(logging => logging.AddProvider(logs));
+            }
+        });
+        return host.CreateClient();
+    }
 }
 
 internal sealed class ProbeGreeting

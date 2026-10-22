@@ -12,24 +12,24 @@ A autenticação trará os primeiros endpoints do Ouroboros. Pela [regra de visi
 
   | Pasta | Rota | Público |
   | --- | --- | --- |
-  | `Controllers/Customer` | `api/v{version:apiVersion}/<module>/...` | Aplicação do cliente e endpoints anônimos (login, cadastro, recuperação de senha). |
-  | `Controllers/Admin` | `api/v{version:apiVersion}/admin/<module>/...` | Backoffice. |
+  | `Controllers/Customer` | `api/v{version:apiVersion}/<module>/...` | Aplicação do cliente e endpoints anônimos (login, cadastro, recuperação de senha), servidos pela API externa (`Ouroboros.Api`). |
+  | `Controllers/Admin` | `api/v{version:apiVersion}/admin/<module>/...` | Backoffice, servido pelo host de backoffice (`Ouroboros.Backoffice.Api`). |
 
 - O segmento `v{version:apiVersion}` e o atributo `[ApiVersion]` de cada controller seguem o [versionamento da API](api-versioning.md).
 - Controllers de backoffice herdam a `internal abstract class AdminControllerBase : ControllerBase` do próprio módulo, que já aplica `[ApiController]`. A exigência do papel `Admin` será declarada nessa base e protegerá todo o backoffice do módulo.
 - Endpoints de backoffice nunca ficam nas rotas do cliente, e cada público tem seus próprios DTOs de resposta.
-- Há uma única API, com rotas separadas por público, em vez de um host por frontend ([Backends for Frontends](https://learn.microsoft.com/en-us/azure/architecture/patterns/backends-for-frontends)): não há frontend nem ambiente de deploy que justifiquem um segundo host. Como os controllers ficam nos módulos, separar o backoffice depois exigiria apenas um novo projeto de host registrando os controllers de admin, sem mudar casos de uso.
+- Cada público tem seu próprio host: a API externa registra os controllers de cliente e anônimos, e o backoffice, só os que herdam a `AdminControllerBase`, conforme [Hosts da API externa e do backoffice](hosts.md). Essa separação (#32) substitui a API única com rotas por público decidida na #3; como os controllers já ficavam nos módulos, ela não mudou módulos nem casos de uso.
 
 ## Como os controllers internal são descobertos
 
 O `ControllerFeatureProvider` padrão do ASP.NET Core só reconhece controllers `public`. Por isso:
 
-- O [host](../../src/Ouroboros.Api/Program.cs) chama `AddControllers().ConfigureApplicationPartManager(...)`, troca o provider padrão pelo [`ModuleControllerFeatureProvider`](../../src/Ouroboros.Api/ModuleControllerFeatureProvider.cs) e mapeia as rotas com `app.MapControllers()`. Esse provider aceita qualquer classe concreta, não genérica, derivada de `ControllerBase` e sem `[NonController]` das [application parts](https://learn.microsoft.com/en-us/aspnet/core/mvc/advanced/app-parts) registradas.
+- Cada host chama `builder.AddOuroborosHost(audience)` e `app.UseOuroborosHost()`, de [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs) no projeto `Ouroboros.Hosting`. O primeiro chama `AddControllers().ConfigureApplicationPartManager(...)` e troca o provider padrão pelo [`AudienceControllerFeatureProvider`](../../src/Ouroboros.Hosting/AudienceControllerFeatureProvider.cs); o segundo mapeia as rotas com `app.MapControllers()`. Esse provider aceita qualquer classe concreta, não genérica, derivada de `ControllerBase` e sem `[NonController]` das [application parts](https://learn.microsoft.com/en-us/aspnet/core/mvc/advanced/app-parts) registradas e, entre elas, só as do público do host: no backoffice, as que herdam uma `AdminControllerBase` de namespace terminado em `.Controllers.Admin`; na API externa, todas as demais (veja [Hosts](hosts.md#ouroboroshosting)).
 - Cada módulo com controllers registra o próprio assembly em `Add<Module>Module`, com `services.AddControllers().AddApplicationPart(typeof(DependencyInjection).Assembly)`, troca o pacote `Microsoft.Extensions.DependencyInjection.Abstractions` por `<FrameworkReference Include="Microsoft.AspNetCore.App" />` e referencia `Asp.Versioning.Abstractions` para declarar `[ApiVersion]`.
 
-O SDK também gera `[assembly: ApplicationPart]` em `Ouroboros.Api` para os módulos referenciados que usam ASP.NET Core, então hoje o registro explícito é redundante. Ele é mantido para deixar claro que o módulo publica controllers, sem depender desse detalhe do SDK.
+O SDK também gera `[assembly: ApplicationPart]` em cada host para os módulos referenciados que usam ASP.NET Core, então hoje o registro explícito é redundante. Ele é mantido para deixar claro que o módulo publica controllers, sem depender desse detalhe do SDK.
 
-`Program.cs` termina com `public partial class Program;` para que os testes usem `WebApplicationFactory<Program>`, por meio da [`OuroborosApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs), que fornece a connection string fictícia exigida na subida (veja [Persistência](persistence.md#testes)).
+Os testes sobem os hosts com `WebApplicationFactory`, por meio da [`OuroborosApiFactory` e da `BackofficeApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs), que fornecem a connection string fictícia exigida na subida (veja [Persistência](persistence.md#testes)). A da API externa usa o `Program` da `Ouroboros.Api`; a do backoffice usa o tipo `BackofficeApiEntryPoint`, porque o .NET 10 gera um `Program` público em cada host web.
 
 ## Alternativas descartadas
 
@@ -38,7 +38,7 @@ O SDK também gera `[assembly: ApplicationPart]` em `Ouroboros.Api` para os mód
 
 ## Estado atual
 
-Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, qualquer rota responde 404 (em ProblemDetails, veja [Respostas de erro](error-responses.md)). Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
+Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, qualquer rota responde 404 nos dois hosts (em ProblemDetails, veja [Respostas de erro](error-responses.md)). Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
 
 A exigência do papel `Admin` na `AdminControllerBase` (token de `Customer` recebe 403) entra com a autenticação JWT na #9 e ainda não está implementada: hoje a base não aplica nenhuma restrição.
 
@@ -46,9 +46,10 @@ A exigência do papel `Admin` na `AdminControllerBase` (token de `Customer` rece
 
 O projeto [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj) usa xUnit v3 e `Microsoft.AspNetCore.Mvc.Testing`:
 
-- [`ModuleVisibilityTests`](../../tests/Ouroboros.ArchitectureTests/ModuleVisibilityTests.cs): descobre os módulos pelas referências de `Ouroboros.Api` (um módulo novo entra nos testes ao ser registrado no host) e verifica que a Api referencia ao menos um módulo, que cada módulo só expõe `DependencyInjection` e tipos em `<Module>.Contracts` (além das [migrations geradas pelo EF Core](persistence.md#migrations-geradas)) e que nenhum módulo concede `InternalsVisibleTo` à Api. Juntas, as duas últimas condições garantem pelo compilador que a Api não usa tipos internos dos módulos; o acesso por reflexão em runtime não é coberto.
-- [`ControllerDiscoveryTests`](../../tests/Ouroboros.ArchitectureTests/ControllerDiscoveryTests.cs): registra uma application part com um controller `internal` que depende de um serviço `internal` e verifica que ele responde na rota declarada (`/api/v1/probe`). Remover o `ModuleControllerFeatureProvider` faz esse teste falhar.
-- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): sobre as actions que o host realmente registra, exige que todo controller de módulo declare ao menos um `[ApiVersion]` (`[ApiVersionNeutral]` não é aceito) e use attribute routing com prefixo `api/v{version:apiVersion}/<module>/` ou `api/v{version:apiVersion}/admin/<module>/`, e que o segmento `admin/` apareça se e somente se o controller herdar a `AdminControllerBase` do módulo. Como só enxerga controllers descobertos, depende da garantia do teste anterior.
+- [`ModuleVisibilityTests`](../../tests/Ouroboros.ArchitectureTests/ModuleVisibilityTests.cs): descobre os módulos pelas referências dos dois hosts (um módulo novo entra nos testes ao ser registrado em qualquer um deles) e verifica que há ao menos um módulo, que cada módulo só expõe `DependencyInjection` e tipos em `<Module>.Contracts` (além das [migrations geradas pelo EF Core](persistence.md#migrations-geradas)) e que nenhum módulo concede `InternalsVisibleTo` a `Ouroboros.Api` nem a `Ouroboros.Backoffice.Api`. Juntas, as duas últimas condições garantem pelo compilador que nenhum host usa tipos internos dos módulos; o acesso por reflexão em runtime não é coberto.
+- [`ControllerDiscoveryTests`](../../tests/Ouroboros.ArchitectureTests/ControllerDiscoveryTests.cs): registra na API externa uma application part com um controller `internal` que depende de um serviço `internal` e verifica que ele responde na rota declarada (`/api/v1/probe`). Remover o `AudienceControllerFeatureProvider` faz esse teste falhar.
+- [`HostSeparationTests`](../../tests/Ouroboros.ArchitectureTests/HostSeparationTests.cs): verifica que cada host só registra os controllers do seu público; detalhes em [Hosts](hosts.md#testes).
+- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): sobre as actions que os dois hosts realmente registram (a união deles), exige que todo controller de módulo declare ao menos um `[ApiVersion]` (`[ApiVersionNeutral]` não é aceito) e use attribute routing com prefixo `api/v{version:apiVersion}/<module>/` ou `api/v{version:apiVersion}/admin/<module>/`, e que o segmento `admin/` apareça se e somente se o controller herdar a `AdminControllerBase` do módulo. Como só enxerga controllers descobertos, depende da garantia do teste anterior.
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): verifica os headers de versão, a rejeição de versão não declarada ou ausente e a versão descontinuada; detalhes em [Versionamento da API HTTP](api-versioning.md#testes).
 
 Na raiz do repositório:
@@ -65,5 +66,6 @@ O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testi
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT e exigência do papel `Admin` na `AdminControllerBase`.
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): segmento de versão nas rotas e `[ApiVersion]` nos controllers.
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): tradução de falhas de negócio em ProblemDetails.
+- [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): hosts separados para a API externa e o backoffice, substituindo a API única.
 
 [Voltar à arquitetura](README.md)

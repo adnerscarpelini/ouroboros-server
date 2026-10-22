@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <!-- Mesmo UserSecretsId da Api: os dois hosts leem a mesma connection string em desenvolvimento. -->
+    <UserSecretsId>155afeb0-58c8-4e4a-860f-ff6dfd9ac463</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
+    <ProjectReference Include="../Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
+    <ProjectReference Include="../Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj" />
+    <ProjectReference Include="../Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
+    <ProjectReference Include="../Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />
+  </ItemGroup>
+</Project>

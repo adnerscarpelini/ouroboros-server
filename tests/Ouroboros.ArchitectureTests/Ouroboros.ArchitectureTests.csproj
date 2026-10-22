@@ -12,5 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Ouroboros.Api/Ouroboros.Api.csproj" />
+    <!-- Alias porque o .NET 10 gera um Program público em cada host web; sem ele, Program seria ambíguo. -->
+    <ProjectReference Include="../../src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" Aliases="backoffice" />
   </ItemGroup>
 </Project>

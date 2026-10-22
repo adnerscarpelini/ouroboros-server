@@ -10,19 +10,21 @@ Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e 
 
 Estrutura inicial de um monólito modular em .NET 10, com a primeira entidade de domínio (o usuário do Identity). Os casos de uso e os demais modelos de domínio ainda serão definidos.
 
-A solution contém sete projetos reais:
+A solution contém nove projetos reais:
 
-- `Ouroboros.Api`: host ASP.NET Core e composição dos módulos; mapeia os controllers dos módulos, ainda sem endpoints.
+- `Ouroboros.Api`: API externa (app do cliente, endpoints anônimos e integrações); host ASP.NET Core que compõe os módulos e mapeia os controllers que não são de backoffice, ainda sem endpoints.
+- `Ouroboros.Backoffice.Api`: API interna de backoffice; host que compõe os módulos e mapeia só os controllers de backoffice, ainda sem endpoints.
+- `Ouroboros.Hosting`: configuração HTTP comum aos dois hosts (controllers por público, versionamento e ProblemDetails).
 - `Ouroboros.Modules.Identity`: identidade, com a entidade `User` e o hash de senha.
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
-- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades e da descoberta, das rotas e do versionamento dos controllers.
+- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades, da separação dos controllers entre os hosts e da descoberta, das rotas e do versionamento dos controllers.
 - `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
 Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice), o hash de senha e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
 
-Fora o `User`, não há entidades; não há DTOs, handlers, repositórios, autenticação (login, JWT) ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
+Fora o `User`, não há entidades; não há DTOs, handlers, repositórios, autenticação (login, JWT) ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), e servidos pela API externa ou pelo backoffice conforme o público ([Hosts da API externa e do backoffice](docs/architecture/hosts.md)), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
 
 ## Requisitos
 
@@ -34,7 +36,7 @@ Fora o `User`, não há entidades; não há DTOs, handlers, repositórios, auten
 
 Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src` e `Modules` são pastas organizadoras da solution; cada módulo é um projeto C# independente, compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Api` como projeto de inicialização para executar o host. As bibliotecas dos módulos não são executáveis independentes.
+Defina `Ouroboros.Api` e/ou `Ouroboros.Backoffice.Api` como projetos de inicialização para executar os hosts (para os dois ao mesmo tempo, use **Configurar Projetos de Inicialização → Vários projetos de inicialização**). As bibliotecas dos módulos não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -63,7 +65,7 @@ Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL]
 
 ## Banco de dados local
 
-A API exige a connection string `ConnectionStrings:Ouroboros`: sem ela, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
+Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela, falham ao subir com `OptionsValidationException` e uma mensagem que cita a chave. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
 
 1. Crie o `.env` a partir do modelo e troque a senha de `POSTGRES_PASSWORD` (o `.env` fica fora do Git):
 
@@ -77,7 +79,7 @@ A API exige a connection string `ConnectionStrings:Ouroboros`: sem ela, falha ao
    docker compose up -d --wait
    ```
 
-3. Grave a connection string nos user-secrets do projeto `Ouroboros.Api`, com os valores do `.env`:
+3. Grave a connection string nos user-secrets do projeto `Ouroboros.Api`, com os valores do `.env`. O `Ouroboros.Backoffice.Api` usa o mesmo `UserSecretsId`, então lê a mesma connection string:
 
    ```powershell
    dotnet user-secrets set "ConnectionStrings:Ouroboros" "Host=localhost;Port=5432;Database=ouroboros;Username=ouroboros;Password=<a senha do .env>" --project src/Ouroboros.Api
@@ -106,20 +108,27 @@ dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Identity
 
 `docker compose down` para o banco e mantém os dados no volume `postgres-data`; `docker compose down -v` também apaga o volume. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md).
 
-## Executar o host
+## Executar os hosts
 
-Com o banco configurado:
+Com o banco configurado, em dois terminais na raiz do repositório:
 
 ```powershell
-dotnet run --project src/Ouroboros.Api
+dotnet run --project src/Ouroboros.Api              # API externa
+dotnet run --project src/Ouroboros.Backoffice.Api   # backoffice
 ```
 
-O comando usa o launch profile `http`: ambiente `Development`, em `http://localhost:5141`. Os user-secrets só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou a variável `ConnectionStrings__Ouroboros`. Como ainda não há endpoints, requisições retornam 404, em ProblemDetails ([Respostas de erro com ProblemDetails](docs/architecture/error-responses.md)).
+| Host | Público | Perfil `http` (padrão) | Perfil `https` |
+| --- | --- | --- | --- |
+| `Ouroboros.Api` | App do cliente, anônimos e integrações | `http://localhost:5141` | `https://localhost:7135` e `http://localhost:5141` |
+| `Ouroboros.Backoffice.Api` | Backoffice (rede interna) | `http://localhost:5142` | `https://localhost:7136` e `http://localhost:5142` |
+
+Os dois perfis usam o ambiente `Development`; para o `https`, acrescente `--launch-profile https`. Os user-secrets só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e o host não encontra a connection string, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou a variável `ConnectionStrings__Ouroboros`. Como ainda não há endpoints, requisições retornam 404, em ProblemDetails ([Respostas de erro com ProblemDetails](docs/architecture/error-responses.md)). Rotas de backoffice (`/api/v1/admin/...`) só existem no backoffice, e as demais, só na API externa; ainda não há autenticação, e no deploy o backoffice deve ficar só na rede interna ([Hosts da API externa e do backoffice](docs/architecture/hosts.md)).
 
 ## Documentação
 
 - [Índice](docs/README.md)
 - [Arquitetura](docs/architecture/README.md)
+- [Hosts da API externa e do backoffice](docs/architecture/hosts.md)
 - [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md)
 - [Identificadores, datas e nomes das entidades](docs/architecture/entity-conventions.md)
 - [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md)

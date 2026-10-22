@@ -13,7 +13,7 @@ Os primeiros endpoints precisam de um formato único de erro. Validações, falh
 - Toda resposta de erro traz a extensão `traceId`, que liga a resposta aos logs da requisição.
 - Cada módulo traduz as próprias falhas de negócio em status HTTP e `type` nos seus controllers.
 
-O [host](../../src/Ouroboros.Api/Program.cs) configura:
+Os dois hosts ([Hosts](hosts.md)) recebem a mesma configuração de [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), em `Ouroboros.Hosting`: `AddOuroborosHost` e `UseOuroborosHost` configuram:
 
 - `AddProblemDetails`, com `CustomizeProblemDetails` preenchendo `traceId` com `Activity.Current?.Id` ou, sem `Activity`, com `HttpContext.TraceIdentifier`;
 - `app.UseExceptionHandler()`, que converte exceções não tratadas em ProblemDetails;

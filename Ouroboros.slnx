@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Ouroboros.Api/Ouroboros.Api.csproj" />
+    <Project Path="src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" />
+    <Project Path="src/Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
   </Folder>
   <Folder Name="/src/Modules/">
     <Project Path="src/Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
