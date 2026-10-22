@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Ouroboros.Api;
 using Ouroboros.Modules.Accounts;
@@ -11,6 +12,14 @@ builder.Services.AddControllers().ConfigureApplicationPartManager(manager =>
     manager.FeatureProviders.Remove(manager.FeatureProviders.OfType<ControllerFeatureProvider>().Single());
     manager.FeatureProviders.Add(new ModuleControllerFeatureProvider());
 });
+
+// A versão maior vem sempre na URL (api/v{version:apiVersion}/...) e não há versão implícita.
+builder.Services.AddApiVersioning(options =>
+{
+    options.ApiVersionReader = new UrlSegmentApiVersionReader();
+    options.ReportApiVersions = true;
+}).AddMvc();
+
 builder.Services.AddIdentityModule();
 builder.Services.AddCustomersModule();
 builder.Services.AddAccountsModule();

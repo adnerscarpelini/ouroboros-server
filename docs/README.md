@@ -7,6 +7,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Arquitetura](architecture/README.md): notas gerais e decisões do projeto.
 - [Estrutura dos módulos](architecture/module-structure.md): estrutura atual e padrão para novos módulos.
 - [Controllers HTTP nos módulos](architecture/http-controllers.md): onde e como os endpoints são declarados.
+- [Versionamento da API HTTP](architecture/api-versioning.md): versão na URL (`/api/v1/...`) e como declarar ou descontinuar versões.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.

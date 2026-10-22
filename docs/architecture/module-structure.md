@@ -13,7 +13,7 @@ A [solution Ouroboros.slnx](../../Ouroboros.slnx) reúne seis projetos C# indepe
 | `Ouroboros.Modules.Customers` | Estrutura reservada para clientes. |
 | `Ouroboros.Modules.Accounts` | Estrutura reservada para contas. |
 | `Ouroboros.Modules.Transactions` | Estrutura reservada para transações. |
-| `Ouroboros.ArchitectureTests` | Testes de arquitetura da visibilidade dos módulos e da descoberta e das rotas dos controllers, na pasta `tests`. |
+| `Ouroboros.ArchitectureTests` | Testes de arquitetura da visibilidade dos módulos e da descoberta, das rotas e do versionamento dos controllers, na pasta `tests`. |
 
 Cada módulo tem seu próprio `.csproj` e pode ser compilado individualmente. As pastas `src`, `Modules` e `tests` apenas organizam os projetos na solution. Dentro de cada módulo, as pastas abaixo são divisões lógicas de uma única class library, sem isolamento de compilação entre elas.
 
@@ -73,7 +73,7 @@ As decisões abaixo orientam implementações futuras; não representam banco, c
 - Transações locais serão o padrão. Operações futuras em vários módulos exigirão uma decisão explícita de consistência e coordenação; DbContexts diferentes não garantem atomicidade conjunta.
 - A API ficará responsável por HTTP e composição, enquanto regras de negócio pertencerão aos módulos. Casos de uso poderão seguir Vertical Slices sem criar subprojetos por camada.
 
-Essas fronteiras são escolhas do Ouroboros. Pastas e convenções, por si sós, não impedem violações em runtime. Hoje só a visibilidade dos tipos e as rotas dos controllers são verificadas automaticamente; testes para as demais fronteiras e inspeções de mapeamentos deverão acompanhar a implementação que vier a necessitá-los.
+Essas fronteiras são escolhas do Ouroboros. Pastas e convenções, por si sós, não impedem violações em runtime. Hoje só a visibilidade dos tipos e as rotas e versões dos controllers são verificadas automaticamente; testes para as demais fronteiras e inspeções de mapeamentos deverão acompanhar a implementação que vier a necessitá-los.
 
 ## Execução e limites
 
