@@ -8,4 +8,7 @@
     <Project Path="src/Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
     <Project Path="src/Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj" />
+  </Folder>
 </Solution>

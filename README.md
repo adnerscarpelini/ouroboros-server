@@ -10,17 +10,18 @@ Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e 
 
 Somente a estrutura inicial de um monólito modular em .NET 10. Os casos de uso e os modelos de domínio ainda serão definidos.
 
-A solution contém cinco projetos reais:
+A solution contém seis projetos reais:
 
-- `Ouroboros.Api`: host ASP.NET Core e composição dos módulos, sem endpoints.
+- `Ouroboros.Api`: host ASP.NET Core e composição dos módulos; mapeia os controllers dos módulos, ainda sem endpoints.
 - `Ouroboros.Modules.Identity`: estrutura para identidade.
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
+- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos e da descoberta e das rotas dos controllers.
 
-Cada módulo é uma class library com pastas vazias `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. O método de registro apenas retorna a coleção de serviços; a persistência será configurada depois da definição dos casos de uso.
+Cada módulo é uma class library com pastas vazias `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. O método de registro apenas retorna a coleção de serviços (o Identity também registra seus controllers e já tem a base dos controllers de backoffice); a persistência será configurada depois da definição dos casos de uso.
 
-Não há entidades, DTOs, handlers, repositórios, DbContexts, migrations, banco, Docker, autenticação ou operações financeiras implementadas. Não há testes funcionais nem workflow de CI nesta etapa.
+Não há entidades, DTOs, handlers, repositórios, DbContexts, migrations, banco, Docker, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md). Há apenas testes de arquitetura; não há testes funcionais nem workflow de CI nesta etapa.
 
 ## Visual Studio e compilação
 
@@ -36,10 +37,11 @@ Na raiz do repositório:
 dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
 dotnet build src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj
+dotnet test --solution Ouroboros.slnx
 dotnet run --project src/Ouroboros.Api --no-launch-profile --urls http://localhost:8080
 ```
 
-O host não exige connection string e não acessa banco. Como não há rotas, requisições retornam 404. Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
+O host não exige connection string e não acessa banco. Como ainda não há endpoints, requisições retornam 404. Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
 
 ## Documentação
 
