@@ -1,7 +1,6 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Ouroboros.ArchitectureTests;
@@ -12,8 +11,8 @@ namespace Ouroboros.ArchitectureTests;
 // backoffice aparece se e somente se o controller herda a AdminControllerBase do módulo.
 // Só são vistos os controllers que o host descobre; ControllerDiscoveryTests garante que os
 // controllers internal são descobertos, sem o que este teste passaria sem verificar nada.
-public sealed class ControllerRouteTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ControllerRouteTests(OuroborosApiFactory factory)
+    : IClassFixture<OuroborosApiFactory>
 {
     private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
     private const string VersionSegment = "api/v{version:apiVersion}/";
