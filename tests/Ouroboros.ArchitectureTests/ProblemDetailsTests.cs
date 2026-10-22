@@ -69,6 +69,7 @@ public sealed class ProblemDetailsTests(OuroborosApiFactory factory) : IClassFix
     public async Task Unknown_route_returns_problem_details()
     {
         using var client = ProbeHost.CreateClient(factory, new ProbeCallCounter());
+        client.DefaultRequestHeaders.Authorization = new("Bearer", TestTokens.Create(TestTokens.ExternalAudience, "Customer"));
 
         var response = await client.GetAsync("/api/v9/problem-probe/business", TestContext.Current.CancellationToken);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);

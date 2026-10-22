@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -34,6 +35,9 @@ internal static class ProbeHost
                 services.AddControllers().AddApplicationPart(typeof(ProbeHost).Assembly);
                 services.AddSingleton<ProbeGreeting>();
                 services.AddSingleton(counter);
+                services.AddAuthorization(options => options.AddPolicy(
+                    SecuredProbeController.AdminOnlyPolicy,
+                    policy => policy.RequireRole("Admin")));
             });
             if (logs is not null)
             {
@@ -61,6 +65,7 @@ internal sealed class ProbeCallCounter
 }
 
 [ApiController]
+[AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/probe")]
 internal sealed class ProbeController(ProbeGreeting greeting) : ControllerBase
@@ -70,6 +75,7 @@ internal sealed class ProbeController(ProbeGreeting greeting) : ControllerBase
 }
 
 [ApiController]
+[AllowAnonymous]
 [ApiVersion(1, Deprecated = true)]
 [ApiVersion(2)]
 [Route("api/v{version:apiVersion}/versioned-probe")]
@@ -84,6 +90,7 @@ internal sealed class VersionedProbeController(ProbeCallCounter counter) : Contr
 }
 
 [ApiController]
+[AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/problem-probe")]
 internal sealed class ProblemProbeController : ControllerBase
@@ -103,3 +110,19 @@ internal sealed class ProblemProbeController : ControllerBase
 }
 
 internal sealed record ProbeRequest([Required, EmailAddress] string Email);
+
+// Sem [AllowAnonymous]: depende da política padrão do host, que nega quem não está autenticado.
+[ApiController]
+[ApiVersion(1)]
+[Route("api/v{version:apiVersion}/secured-probe")]
+internal sealed class SecuredProbeController : ControllerBase
+{
+    public const string AdminOnlyPolicy = "probe:admin-only";
+
+    [HttpGet]
+    public string Get() => "authenticated";
+
+    [HttpGet("admin-only")]
+    [Authorize(Policy = AdminOnlyPolicy)]
+    public string GetAdminOnly() => "admin only";
+}
