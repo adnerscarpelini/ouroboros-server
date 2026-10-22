@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Ouroboros.Api;
@@ -20,12 +21,19 @@ builder.Services.AddApiVersioning(options =>
     options.ReportApiVersions = true;
 }).AddMvc();
 
+// Todo erro sai em application/problem+json (RFC 9457) com o trace id W3C da requisição, o mesmo
+// dos logs. Falhas de negócio definem o próprio type nos controllers dos módulos.
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+    context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+
 builder.Services.AddIdentityModule();
 builder.Services.AddCustomersModule();
 builder.Services.AddAccountsModule();
 builder.Services.AddTransactionsModule();
 
 var app = builder.Build();
+app.UseExceptionHandler();
+app.UseStatusCodePages();
 app.MapControllers();
 app.Run();
 

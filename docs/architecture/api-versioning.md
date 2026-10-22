@@ -42,7 +42,7 @@ O exemplo acima é ilustrativo; ainda não há controllers concretos (veja [Cont
 ## Comportamento
 
 - As respostas trazem o header `api-supported-versions` (por exemplo `1.0`) e, se houver versões descontinuadas, `api-deprecated-versions`.
-- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem corpo, sem executar a action. Respostas de erro em ProblemDetails ficam com a [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4).
+- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem executar a action. Desde a [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4), o corpo é um ProblemDetails com `traceId` (veja [Respostas de erro com ProblemDetails](error-responses.md#respostas-sem-corpo-404-405-415)).
 - `v1.0` e `V1` são aceitos como sinônimos de `v1`.
 - A query string `api-version` é ignorada; só o segmento da URL define a versão.
 
@@ -63,5 +63,6 @@ Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests
 ## Origem
 
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): decisão e implementação.
+- [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): `404` de versão inexistente em ProblemDetails.
 
 [Voltar à arquitetura](README.md)

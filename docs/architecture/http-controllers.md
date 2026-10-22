@@ -7,7 +7,7 @@ A autenticação trará os primeiros endpoints do Ouroboros. Pela [regra de visi
 ## Decisão
 
 - Cada módulo declara seus endpoints em controllers explícitos (`ControllerBase`, `[ApiController]` e attribute routing), na pasta `Controllers` do módulo, como tipos `internal`.
-- Os controllers ficam enxutos: cada action valida a entrada (formato dos DTOs, campos obrigatórios), chama o caso de uso injetado e traduz o resultado em resposta HTTP. Regras de negócio ficam nos casos de uso e no domínio, nunca no controller, para que outras entradas (como a CLI da #11) reutilizem a mesma regra. Controllers dependem de `Application` e não acessam `Infrastructure` diretamente.
+- Os controllers ficam enxutos: cada action valida a entrada (formato dos DTOs, campos obrigatórios), chama o caso de uso injetado e traduz o resultado em resposta HTTP; falhas de negócio viram ProblemDetails com o `type` do [catálogo de erros](../errors/README.md), conforme [Respostas de erro com ProblemDetails](error-responses.md). Regras de negócio ficam nos casos de uso e no domínio, nunca no controller, para que outras entradas (como a CLI da #11) reutilizem a mesma regra. Controllers dependem de `Application` e não acessam `Infrastructure` diretamente.
 - As rotas são separadas por público, por módulo:
 
   | Pasta | Rota | Público |
@@ -38,7 +38,7 @@ O SDK também gera `[assembly: ApplicationPart]` em `Ouroboros.Api` para os mód
 
 ## Estado atual
 
-Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, qualquer rota responde 404. Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
+Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, qualquer rota responde 404 (em ProblemDetails, veja [Respostas de erro](error-responses.md)). Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
 
 A exigência do papel `Admin` na `AdminControllerBase` (token de `Customer` recebe 403) entra com a autenticação JWT na #9 e ainda não está implementada: hoje a base não aplica nenhuma restrição.
 
@@ -64,5 +64,6 @@ O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testi
 - [#3](https://github.com/adnerscarpelini/ouroboros-server/issues/3): decisão e implementação inicial.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT e exigência do papel `Admin` na `AdminControllerBase`.
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): segmento de versão nas rotas e `[ApiVersion]` nos controllers.
+- [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): tradução de falhas de negócio em ProblemDetails.
 
 [Voltar à arquitetura](README.md)
