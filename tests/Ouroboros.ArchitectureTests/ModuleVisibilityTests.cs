@@ -8,19 +8,21 @@ namespace Ouroboros.ArchitectureTests;
 // nenhum módulo abre seus internals para a Api com InternalsVisibleTo.
 public sealed class ModuleVisibilityTests
 {
-    private const string ApiAssemblyName = "Ouroboros.Api";
+    // Os dois hosts: nenhum deles pode enxergar os tipos internos dos módulos.
+    private static readonly string[] HostAssemblyNames = ["Ouroboros.Api", "Ouroboros.Backoffice.Api"];
 
     private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
 
-    // Os módulos são descobertos pelas referências do host, então um módulo novo entra nos testes
-    // assim que for registrado na Api.
+    // Os módulos são descobertos pelas referências dos hosts, então um módulo novo entra nos testes
+    // assim que for registrado em qualquer um deles.
     public static TheoryData<string> ModuleAssemblyNames =>
     [
-        .. Assembly.Load(ApiAssemblyName)
-            .GetReferencedAssemblies()
+        .. HostAssemblyNames
+            .SelectMany(host => Assembly.Load(host).GetReferencedAssemblies())
             .Select(reference => reference.Name)
             .OfType<string>()
-            .Where(name => name.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal)),
+            .Where(name => name.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal))
+            .Distinct(),
     ];
 
     [Fact]
@@ -54,12 +56,12 @@ public sealed class ModuleVisibilityTests
 
     [Theory]
     [MemberData(nameof(ModuleAssemblyNames))]
-    public void Module_does_not_grant_internals_to_Api(string moduleAssemblyName)
+    public void Module_does_not_grant_internals_to_hosts(string moduleAssemblyName)
     {
         var friendAssemblies = Assembly.Load(moduleAssemblyName)
             .GetCustomAttributes<InternalsVisibleToAttribute>()
             .Select(attribute => new AssemblyName(attribute.AssemblyName).Name);
 
-        Assert.DoesNotContain(ApiAssemblyName, friendAssemblies);
+        Assert.Empty(friendAssemblies.Intersect(HostAssemblyNames));
     }
 }

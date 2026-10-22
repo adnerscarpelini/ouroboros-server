@@ -11,8 +11,8 @@ namespace Ouroboros.ArchitectureTests;
 // backoffice aparece se e somente se o controller herda a AdminControllerBase do módulo.
 // Só são vistos os controllers que o host descobre; ControllerDiscoveryTests garante que os
 // controllers internal são descobertos, sem o que este teste passaria sem verificar nada.
-public sealed class ControllerRouteTests(OuroborosApiFactory factory)
-    : IClassFixture<OuroborosApiFactory>
+public sealed class ControllerRouteTests(OuroborosApiFactory external, BackofficeApiFactory backoffice)
+    : IClassFixture<OuroborosApiFactory>, IClassFixture<BackofficeApiFactory>
 {
     private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
     private const string VersionSegment = "api/v{version:apiVersion}/";
@@ -20,10 +20,8 @@ public sealed class ControllerRouteTests(OuroborosApiFactory factory)
     [Fact]
     public void Module_controllers_use_audience_routes_of_their_module()
     {
-        var actions = factory.Services
-            .GetRequiredService<IActionDescriptorCollectionProvider>()
-            .ActionDescriptors.Items
-            .OfType<ControllerActionDescriptor>()
+        // Os controllers de módulo ficam divididos entre os dois hosts; a regra vale para a união.
+        var actions = ActionsOf(external.Services).Concat(ActionsOf(backoffice.Services))
             .Where(action => action.ControllerTypeInfo.Assembly.GetName().Name?
                 .StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal) == true);
 
@@ -31,6 +29,11 @@ public sealed class ControllerRouteTests(OuroborosApiFactory factory)
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
     }
+
+    private static IEnumerable<ControllerActionDescriptor> ActionsOf(IServiceProvider services) =>
+        services.GetRequiredService<IActionDescriptorCollectionProvider>()
+            .ActionDescriptors.Items
+            .OfType<ControllerActionDescriptor>();
 
     private static string? FindViolation(ControllerActionDescriptor action)
     {

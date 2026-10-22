@@ -10,12 +10,12 @@ A API ainda não tem endpoints nem clientes. Incluir um prefixo de versão depoi
 
   | Público | Rota |
   | --- | --- |
-  | Cliente e anônimos | `api/v{version:apiVersion}/<module>/...` |
-  | Backoffice | `api/v{version:apiVersion}/admin/<module>/...` |
+  | Cliente e anônimos (`Ouroboros.Api`) | `api/v{version:apiVersion}/<module>/...` |
+  | Backoffice (`Ouroboros.Backoffice.Api`) | `api/v{version:apiVersion}/admin/<module>/...` |
 
 - Só a versão maior é exposta (`/api/v1/...`), como no [AIP-185](https://google.aip.dev/185) do Google. Mudanças compatíveis não mudam a versão.
 - Não há versão padrão implícita: toda requisição informa a versão na URL. O Asp.Versioning não permite versão padrão quando a versão está no caminho.
-- O [host](../../src/Ouroboros.Api/Program.cs) configura `AddApiVersioning` com `UrlSegmentApiVersionReader` e `ReportApiVersions = true`, seguido de `.AddMvc()`.
+- `AddOuroborosHost`, em [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), configura nos dois [hosts](hosts.md) `AddApiVersioning` com `UrlSegmentApiVersionReader` e `ReportApiVersions = true`, seguido de `.AddMvc()`.
 - Os módulos com controllers referenciam apenas `Asp.Versioning.Abstractions`, que traz os atributos `[ApiVersion]` e `[MapToApiVersion]`. O Identity já referencia o pacote.
 
 ## Como declarar versões

@@ -6,6 +6,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 
 - [Arquitetura](architecture/README.md): notas gerais e decisões do projeto.
 - [Estrutura dos módulos](architecture/module-structure.md): estrutura atual e padrão para novos módulos.
+- [Hosts da API externa e do backoffice](architecture/hosts.md): API externa e backoffice em hosts distintos, cada um com os controllers do seu público.
 - [Controllers HTTP nos módulos](architecture/http-controllers.md): onde e como os endpoints são declarados.
 - [Versionamento da API HTTP](architecture/api-versioning.md): versão na URL (`/api/v1/...`) e como declarar ou descontinuar versões.
 - [Respostas de erro com ProblemDetails](architecture/error-responses.md): formato único de erro (RFC 9457) com `traceId`, validação, falhas de negócio e erros inesperados.
