@@ -58,12 +58,12 @@ O `dotnet ef` gera as classes de migration como `public`. Elas são usadas pelo 
 
 ## Testes
 
-Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj):
+Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj), sem banco:
 
 - [`OuroborosApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs): sobe o host no ambiente `Testing` com uma connection string fictícia como última fonte de configuração, acima de variáveis de ambiente e user-secrets, para que os testes de host não dependam da máquina. Esses testes não acessam o banco.
 - [`DatabaseConfigurationTests`](../../tests/Ouroboros.ArchitectureTests/DatabaseConfigurationTests.cs): com connection string vazia ou em branco, a API não sobe e a mensagem cita `ConnectionStrings:Ouroboros`; com ela, sobe.
 
-Testes contra um PostgreSQL real ficam com a [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7).
+Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), a API sobe contra um PostgreSQL real em container (Testcontainers), com as migrations de todos os DbContexts de módulo aplicadas uma vez num banco modelo; cada teste recebe um banco próprio clonado dele. Esses testes exigem Docker, mas não o banco do Docker Compose nem user-secrets. Funcionamento, comandos e como escrever um teste estão em [Testes de integração com PostgreSQL](integration-tests.md).
 
 ## Fora do escopo
 
@@ -72,5 +72,6 @@ Containerizar a API, Seq e um compose de produção.
 ## Origem
 
 - [#5](https://github.com/adnerscarpelini/ouroboros-server/issues/5): decisão e implementação inicial no Identity.
+- [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7): testes de integração contra PostgreSQL real.
 
 [Voltar à arquitetura](README.md)

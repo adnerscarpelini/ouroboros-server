@@ -10,7 +10,7 @@ Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e 
 
 Somente a estrutura inicial de um monólito modular em .NET 10. Os casos de uso e os modelos de domínio ainda serão definidos.
 
-A solution contém seis projetos reais:
+A solution contém sete projetos reais:
 
 - `Ouroboros.Api`: host ASP.NET Core e composição dos módulos; mapeia os controllers dos módulos, ainda sem endpoints.
 - `Ouroboros.Modules.Identity`: estrutura para identidade.
@@ -18,16 +18,17 @@ A solution contém seis projetos reais:
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
 - `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos e da descoberta, das rotas e do versionamento dos controllers.
+- `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
 Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice) e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem uma migration inicial vazia. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo.
 
-Não há entidades, DTOs, handlers, repositórios, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há apenas testes de arquitetura; não há testes funcionais, testes contra o banco real nem workflow de CI nesta etapa.
+Não há entidades, DTOs, handlers, repositórios, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
 
 ## Requisitos
 
 - .NET SDK 10.0.402, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
-- Docker com Docker Compose, para o PostgreSQL de desenvolvimento.
+- Docker com Docker Compose, para o PostgreSQL de desenvolvimento; os testes de integração também exigem o Docker em execução.
 
 ## Visual Studio e compilação
 
@@ -41,10 +42,24 @@ Na raiz do repositório:
 dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
 dotnet build src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj
-dotnet test --solution Ouroboros.slnx
 ```
 
-Os testes não precisam do banco nem de connection string: sobem o host com uma connection string fictícia. Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
+Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
+
+## Testes
+
+Na raiz do repositório:
+
+```powershell
+dotnet test --solution Ouroboros.slnx                     # toda a suíte: arquitetura e integração
+dotnet test --project tests/Ouroboros.ArchitectureTests   # só arquitetura (sem Docker)
+dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (exige Docker)
+```
+
+- Os testes de arquitetura não acessam o banco: sobem o host com uma connection string fictícia.
+- Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
+
+Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md).
 
 ## Banco de dados local
 
@@ -106,3 +121,4 @@ O comando usa o launch profile `http`: ambiente `Development`, em `http://localh
 - [Índice](docs/README.md)
 - [Arquitetura](docs/architecture/README.md)
 - [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md)
+- [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md)
