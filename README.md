@@ -17,10 +17,10 @@ A solution contém sete projetos reais:
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
-- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos e da descoberta, das rotas e do versionamento dos controllers.
+- `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades e da descoberta, das rotas e do versionamento dos controllers.
 - `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
-Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice) e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem uma migration inicial vazia. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo.
+Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice) e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem uma migration inicial vazia. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As futuras entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md), já preparadas no Identity.
 
 Não há entidades, DTOs, handlers, repositórios, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
 
@@ -121,4 +121,5 @@ O comando usa o launch profile `http`: ambiente `Development`, em `http://localh
 - [Índice](docs/README.md)
 - [Arquitetura](docs/architecture/README.md)
 - [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md)
+- [Identificadores, datas e nomes das entidades](docs/architecture/entity-conventions.md)
 - [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md)
