@@ -7,6 +7,9 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Ouroboros.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
     <Folder Include="Application\" />
     <Folder Include="Contracts\" />
     <Folder Include="Domain\" />

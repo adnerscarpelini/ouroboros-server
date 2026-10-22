@@ -9,5 +9,6 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+        SnakeCaseNaming.Apply(modelBuilder);
     }
 }

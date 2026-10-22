@@ -11,7 +11,7 @@ O projeto [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.Integration
 - **Um container por execução da suíte.** A [`PostgresFixture`](../../tests/Ouroboros.IntegrationTests/PostgresFixture.cs) é uma assembly fixture: sobe um container `postgres:18-alpine` (a mesma imagem do [`compose.yaml`](../../compose.yaml)) no início e o remove no fim. Ela não usa o banco do Docker Compose; os testes passam com ele parado.
 - **Migrations aplicadas uma vez, num banco modelo.** A fixture cria o banco `ouroboros_template`, sobe a API contra ele e aplica as migrations de todos os DbContexts de módulo.
 - **Um banco por teste, clonado do modelo.** Antes de cada teste, `CREATE DATABASE ... TEMPLATE ouroboros_template` cria um banco com nome único, já migrado; ao final, `DROP DATABASE ... WITH (FORCE)` o remove. As criações são serializadas, porque o PostgreSQL recusa clonar um modelo que esteja em uso.
-- **DbContexts descobertos automaticamente.** [`ModuleDbContexts`](../../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs) encontra por reflexão os DbContexts `internal` dos assemblies `Ouroboros.Modules.*` referenciados pela Api e os resolve pela DI. Os testes não precisam de `InternalsVisibleTo`, e o DbContext de um módulo novo é migrado sem alterar os testes.
+- **DbContexts descobertos automaticamente.** [`ModuleDbContexts`](../../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs) encontra por reflexão os DbContexts `internal` dos assemblies `Ouroboros.Modules.*` referenciados pela Api e os resolve pela DI. A aplicação das migrations não precisa de `InternalsVisibleTo`, e o DbContext de um módulo novo é migrado sem alterar os testes. Testes que usam tipos internos de um módulo exigem que ele conceda `InternalsVisibleTo` a este projeto, como o Identity faz para os testes das [convenções das entidades](entity-conventions.md#testes).
 - **Configuração independente da máquina.** A [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) sobe a API no ambiente `Testing` com a connection string do banco do teste como última fonte de configuração, acima de user-secrets e variáveis de ambiente como `ConnectionStrings__Ouroboros`. Ela também registra o assembly de testes como application part, para que controllers declarados nos testes sejam mapeados.
 
 ## Pré-requisitos
@@ -58,6 +58,8 @@ public sealed class ExampleTests(PostgresFixture postgres) : IntegrationTest(pos
 
 O estado gravado por um teste nunca é visto por outro, independentemente da ordem de execução, então não é preciso limpar dados.
 
+Para testar persistência sem endpoint, um teste pode montar um DbContext próprio sobre `ConnectionString`, criando as tabelas com `IRelationalDatabaseCreator.CreateTablesAsync` num schema do teste, como faz o `EntityConventionsTests`. Para controlar as datas das entidades, use o `FakeTimeProvider` (pacote `Microsoft.Extensions.TimeProvider.Testing`) no `AuditTimestampsInterceptor`.
+
 ## Testes existentes
 
 Os módulos ainda não têm endpoints. Por isso, o [`MigrationsProbeController`](../../tests/Ouroboros.IntegrationTests/MigrationsProbeController.cs), que existe só no assembly de testes, expõe `GET /api/v1/integration-probe/migrations` com as migrations aplicadas de cada DbContext de módulo. Os [`DatabaseIntegrationTests`](../../tests/Ouroboros.IntegrationTests/DatabaseIntegrationTests.cs) verificam que:
@@ -65,6 +67,8 @@ Os módulos ainda não têm endpoints. Por isso, o [`MigrationsProbeController`]
 - a API responde por essa rota com a migration `InitialCreate` do Identity aplicada;
 - o schema `identity` tem a tabela `__EFMigrationsHistory`;
 - cada teste tem banco próprio: três casos criam a mesma tabela, o que falharia num banco compartilhado.
+
+Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes).
 
 ## Alternativas descartadas
 

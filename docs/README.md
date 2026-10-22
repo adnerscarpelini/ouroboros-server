@@ -11,6 +11,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Respostas de erro com ProblemDetails](architecture/error-responses.md): formato único de erro (RFC 9457) com `traceId`, validação, falhas de negócio e erros inesperados.
 - [Catálogo de erros](errors/README.md): `type` estável de cada falha de negócio, uma página por módulo.
 - [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
+- [Identificadores, datas e nomes das entidades](architecture/entity-conventions.md): chave interna `long`, `ExternalId` UUIDv7 exposto, datas de auditoria e snake_case.
 - [Testes de integração com PostgreSQL](architecture/integration-tests.md): PostgreSQL em container, banco modelo migrado e um banco clonado por teste.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 

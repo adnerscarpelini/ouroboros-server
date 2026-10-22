@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 
@@ -23,10 +24,15 @@ public static class DependencyInjection
                 "Em desenvolvimento, defina-a com dotnet user-secrets (veja o README).")
             .ValidateOnStart();
 
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<AuditTimestampsInterceptor>();
+
         // O histórico de migrations fica no schema do próprio módulo.
-        services.AddDbContext<IdentityDbContext>((provider, options) => options.UseNpgsql(
-            provider.GetRequiredService<IOptions<IdentityDatabaseOptions>>().Value.ConnectionString,
-            npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", IdentityDbContext.Schema)));
+        services.AddDbContext<IdentityDbContext>((provider, options) => options
+            .UseNpgsql(
+                provider.GetRequiredService<IOptions<IdentityDatabaseOptions>>().Value.ConnectionString,
+                npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", IdentityDbContext.Schema))
+            .AddInterceptors(provider.GetRequiredService<AuditTimestampsInterceptor>()));
 
         return services;
     }
