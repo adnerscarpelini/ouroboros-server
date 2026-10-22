@@ -3,7 +3,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Modules.Identity.Infrastructure.Security;
 
 namespace Ouroboros.Modules.Identity;
 
@@ -23,6 +25,9 @@ public static class DependencyInjection
                 $"A connection string 'ConnectionStrings:{IdentityDatabaseOptions.ConnectionStringName}' não foi configurada. " +
                 "Em desenvolvimento, defina-a com dotnet user-secrets (veja o README).")
             .ValidateOnStart();
+
+        services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
+        services.AddSingleton<UserPasswordVerifier>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<AuditTimestampsInterceptor>();

@@ -8,21 +8,21 @@ Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e 
 
 ## Estado atual
 
-Somente a estrutura inicial de um monólito modular em .NET 10. Os casos de uso e os modelos de domínio ainda serão definidos.
+Estrutura inicial de um monólito modular em .NET 10, com a primeira entidade de domínio (o usuário do Identity). Os casos de uso e os demais modelos de domínio ainda serão definidos.
 
 A solution contém sete projetos reais:
 
 - `Ouroboros.Api`: host ASP.NET Core e composição dos módulos; mapeia os controllers dos módulos, ainda sem endpoints.
-- `Ouroboros.Modules.Identity`: estrutura para identidade.
+- `Ouroboros.Modules.Identity`: identidade, com a entidade `User` e o hash de senha.
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
 - `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades e da descoberta, das rotas e do versionamento dos controllers.
 - `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
-Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice) e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem uma migration inicial vazia. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As futuras entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md), já preparadas no Identity.
+Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Só o Identity registra algo: seus controllers (com a base dos controllers de backoffice), o hash de senha e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
 
-Não há entidades, DTOs, handlers, repositórios, autenticação ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
+Fora o `User`, não há entidades; não há DTOs, handlers, repositórios, autenticação (login, JWT) ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `internal` dos próprios módulos, conforme [Controllers HTTP nos módulos](docs/architecture/http-controllers.md), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
 
 ## Requisitos
 
@@ -92,7 +92,7 @@ A API exige a connection string `ConnectionStrings:Ouroboros`: sem ela, falha ao
 
    No primeiro `database update` em um banco vazio, o log mostra `Failed executing DbCommand` sobre `__EFMigrationsHistory` antes de criar a tabela. É um comportamento conhecido do EF Core: o comando termina com `Done.`. Repetir o comando não altera nada.
 
-5. Opcionalmente, confira os schemas criados (deve aparecer `identity`; ajuste usuário e banco se mudou o `.env`):
+5. Opcionalmente, confira os schemas criados (deve aparecer `identity`, que contém a tabela `users`; ajuste usuário e banco se mudou o `.env`):
 
    ```powershell
    docker compose exec postgres psql -U ouroboros -d ouroboros -c "\dn"
@@ -123,3 +123,4 @@ O comando usa o launch profile `http`: ambiente `Development`, em `http://localh
 - [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md)
 - [Identificadores, datas e nomes das entidades](docs/architecture/entity-conventions.md)
 - [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md)
+- [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md)
