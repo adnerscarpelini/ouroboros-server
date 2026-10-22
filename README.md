@@ -114,7 +114,7 @@ Com o banco configurado:
 dotnet run --project src/Ouroboros.Api
 ```
 
-O comando usa o launch profile `http`: ambiente `Development`, em `http://localhost:5141`. Os user-secrets só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou a variável `ConnectionStrings__Ouroboros`. Como ainda não há endpoints, requisições retornam 404.
+O comando usa o launch profile `http`: ambiente `Development`, em `http://localhost:5141`. Os user-secrets só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou a variável `ConnectionStrings__Ouroboros`. Como ainda não há endpoints, requisições retornam 404, em ProblemDetails ([Respostas de erro com ProblemDetails](docs/architecture/error-responses.md)).
 
 ## Documentação
 
