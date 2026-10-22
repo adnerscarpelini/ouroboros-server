@@ -29,7 +29,7 @@ O `ControllerFeatureProvider` padrão do ASP.NET Core só reconhece controllers 
 
 O SDK também gera `[assembly: ApplicationPart]` em `Ouroboros.Api` para os módulos referenciados que usam ASP.NET Core, então hoje o registro explícito é redundante. Ele é mantido para deixar claro que o módulo publica controllers, sem depender desse detalhe do SDK.
 
-`Program.cs` termina com `public partial class Program;` para que os testes usem `WebApplicationFactory<Program>`.
+`Program.cs` termina com `public partial class Program;` para que os testes usem `WebApplicationFactory<Program>`, por meio da [`OuroborosApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs), que fornece a connection string fictícia exigida na subida (veja [Persistência](persistence.md#testes)).
 
 ## Alternativas descartadas
 
@@ -46,7 +46,7 @@ A exigência do papel `Admin` na `AdminControllerBase` (token de `Customer` rece
 
 O projeto [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj) usa xUnit v3 e `Microsoft.AspNetCore.Mvc.Testing`:
 
-- [`ModuleVisibilityTests`](../../tests/Ouroboros.ArchitectureTests/ModuleVisibilityTests.cs): descobre os módulos pelas referências de `Ouroboros.Api` (um módulo novo entra nos testes ao ser registrado no host) e verifica que a Api referencia ao menos um módulo, que cada módulo só expõe `DependencyInjection` e tipos em `<Module>.Contracts` e que nenhum módulo concede `InternalsVisibleTo` à Api. Juntas, as duas últimas condições garantem pelo compilador que a Api não usa tipos internos dos módulos; o acesso por reflexão em runtime não é coberto.
+- [`ModuleVisibilityTests`](../../tests/Ouroboros.ArchitectureTests/ModuleVisibilityTests.cs): descobre os módulos pelas referências de `Ouroboros.Api` (um módulo novo entra nos testes ao ser registrado no host) e verifica que a Api referencia ao menos um módulo, que cada módulo só expõe `DependencyInjection` e tipos em `<Module>.Contracts` (além das [migrations geradas pelo EF Core](persistence.md#migrations-geradas)) e que nenhum módulo concede `InternalsVisibleTo` à Api. Juntas, as duas últimas condições garantem pelo compilador que a Api não usa tipos internos dos módulos; o acesso por reflexão em runtime não é coberto.
 - [`ControllerDiscoveryTests`](../../tests/Ouroboros.ArchitectureTests/ControllerDiscoveryTests.cs): registra uma application part com um controller `internal` que depende de um serviço `internal` e verifica que ele responde na rota declarada (`/api/v1/probe`). Remover o `ModuleControllerFeatureProvider` faz esse teste falhar.
 - [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): sobre as actions que o host realmente registra, exige que todo controller de módulo declare ao menos um `[ApiVersion]` (`[ApiVersionNeutral]` não é aceito) e use attribute routing com prefixo `api/v{version:apiVersion}/<module>/` ou `api/v{version:apiVersion}/admin/<module>/`, e que o segmento `admin/` apareça se e somente se o controller herdar a `AdminControllerBase` do módulo. Como só enxerga controllers descobertos, depende da garantia do teste anterior.
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): verifica os headers de versão, a rejeição de versão não declarada ou ausente e a versão descontinuada; detalhes em [Versionamento da API HTTP](api-versioning.md#testes).

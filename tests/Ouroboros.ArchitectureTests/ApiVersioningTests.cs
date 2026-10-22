@@ -1,10 +1,9 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Ouroboros.ArchitectureTests;
 
-public sealed class ApiVersioningTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ApiVersioningTests(OuroborosApiFactory factory)
+    : IClassFixture<OuroborosApiFactory>
 {
     [Fact]
     public async Task Declared_version_responds_and_reports_supported_versions()

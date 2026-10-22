@@ -8,6 +8,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Estrutura dos módulos](architecture/module-structure.md): estrutura atual e padrão para novos módulos.
 - [Controllers HTTP nos módulos](architecture/http-controllers.md): onde e como os endpoints são declarados.
 - [Versionamento da API HTTP](architecture/api-versioning.md): versão na URL (`/api/v1/...`) e como declarar ou descontinuar versões.
+- [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.

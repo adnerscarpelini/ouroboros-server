@@ -10,3 +10,6 @@ csharp_new_line_before_open_brace = all
 dotnet_sort_system_directives_first = true
 [*.{json,yml,yaml}]
 indent_size = 2
+# Migrations são geradas pelo dotnet ef e não passam pelo dotnet format.
+[**/Infrastructure/Persistence/Migrations/*.cs]
+generated_code = true

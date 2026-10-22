@@ -1,6 +1,5 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Ouroboros.ArchitectureTests;
@@ -9,7 +8,7 @@ namespace Ouroboros.ArchitectureTests;
 // application part, como um módulo faria, para exercitar a descoberta e o versionamento.
 internal static class ProbeHost
 {
-    public static HttpClient CreateClient(WebApplicationFactory<Program> factory, ProbeCallCounter counter) =>
+    public static HttpClient CreateClient(OuroborosApiFactory factory, ProbeCallCounter counter) =>
         factory
             .WithWebHostBuilder(builder => builder.ConfigureServices(services =>
             {

@@ -1,11 +1,9 @@
-using Microsoft.AspNetCore.Mvc.Testing;
-
 namespace Ouroboros.ArchitectureTests;
 
 // Prova que o host descobre um controller internal de uma application part e o ativa com uma
 // dependência internal.
-public sealed class ControllerDiscoveryTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+public sealed class ControllerDiscoveryTests(OuroborosApiFactory factory)
+    : IClassFixture<OuroborosApiFactory>
 {
     [Fact]
     public async Task Internal_controller_in_application_part_responds_on_its_route()

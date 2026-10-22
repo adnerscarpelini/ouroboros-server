@@ -41,10 +41,16 @@ public sealed class ModuleVisibilityTests
             .Where(type => type.FullName != dependencyInjectionType)
             .Where(type => type.Namespace != contractsNamespace
                 && type.Namespace?.StartsWith($"{contractsNamespace}.", StringComparison.Ordinal) != true)
+            .Where(type => !IsGeneratedMigration(type))
             .Select(type => type.FullName);
 
         Assert.Empty(unexpectedPublicTypes);
     }
+
+    // O dotnet ef gera as migrations como public. Elas só são usadas pelo EF via reflexão e não
+    // expõem nada que outro módulo possa consumir, então são a única exceção à regra.
+    private static bool IsGeneratedMigration(Type type) =>
+        type.BaseType?.FullName == "Microsoft.EntityFrameworkCore.Migrations.Migration";
 
     [Theory]
     [MemberData(nameof(ModuleAssemblyNames))]
