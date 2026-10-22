@@ -20,7 +20,7 @@ As versões dos pacotes ficam em [Directory.Packages.props](../../Directory.Pack
 
 ## Estado atual
 
-Só o Identity tem persistência: o [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), registrado em [`AddIdentityModule`](../../src/Modules/Ouroboros.Modules.Identity/DependencyInjection.cs) com as options [`IdentityDatabaseOptions`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDatabaseOptions.cs). O DbContext usa o [`AuditTimestampsInterceptor`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/AuditTimestampsInterceptor.cs) e aplica o [`SnakeCaseNaming`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/SnakeCaseNaming.cs) no `OnModelCreating`, e o módulo já tem a base `Entity` e a `EntityConfiguration<TEntity>` (veja [convenções das entidades](entity-conventions.md)). Ainda não há entidades; a migration inicial `InitialCreate` é vazia, e aplicá-la cria apenas o schema `identity` com sua tabela de histórico. Customers, Accounts e Transactions ainda não têm DbContext.
+Só o Identity tem persistência: o [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), registrado em [`AddIdentityModule`](../../src/Modules/Ouroboros.Modules.Identity/DependencyInjection.cs) com as options [`IdentityDatabaseOptions`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDatabaseOptions.cs). O DbContext usa o [`AuditTimestampsInterceptor`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/AuditTimestampsInterceptor.cs) e aplica o [`SnakeCaseNaming`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/SnakeCaseNaming.cs) no `OnModelCreating`, e aplica as configurações das entidades com `ApplyConfigurationsFromAssembly`, antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md)). Há duas migrations: `InitialCreate`, vazia, que cria o schema `identity` com sua tabela de histórico, e `AddUsers`, que cria a tabela `identity.users` da entidade `User` (colunas e índices em [Domínio de identidade](identity.md#persistência)). Customers, Accounts e Transactions ainda não têm DbContext.
 
 Como o Identity valida a connection string na subida, a API inteira passa a exigi-la. O passo a passo para subir o banco local e aplicar as migrations está no [README](../../README.md#banco-de-dados-local).
 
@@ -34,13 +34,14 @@ Ouroboros.Modules.<Module>/
         ├── <Module>DatabaseOptions.cs       # internal, lê ConnectionStrings:Ouroboros
         ├── AuditTimestampsInterceptor.cs    # datas das entidades
         ├── EntityConfiguration.cs           # mapeamento comum das entidades
+        ├── Configurations/                  # uma EntityConfiguration<TEntity> por entidade
         ├── SnakeCaseNaming.cs               # nomes em snake_case
         └── Migrations/                      # geradas pelo dotnet ef
 ```
 
 1. Referencie `Npgsql.EntityFrameworkCore.PostgreSQL` no `.csproj` do módulo.
 2. Em `Add<Module>Module`, registre as options com `Validate` + `ValidateOnStart`, o `TimeProvider.System` com `TryAddSingleton`, o `AuditTimestampsInterceptor` como singleton e o DbContext com `UseNpgsql(..., npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", <schema>))` e `AddInterceptors(<interceptor resolvido da DI>)`, como no Identity.
-3. No `OnModelCreating`, chame `HasDefaultSchema("<schema>")`, aplique as configurações das entidades e termine com `SnakeCaseNaming.Apply(modelBuilder)`; chamado antes, ele não converte o que for configurado depois. A base `Entity` e esses tipos de persistência hoje existem só no Identity: o primeiro módulo a precisar deles decide se os copia ou extrai (veja [convenções das entidades](entity-conventions.md#onde-fica)).
+3. No `OnModelCreating`, chame `HasDefaultSchema("<schema>")`, aplique as configurações das entidades (no Identity, com `ApplyConfigurationsFromAssembly`) e termine com `SnakeCaseNaming.Apply(modelBuilder)`; chamado antes, ele não converte o que for configurado depois. A base `Entity` e esses tipos de persistência hoje existem só no Identity: o primeiro módulo a precisar deles decide se os copia ou extrai (veja [convenções das entidades](entity-conventions.md#onde-fica)).
 4. Gere a migration inicial e aplique-a, na raiz do repositório:
 
 ```powershell
@@ -79,5 +80,6 @@ Containerizar a API, Seq e um compose de produção.
 - [#5](https://github.com/adnerscarpelini/ouroboros-server/issues/5): decisão e implementação inicial no Identity.
 - [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7): testes de integração contra PostgreSQL real.
 - [#6](https://github.com/adnerscarpelini/ouroboros-server/issues/6): convenções de identificadores, datas e nomes das entidades.
+- [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): tabela `identity.users` e migration `AddUsers`.
 
 [Voltar à arquitetura](README.md)

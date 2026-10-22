@@ -13,6 +13,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
 - [Identificadores, datas e nomes das entidades](architecture/entity-conventions.md): chave interna `long`, `ExternalId` UUIDv7 exposto, datas de auditoria e snake_case.
 - [Testes de integração com PostgreSQL](architecture/integration-tests.md): PostgreSQL em container, banco modelo migrado e um banco clonado por teste.
+- [Domínio de identidade próprio e hash de senha](architecture/identity.md): entidade `User` própria, só o `PasswordHasher<T>` do ASP.NET Core Identity com 210.000 iterações e rehash na verificação.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.

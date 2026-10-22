@@ -19,7 +19,7 @@ Antes da primeira entidade (o `User`, na [#8](https://github.com/adnerscarpelini
 
 ### Onde fica
 
-Tudo está no módulo Identity, único com persistência:
+Tudo está no módulo Identity, único com persistência; o [`User`](identity.md#modelo-do-usuário) é a primeira entidade real que segue a convenção:
 
 | Tipo | Papel |
 | --- | --- |
@@ -33,27 +33,28 @@ A base `Entity` e esses tipos ficam no próprio módulo, e não num projeto comu
 ## Como criar uma entidade nova
 
 1. Crie a entidade em `Domain/`, `internal`, herdando `Entity`. Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
-2. Crie a configuração em `Infrastructure/Persistence/`, `internal sealed`, herdando `EntityConfiguration<TEntity>` e mapeando só o que é próprio da entidade em `ConfigureEntity`. Não renomeie colunas à mão: o `SnakeCaseNaming` cuida disso.
-3. Aplique a configuração no `OnModelCreating` do DbContext (por exemplo, `modelBuilder.ApplyConfiguration(new UserConfiguration())`), sempre antes de `SnakeCaseNaming.Apply(modelBuilder)`.
+2. Crie a configuração em `Infrastructure/Persistence/Configurations/`, `internal sealed`, herdando `EntityConfiguration<TEntity>` e mapeando só o que é próprio da entidade em `ConfigureEntity`. Não renomeie colunas à mão: o `SnakeCaseNaming` cuida disso.
+3. Garanta que a configuração seja aplicada no `OnModelCreating` do DbContext antes de `SnakeCaseNaming.Apply(modelBuilder)`. O `IdentityDbContext` chama `modelBuilder.ApplyConfigurationsFromAssembly(...)`, que encontra toda `IEntityTypeConfiguration<T>` do assembly do módulo; basta criar a classe. Um DbContext que aplique configurações uma a uma (`ApplyConfiguration(new ...())`) precisa listá-la.
 4. Gere a migration, conforme [Persistência](persistence.md#padrão-para-um-módulo-novo).
 5. Na resposta HTTP, use um DTO cujo nome termine em `Response` e exponha o `ExternalId` como `id`, sem o `Id` interno. Rotas e buscas recebem o `ExternalId`.
 
-```csharp
-internal sealed class User : Entity
-{
-    public string Email { get; private set; } = string.Empty;
-}
+O exemplo real é o `User` do Identity ([#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8)): a entidade [`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs), a configuração [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e a migration `AddUsers`, descritas em [Domínio de identidade próprio e hash de senha](identity.md). Resumidamente:
 
+```csharp
 internal sealed class UserConfiguration : EntityConfiguration<User>
 {
-    protected override void ConfigureEntity(EntityTypeBuilder<User> builder) =>
-        builder.Property(user => user.Email).HasMaxLength(254);
+    protected override void ConfigureEntity(EntityTypeBuilder<User> builder)
+    {
+        builder.ToTable("users");
+        builder.Property(user => user.Email).HasMaxLength(User.EmailMaxLength);
+        builder.HasIndex(user => user.Email).IsUnique();
+        builder.Property(user => user.Role).HasConversion<string>().HasMaxLength(20);
+        // ...
+    }
 }
-
-internal sealed record UserResponse(Guid Id, string Email);
 ```
 
-O exemplo é ilustrativo; o `User` real será definido na [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8).
+O `User` ainda não tem resposta HTTP; quando tiver, o DTO seguirá o passo 5, por exemplo `UserResponse(Guid Id, string Email)`, com o `ExternalId` no `Id`.
 
 ## Alternativas descartadas
 
@@ -66,7 +67,7 @@ O exemplo é ilustrativo; o `User` real será definido na [#8](https://github.co
 - Todo DbContext de módulo com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md#padrão-para-um-módulo-novo).
 - Mapear uma entidade exige herdar `EntityConfiguration<TEntity>`; uma configuração que não herde dela fica sem o índice único e os tipos de coluna da convenção.
 - O teste que protege a exposição do `Id` depende de nomes. Ele falha se uma propriedade `long` ou `long?` com nome terminado em `Id` aparecer num tipo de `Contracts` ou num tipo cujo nome termine em `Response`. Não detecta campos, propriedades terminadas em `ID` ou `Key`, nem DTOs com outro sufixo; por isso, DTOs de resposta devem terminar em `Response`.
-- O módulo Identity concede `InternalsVisibleTo` a `Ouroboros.IntegrationTests` para que os testes usem a base e a configuração com uma entidade de teste; nunca à Api (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
+- O módulo Identity concede `InternalsVisibleTo` a `Ouroboros.IntegrationTests` para que os testes usem a base e a configuração com uma entidade de teste, além das entidades reais; nunca à Api (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
 
 ## Testes
 
@@ -85,5 +86,6 @@ Na validação da #6, a suíte tinha 49 testes.
 ## Origem
 
 - [#6](https://github.com/adnerscarpelini/ouroboros-server/issues/6): identificadores e datas das entidades.
+- [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): primeira entidade real (`User`) e aplicação das configurações por `ApplyConfigurationsFromAssembly`.
 
 [Voltar à arquitetura](README.md)

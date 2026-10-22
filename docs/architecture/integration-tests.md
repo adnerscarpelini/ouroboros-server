@@ -68,7 +68,7 @@ Os módulos ainda não têm endpoints. Por isso, o [`MigrationsProbeController`]
 - o schema `identity` tem a tabela `__EFMigrationsHistory`;
 - cada teste tem banco próprio: três casos criam a mesma tabela, o que falharia num banco compartilhado.
 
-Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes).
+Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes); os do hash de senha e da persistência do usuário (`PasswordHashingTests` e `UserPersistenceTests`), em [Domínio de identidade próprio e hash de senha](identity.md#testes).
 
 ## Alternativas descartadas
 
