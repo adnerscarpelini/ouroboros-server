@@ -2,7 +2,7 @@
 
 ## Contexto
 
-O primeiro fluxo com senha escolhida por uma pessoa é a [criação do primeiro administrador](../identity/first-admin.md) (#11); cadastro, redefinição, troca de senha e conclusão de convite precisam da mesma regra. Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a [conclusão do cadastro de cliente](../identity/registration.md#concluir-o-cadastro) é o segundo fluxo a usá-la. Políticas tradicionais exigem maiúsculas, números e símbolos e limitam o tamanho, o que leva a senhas curtas e previsíveis (`Senha@2026`). O NIST SP 800-63B-4 e a OWASP recomendam o contrário: senhas longas, sem regras de composição, verificadas contra listas de senhas conhecidas.
+O primeiro fluxo com senha escolhida por uma pessoa é a [criação do primeiro administrador](../identity/first-admin.md) (#11); cadastro, redefinição, troca de senha e conclusão de convite precisam da mesma regra. Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a [conclusão do cadastro de cliente](../identity/registration.md#concluir-o-cadastro) é o segundo fluxo a usá-la, e, desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a [redefinição de senha](../identity/password-reset.md#concluir-a-redefinição) é o terceiro. Políticas tradicionais exigem maiúsculas, números e símbolos e limitam o tamanho, o que leva a senhas curtas e previsíveis (`Senha@2026`). O NIST SP 800-63B-4 e a OWASP recomendam o contrário: senhas longas, sem regras de composição, verificadas contra listas de senhas conhecidas.
 
 ## Decisão
 
@@ -38,13 +38,14 @@ O [`AspNetCorePasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Infr
 ## Consequências
 
 - Todo fluxo que receber uma senha nova (cadastro, redefinição, troca, convite) chama `PasswordPolicy.Validate` antes de `IPasswordHasher.Hash`; nenhum deles define regras próprias.
-- Hoje usam a política o [`create-admin`](../identity/first-admin.md#regras), que mostra a regra violada com o código de saída `1`, e a [conclusão do cadastro de cliente](../identity/registration.md#senha-recusada-400) (#21), que a devolve no `detail` do erro [`password-rejected`](../errors/identity.md#password-rejected), com o e-mail gravado no token de cadastro como contexto. Na API, a regra só é mostrada a quem apresenta um token válido; com token inválido, a resposta é a de token inválido, qualquer que seja a senha.
+- Hoje usam a política o [`create-admin`](../identity/first-admin.md#regras), que mostra a regra violada com o código de saída `1`, e a [conclusão do cadastro de cliente](../identity/registration.md#senha-recusada-400) (#21), que a devolve no `detail` do erro [`password-rejected`](../errors/identity.md#password-rejected), com o e-mail gravado no token de cadastro como contexto, e a [redefinição de senha](../identity/password-reset.md#senha-recusada-400) (#23), que a devolve da mesma forma, com o e-mail da conta como contexto. Na API, a regra só é mostrada a quem apresenta um token válido; com token inválido, a resposta é a de token inválido, qualquer que seja a senha.
+- A redefinição de senha acrescenta uma regra fora da política: a senha nova não pode ser igual à atual (`A nova senha não pode ser igual à atual.`, no mesmo `password-rejected`). A regra fica no caso de uso, porque depende do hash gravado, e não na `PasswordPolicy`, que não conhece o usuário.
 - A lista local é pequena e mantida à mão; não cobre senhas vazadas em geral.
 - A política fica no Identity; se outro módulo precisar dela, a exposição exigirá um contrato em `Contracts`.
 
 ## Testes
 
-Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), sem banco, [`PasswordPolicyTests`](../../tests/Ouroboros.IntegrationTests/PasswordPolicyTests.cs): limites de 14, 15, 128 e 129 caracteres, inclusive com acentos e emojis; tamanho contado depois do NFKC; nome do sistema encontrado em caracteres fullwidth; senhas comuns em qualquer combinação de maiúsculas; frase com espaços e acentos aceita; parte local do e-mail recusada só com 4 ou mais caracteres; acento composto e decomposto conferem com o mesmo hash. Os testes do uso da política pelo comando estão em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os da conclusão do cadastro (senha curta, comum, com a parte local do e-mail e ausente), em [Cadastrar cliente por e-mail](../identity/registration.md#como-verificar).
+Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), sem banco, [`PasswordPolicyTests`](../../tests/Ouroboros.IntegrationTests/PasswordPolicyTests.cs): limites de 14, 15, 128 e 129 caracteres, inclusive com acentos e emojis; tamanho contado depois do NFKC; nome do sistema encontrado em caracteres fullwidth; senhas comuns em qualquer combinação de maiúsculas; frase com espaços e acentos aceita; parte local do e-mail recusada só com 4 ou mais caracteres; acento composto e decomposto conferem com o mesmo hash. Os testes do uso da política pelo comando estão em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os da conclusão do cadastro (senha curta, comum, com a parte local do e-mail e ausente), em [Cadastrar cliente por e-mail](../identity/registration.md#como-verificar); e os da redefinição de senha (senha curta, comum, igual à atual e ausente), em [Redefinir a senha por e-mail](../identity/password-reset.md#como-verificar).
 
 ## Referências
 
@@ -55,5 +56,6 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): política de senha introduzida com a criação do primeiro administrador.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): uso da política na conclusão do cadastro de cliente, com o erro `password-rejected`.
+- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): uso da política na redefinição de senha, com a recusa de senha igual à atual.
 
 [Voltar à arquitetura](README.md)

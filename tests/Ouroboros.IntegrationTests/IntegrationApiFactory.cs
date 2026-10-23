@@ -31,6 +31,8 @@ public sealed class IntegrationApiFactory(string connectionString) : WebApplicat
                 ["Identity:RateLimiting:Policies:identity-logout:PermitLimit"] = "100000",
                 ["Identity:RateLimiting:Policies:identity-registration:PermitLimit"] = "100000",
                 ["Identity:RateLimiting:Policies:identity-registration-completion:PermitLimit"] = "100000",
+                ["Identity:RateLimiting:Policies:identity-password-reset:PermitLimit"] = "100000",
+                ["Identity:RateLimiting:Policies:identity-password-reset-completion:PermitLimit"] = "100000",
             }));
 
         // Controllers de teste (por exemplo, a sonda de migrations) ficam neste assembly.

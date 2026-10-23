@@ -20,7 +20,8 @@ internal sealed class EmailTokenConfiguration : EntityConfiguration<EmailToken>
         builder.Property(token => token.UsedAt).HasColumnType("timestamptz");
         builder.Property(token => token.RevokedAt).HasColumnType("timestamptz");
 
-        // Busca dos tokens pendentes de um e-mail, para invalidá-los numa nova solicitação.
+        // Busca dos tokens pendentes de um e-mail (cadastro) ou de uma conta (redefinição, pelo índice da
+        // FK user_id), para invalidá-los numa nova solicitação.
         builder.HasIndex(token => new { token.Email, token.Purpose });
     }
 }
