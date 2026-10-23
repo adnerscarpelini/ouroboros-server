@@ -39,7 +39,7 @@ public sealed class SessionsController : ControllerBase
 - Para descontinuar uma versão, marque-a com `[ApiVersion(n, Deprecated = true)]` e declare a nova versão. A versão descontinuada continua respondendo normalmente até ser removida.
 - `[ApiVersionNeutral]` não é aceito nos controllers dos hosts: o teste de rotas exige `[ApiVersion]`.
 
-O exemplo acima é ilustrativo; ainda não há controllers concretos (veja [Controllers HTTP nos hosts](http-controllers.md#estado-atual)).
+O exemplo acima resume o login da #12, que declara só a versão 1 (veja [Controllers HTTP nos hosts](http-controllers.md#estado-atual)).
 
 ## Comportamento
 

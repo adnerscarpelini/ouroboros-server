@@ -12,7 +12,8 @@ O projeto [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.Integration
 - **Migrations aplicadas uma vez, num banco modelo.** A fixture cria o banco `ouroboros_template`, sobe a API contra ele e aplica as migrations de todos os DbContexts de módulo.
 - **Um banco por teste, clonado do modelo.** Antes de cada teste, `CREATE DATABASE ... TEMPLATE ouroboros_template` cria um banco com nome único, já migrado; ao final, `DROP DATABASE ... WITH (FORCE)` o remove. As criações são serializadas, porque o PostgreSQL recusa clonar um modelo que esteja em uso.
 - **DbContexts descobertos automaticamente.** [`ModuleDbContexts`](../../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs) encontra por reflexão os DbContexts `internal` dos assemblies `Ouroboros.Modules.*` referenciados pela Api e os resolve pela DI. A aplicação das migrations não precisa de `InternalsVisibleTo`, e o DbContext de um módulo novo é migrado sem alterar os testes. Testes que usam tipos internos de um módulo exigem que ele conceda `InternalsVisibleTo` a este projeto, como fazem o Identity e o Settings; os tipos de [BuildingBlocks](building-blocks.md) são `public` e não precisam disso.
-- **Configuração independente da máquina.** A [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) sobe a API no ambiente `Testing` com a connection string do banco do teste como última fonte de configuração, acima de user-secrets e variáveis de ambiente como `ConnectionStrings__Ouroboros`. Ela também registra o assembly de testes como application part, para que controllers declarados nos testes sejam mapeados.
+- **Configuração independente da máquina.** A [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) sobe a API no ambiente `Testing` com a connection string do banco do teste e uma `SigningKey` fictícia como última fonte de configuração, acima de user-secrets e variáveis de ambiente como `ConnectionStrings__Ouroboros`. Ela também registra o assembly de testes como application part, para que controllers declarados nos testes sejam mapeados.
+- **Backoffice com a mesma configuração.** Desde a #12, a [`BackofficeIntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/BackofficeIntegrationApiFactory.cs) sobe o host de backoffice contra o mesmo banco do teste, reaproveitando a configuração da `IntegrationApiFactory` (`IntegrationApiFactory.Configure`). Ela não faz parte da base `IntegrationTest`: o teste a cria com `ConnectionString` quando precisa do backoffice.
 
 ## Pré-requisitos
 
@@ -65,7 +66,7 @@ Para testar um caso de uso ou um DbContext real sem endpoint, resolva-o de um es
 
 ## Testes existentes
 
-Os módulos ainda não têm endpoints. Por isso, o [`MigrationsProbeController`](../../tests/Ouroboros.IntegrationTests/MigrationsProbeController.cs), que existe só no assembly de testes, expõe `GET /api/v1/integration-probe/migrations` com as migrations aplicadas de cada DbContext de módulo. Os [`DatabaseIntegrationTests`](../../tests/Ouroboros.IntegrationTests/DatabaseIntegrationTests.cs) verificam que:
+O [`MigrationsProbeController`](../../tests/Ouroboros.IntegrationTests/MigrationsProbeController.cs), que existe só no assembly de testes, expõe `GET /api/v1/integration-probe/migrations` com as migrations aplicadas de cada DbContext de módulo. Os [`DatabaseIntegrationTests`](../../tests/Ouroboros.IntegrationTests/DatabaseIntegrationTests.cs) verificam que:
 
 - a API responde por essa rota com a migration `InitialCreate` do Identity aplicada;
 - o schema `identity` tem a tabela `__EFMigrationsHistory`;
@@ -73,7 +74,9 @@ Os módulos ainda não têm endpoints. Por isso, o [`MigrationsProbeController`]
 
 Os [`ModuleDataBoundaryTests`](../../tests/Ouroboros.IntegrationTests/ModuleDataBoundaryTests.cs) verificam que cada DbContext de módulo define schema padrão e só mapeia tabelas nele, e que os DbContexts do Identity e do Settings são descobertos.
 
-Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes); os do hash de senha e da persistência do usuário (`PasswordHashingTests` e `UserPersistenceTests`), em [Domínio de identidade próprio e hash de senha](identity.md#testes); os dos parâmetros do sistema (`SystemParametersTests` e `ParameterRulesTests`), em [Parâmetros do sistema](system-parameters.md#testes).
+Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes); os do hash de senha e da persistência do usuário (`PasswordHashingTests` e `UserPersistenceTests`), em [Domínio de identidade próprio e hash de senha](identity.md#testes); os dos parâmetros do sistema (`SystemParametersTests` e `ParameterRulesTests`), em [Parâmetros do sistema](system-parameters.md#testes); os do primeiro administrador (`CreateFirstAdminTests`), em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); e os do login (`LoginTests`), os primeiros a exercitar endpoints reais dos dois hosts, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar).
+
+Para verificar que segredos não vão para os logs, o [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs) guarda o texto formatado de cada log (com a exceção, se houver); os testes o registram com `Api.WithWebHostBuilder` e `ConfigureLogging`, como fazem o `CreateFirstAdminTests` e o `LoginTests` (este com o nível mínimo em `Trace`).
 
 ## Alternativas descartadas
 
@@ -93,5 +96,6 @@ O clone do banco modelo dá isolamento total sem dependência extra e é rápido
 
 - [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7): testes de integração contra PostgreSQL real.
 - [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): DbContext do Settings migrado pela fixture e teste das fronteiras de schema.
+- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): factory do backoffice e provider de logs compartilhado.
 
 [Voltar à arquitetura](README.md)

@@ -9,8 +9,10 @@ using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Application.Administrators;
 using Ouroboros.Modules.Identity.Application.Notifications;
 using Ouroboros.Modules.Identity.Application.Security;
+using Ouroboros.Modules.Identity.Application.Sessions;
 using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
+using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Email;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
@@ -38,6 +40,7 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
+        services.AddScoped<ILogin, Login>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();
