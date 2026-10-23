@@ -17,7 +17,7 @@ As duas rotas são anônimas (`[AllowAnonymous]`), as únicas dos hosts até ago
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas, inclusive a `AddSessions` ([README](../../README.md#banco-de-dados-local)).
+- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions` e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../../README.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../../README.md#chave-de-assinatura-dos-tokens)).
 - Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). Ainda não há cadastro de clientes ([#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20) e [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21)), então o login da API externa só é exercitado hoje com usuários criados pelos testes.
 
@@ -88,14 +88,15 @@ O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-e
 }
 ```
 
-O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é o mesmo para e-mail inexistente, senha errada, usuário inativo e usuário de outro papel (um `Admin` na API externa, um `Customer` no backoffice). Nenhum token é emitido e nenhuma sessão é aberta.
+O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é o mesmo para e-mail inexistente, senha errada, usuário inativo, usuário de outro papel (um `Admin` na API externa, um `Customer` no backoffice) e conta bloqueada por falhas de senha, mesmo com a senha correta ([Bloquear a conta](account-lockout.md)). Nenhum token é emitido e nenhuma sessão é aberta.
 
 ## Regras
 
 - **O canal define o papel.** Cada controller informa o seu `LoginChannel`: `CustomerApp` na API externa, que aceita só `Customer`, e `Backoffice`, que aceita só `Admin`. É a camada 4 das [camadas de proteção do backoffice](../architecture/hosts.md#camadas-de-proteção-do-backoffice).
 - **Mesma resposta para toda falha.** O resultado do caso de uso não diz o motivo da falha, e o controller responde sempre o mesmo `401`, para não revelar se a conta existe.
-- **Mesmo custo para e-mail inexistente.** Sem usuário, o `UserPasswordVerifier.VerifyWithoutUser` verifica a senha contra um hash fictício, de uma senha aleatória gerado com os parâmetros atuais do hasher. O hash é calculado na criação do verificador (singleton), e não no primeiro uso, para que o primeiro login com e-mail inexistente não demore mais que os outros. Usuário inativo ou de outro papel também passa pela verificação real da senha antes da recusa.
-- **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)). Num login recusado, nada é gravado.
+- **Mesmo custo para e-mail inexistente e conta bloqueada.** Sem usuário ou com a conta bloqueada, a senha real não é verificada: o `UserPasswordVerifier.VerifyWithoutUser` verifica a senha contra um hash fictício, de uma senha aleatória gerado com os parâmetros atuais do hasher. O hash é calculado na criação do verificador (singleton), e não no primeiro uso, para que o primeiro login com e-mail inexistente não demore mais que os outros. Usuário inativo ou de outro papel também passa pela verificação real da senha antes da recusa. Os parâmetros do bloqueio são lidos no início de todo login, com ou sem usuário, pelo mesmo motivo.
+- **Bloqueio após falhas seguidas.** Cada senha errada soma uma falha no usuário; ao atingir `Identity:Lockout:MaxFailedAttempts` (5), a conta fica bloqueada por `Identity:Lockout:DurationMinutes` (15 minutos). Um login bem-sucedido zera o contador. Detalhes em [Bloquear a conta após falhas consecutivas de senha](account-lockout.md).
+- **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)). Num login recusado, nada é gravado além da falha de senha no contador do bloqueio.
 - **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos.
 - **Só o hash do refresh token.** O banco guarda o SHA-256 do refresh token, nunca o valor entregue ao cliente. Um hash rápido basta porque o token tem 256 bits de entropia, ao contrário de uma senha.
 - **Sem segredos nos logs.** A senha, o access token e o refresh token não aparecem nos logs, em nenhum nível.
@@ -126,7 +127,7 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e a renovaç
 
 - **O refresh token ainda não tem uso.** Ele é emitido e gravado, mas não há rota que o troque por um access token novo; a renovação com rotação chega com a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), e a revogação da sessão ao detectar reuso, com a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16). Depois de 15 minutos, o cliente precisa fazer login de novo.
 - **Não há logout.** As sessões não têm estado de encerramento e não expiram por conta própria; encerrar a sessão atual e todas as sessões fica com a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17) e a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18). A validação do access token não consulta a sessão: um token emitido vale até expirar.
-- **Não há bloqueio de conta nem limite de requisições.** Falhas consecutivas de senha não bloqueiam a conta ([#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13)) e não há limite de requisições por IP ([#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14)). Até lá, o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) é a única barreira contra força bruta, e o endpoint anônimo pode ser usado para consumir CPU do servidor.
+- **Não há limite de requisições.** Desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), falhas seguidas de senha bloqueiam a conta ([Bloquear a conta](account-lockout.md)), mas não há limite de requisições por IP ([#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14)). Até lá, tentativas espalhadas por várias contas só encontram o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)), e o endpoint anônimo pode ser usado para consumir CPU do servidor.
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
 - **Tempo de resposta não medido.** Os testes verificam que o e-mail inexistente executa uma verificação de hash, mas não medem a diferença de tempo entre as respostas.
 
@@ -149,7 +150,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - e-mail ou senha ausente responde `400`;
 - os logs, capturados no nível `Trace` pelo [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs), não contêm a senha nem os tokens, num login bem-sucedido e num recusado.
 
-Na validação da #12, a suíte tinha 216 testes.
+Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar).
 
 ## Referências
 
@@ -160,5 +161,6 @@ Na validação da #12, a suíte tinha 216 testes.
 ## Origem
 
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): fazer login com e-mail e senha.
+- [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): bloqueio da conta após falhas consecutivas de senha.
 
 [Voltar à documentação](../README.md)

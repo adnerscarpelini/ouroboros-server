@@ -29,7 +29,20 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     {
         Assert.Equal(2L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameters WHERE is_sensitive AND length(description) > 100"));
         Assert.Equal("Domain", await QueryScalarAsync<string>($"SELECT data_type FROM settings.parameters WHERE key = '{DomainKey}'"));
-        Assert.Equal(2L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history WHERE revision = 0 AND previous_value IS NULL"));
+        Assert.Equal(
+            await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameters"),
+            await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history WHERE revision = 0 AND previous_value IS NULL"));
+    }
+
+    [Fact]
+    public async Task Every_seeded_value_satisfies_its_own_rules()
+    {
+        await using var scope = Api.Services.CreateAsyncScope();
+        var seeded = await scope.ServiceProvider.GetRequiredService<SettingsDbContext>().Parameters
+            .ToListAsync(TestContext.Current.CancellationToken);
+
+        Assert.NotEmpty(seeded);
+        Assert.All(seeded, parameter => Assert.Null(ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
     }
 
     [Fact]
@@ -76,6 +89,7 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Invalid_value_is_rejected_and_nothing_is_written()
     {
+        var historyBefore = await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history");
         await using (var scope = Api.Services.CreateAsyncScope())
         {
             var writer = scope.ServiceProvider.GetRequiredService<ParameterWriter>();
@@ -83,7 +97,7 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
                 ApproversKey, "nao-e-email", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken));
         }
 
-        Assert.Equal(2L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history"));
+        Assert.Equal(historyBefore, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history"));
         Assert.Equal("oi@adnerscarpelini.com", await QueryScalarAsync<string>($"SELECT value FROM settings.parameters WHERE key = '{ApproversKey}'"));
     }
 
