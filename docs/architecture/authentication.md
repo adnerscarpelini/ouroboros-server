@@ -116,7 +116,7 @@ Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests
 
 Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), [`AccessTokenIssuerTests`](../../tests/Ouroboros.IntegrationTests/AccessTokenIssuerTests.cs): o token emitido pelo `AccessTokenIssuer` é aceito pela API externa com `sub`, `role` e `sid`, usa HS256, a audiência do host e validade de 15 minutos. Os testes do login, que emitem tokens pelos dois hosts e verificam a audiência de cada um, estão em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); os da renovação, em [Renovar o access token](../identity/refresh-session.md#como-verificar).
 
-Na validação da #9, a suíte tinha 91 testes; na da #47, 93; na da #12, 216; na da #15, 252.
+Na validação da #9, a suíte tinha 91 testes; na da #47, 93; na da #12, 216; na da #15, 252; na da #16, 260.
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests
