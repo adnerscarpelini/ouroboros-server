@@ -12,7 +12,11 @@ namespace Ouroboros.Backoffice.Api.Controllers.Identity;
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/admin/identity/sessions")]
-public sealed class SessionsController(ILogin login, IRefreshSession refreshSession, ILogout logout) : ControllerBase
+public sealed class SessionsController(
+    ILogin login,
+    IRefreshSession refreshSession,
+    ILogout logout,
+    ILogoutAll logoutAll) : ControllerBase
 {
     [HttpPost]
     [AllowAnonymous]
@@ -64,5 +68,20 @@ public sealed class SessionsController(ILogin login, IRefreshSession refreshSess
         return result == LogoutResult.SessionEnded
             ? NoContent()
             : Problem(type: IdentityErrors.InvalidRefreshToken, title: IdentityErrors.InvalidRefreshTokenTitle, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    // Encerra todas as sessões do administrador autenticado (claim sub), inclusive a atual. Exige access token.
+    [HttpPost("logout-all")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> LogoutAll(CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirst(IdentityClaims.Subject)?.Value, out var userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized);
+        }
+
+        await logoutAll.ExecuteAsync(new LogoutAllRequest(userId), cancellationToken);
+        return NoContent();
     }
 }
