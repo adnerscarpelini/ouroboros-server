@@ -74,9 +74,11 @@ O [`MigrationsProbeController`](../../tests/Ouroboros.IntegrationTests/Migration
 
 Os [`ModuleDataBoundaryTests`](../../tests/Ouroboros.IntegrationTests/ModuleDataBoundaryTests.cs) verificam que cada DbContext de módulo define schema padrão e só mapeia tabelas nele, e que os DbContexts do Identity e do Settings são descobertos.
 
-Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes); os do hash de senha e da persistência do usuário (`PasswordHashingTests` e `UserPersistenceTests`), em [Domínio de identidade próprio e hash de senha](identity.md#testes); os dos parâmetros do sistema (`SystemParametersTests` e `ParameterRulesTests`), em [Parâmetros do sistema](system-parameters.md#testes); os do primeiro administrador (`CreateFirstAdminTests`), em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); e os do login (`LoginTests`), os primeiros a exercitar endpoints reais dos dois hosts, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar).
+Os testes das convenções das entidades (`EntityConventionsTests`, `IdentityPersistenceWiringTests` e `SnakeCaseNamingTests`) estão descritos em [Identificadores, datas e nomes das entidades](entity-conventions.md#testes); os do hash de senha e da persistência do usuário (`PasswordHashingTests` e `UserPersistenceTests`), em [Domínio de identidade próprio e hash de senha](identity.md#testes); os dos parâmetros do sistema (`SystemParametersTests` e `ParameterRulesTests`), em [Parâmetros do sistema](system-parameters.md#testes); os do primeiro administrador (`CreateFirstAdminTests`), em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login (`LoginTests`), os primeiros a exercitar endpoints reais dos dois hosts, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); e os do bloqueio de conta (`AccountLockoutTests`), em [Bloquear a conta](../identity/account-lockout.md#como-verificar).
 
-Para verificar que segredos não vão para os logs, o [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs) guarda o texto formatado de cada log (com a exceção, se houver); os testes o registram com `Api.WithWebHostBuilder` e `ConfigureLogging`, como fazem o `CreateFirstAdminTests` e o `LoginTests` (este com o nível mínimo em `Trace`).
+Para verificar que segredos não vão para os logs, o [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs) guarda o texto formatado de cada log (com a exceção, se houver); os testes o registram com `Api.WithWebHostBuilder` e `ConfigureLogging`, como fazem o `CreateFirstAdminTests`, o `LoginTests` (este com o nível mínimo em `Trace`) e o `AccountLockoutTests`.
+
+Para controlar o tempo ou trocar uma dependência do host num teste, sobrescreva o serviço com `Api.WithWebHostBuilder` e `ConfigureTestServices`, como faz o `AccountLockoutTests`, que registra um `FakeTimeProvider` como `TimeProvider` (para avançar o fim do bloqueio) e um `IPasswordHasher` de poucas iterações.
 
 ## Alternativas descartadas
 
@@ -97,5 +99,6 @@ O clone do banco modelo dá isolamento total sem dependência extra e é rápido
 - [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7): testes de integração contra PostgreSQL real.
 - [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): DbContext do Settings migrado pela fixture e teste das fronteiras de schema.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): factory do backoffice e provider de logs compartilhado.
+- [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): relógio falso e hasher substituídos pela DI nos testes do bloqueio de conta.
 
 [Voltar à arquitetura](README.md)
