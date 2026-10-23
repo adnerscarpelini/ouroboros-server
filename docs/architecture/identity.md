@@ -45,7 +45,7 @@ O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sa
 
 O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o módulo já referencia (também usado pela autenticação JwtBearer). O pacote `Microsoft.Extensions.Identity.Core`, citado na issue, contém a mesma classe; referenciá-lo seria redundante e gera o aviso NU1510, então ele não foi adicionado.
 
-**Custo:** com 210.000 iterações, cada hash ou verificação consome da ordem de 100 a 500 ms de CPU, conforme a máquina. É intencional (é o que encarece ataques de força bruta) e deve ser considerado em endpoints de login e cadastro.
+**Custo:** com 210.000 iterações, cada hash ou verificação consome da ordem de 100 a 500 ms de CPU, conforme a máquina. É intencional (é o que encarece ataques de força bruta) e deve ser considerado em endpoints de login e cadastro. Desde a #14, o [limite de requisições por IP](../identity/auth-rate-limiting.md) recusa o excesso antes de qualquer verificação de senha.
 
 ## Política de senha
 
@@ -63,6 +63,7 @@ Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Id
 - [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
 - Desde a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), o login emite o access token e um refresh token opaco de 32 bytes, gravado só como SHA-256, e abre uma sessão (tabelas `identity.sessions` e `identity.refresh_tokens`); detalhes em [Fazer login com e-mail e senha](../identity/login.md).
 - Desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), falhas seguidas de senha bloqueiam a conta por um tempo, com limite e duração lidos dos parâmetros do sistema; durante o bloqueio, a senha real não é verificada. Detalhes em [Bloquear a conta após falhas consecutivas de senha](../identity/account-lockout.md).
+- Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), `AddIdentityModule` registra o rate limiter nativo do ASP.NET Core, com uma política de janela fixa por IP para cada endpoint anônimo de autenticação (hoje, só `identity-login`), configurada em `Identity:RateLimiting` e validada na subida; os nomes das políticas ficam em [`Contracts/IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs). Detalhes em [Limitar requisições de autenticação por IP](../identity/auth-rate-limiting.md).
 
 ## E-mail
 
@@ -110,7 +111,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); e os do bloqueio de conta, em [Bloquear a conta](../identity/account-lockout.md#como-verificar).
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); os do bloqueio de conta, em [Bloquear a conta](../identity/account-lockout.md#como-verificar); e os do limite de requisições, em [Limitar requisições](../identity/auth-rate-limiting.md#como-verificar).
 
 ## Referências
 
@@ -126,5 +127,6 @@ Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): política de senha, NFKC no hasher e caso de uso do primeiro administrador.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login, sessões, refresh token e verificação com hash fictício.
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): contador de falhas e bloqueio da conta no `User`.
+- [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): limite de requisições por IP dos endpoints anônimos de autenticação.
 
 [Voltar à arquitetura](README.md)

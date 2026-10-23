@@ -45,6 +45,10 @@ public static class OuroborosHostExtensions
     {
         app.UseExceptionHandler();
         app.UseStatusCodePages();
+
+        // Antes da autenticação, para recusar o excesso sem validar token. As políticas vêm dos módulos
+        // e são aplicadas por endpoint com [EnableRateLimiting].
+        app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapControllers();

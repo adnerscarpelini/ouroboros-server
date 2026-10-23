@@ -24,9 +24,18 @@ Esta decisão substitui a "API única" registrada na #3. O Ouroboros tem dois ho
 - `OuroborosHostExtensions.AdminRole`: o papel `Admin`, exigido pela política padrão do backoffice.
 - `OuroborosHostExtensions`:
   - `builder.AddOuroborosHost(audience)`: registra os controllers com a descoberta padrão (`AddControllers()`), o [versionamento por URL](api-versioning.md), o [ProblemDetails](error-responses.md) com `traceId` e a [política padrão de autorização](authentication.md#política-padrão-dos-hosts) do público: usuário autenticado na API externa; autenticado e com o papel `Admin` no backoffice.
-  - `app.UseOuroborosHost()`: `UseExceptionHandler()`, `UseStatusCodePages()`, `UseAuthentication()`, `UseAuthorization()` e `MapControllers()`.
+  - `app.UseOuroborosHost()`: `UseExceptionHandler()`, `UseStatusCodePages()`, `UseRateLimiter()`, `UseAuthentication()`, `UseAuthorization()` e `MapControllers()`.
 
-O esquema JwtBearer e a validação dos tokens são registrados pelo Identity em `AddIdentityModule`, que os dois hosts chamam ([Autenticação](authentication.md#validação-do-token)).
+O esquema JwtBearer e a validação dos tokens são registrados pelo Identity em `AddIdentityModule`, que os dois hosts chamam ([Autenticação](authentication.md#validação-do-token)). O mesmo vale para o rate limiter (`AddRateLimiter`) e suas políticas, desde a #14 ([Limitar requisições de autenticação por IP](../identity/auth-rate-limiting.md)).
+
+### Ordem do pipeline
+
+1. `UseExceptionHandler()` e `UseStatusCodePages()`: toda resposta de erro, inclusive das etapas seguintes, sai em [ProblemDetails](error-responses.md).
+2. `UseRateLimiter()`: aplica as políticas declaradas por endpoint com `[EnableRateLimiting]`. Fica antes da autenticação para que o excesso seja recusado com `429` sem validar token, ler o corpo nem chegar ao controller. Endpoints sem a anotação não são limitados.
+3. `UseAuthentication()` e `UseAuthorization()`: validação do token e [política padrão](authentication.md#política-padrão-dos-hosts) do host.
+4. `MapControllers()`.
+
+Como o `UseRateLimiter()` exige os serviços do `AddRateLimiter`, registrados pelo Identity, um host que use `UseOuroborosHost` precisa registrar o Identity; sem ele, o host não sobe.
 
 O [`Program.cs` da API externa](../../src/Ouroboros.Api/Program.cs) fica assim (o do backoffice muda o público e, antes de `UseOuroborosHost`, desvia para os [comandos de operação](#comandos-de-operação)):
 
@@ -35,6 +44,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddOuroborosHost(HostAudience.External);
 
 builder.Services.AddIdentityModule();
+builder.Services.AddSettingsModule();
 builder.Services.AddCustomersModule();
 builder.Services.AddAccountsModule();
 builder.Services.AddTransactionsModule();
@@ -61,6 +71,7 @@ dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mai
 
 - `Ouroboros.Backoffice.Api` usa o mesmo `UserSecretsId` da `Ouroboros.Api`: em desenvolvimento, os dois leem a mesma connection string `ConnectionStrings:Ouroboros` dos user-secrets. Fora de desenvolvimento, ela vem da variável `ConnectionStrings__Ouroboros` de cada processo. O mesmo vale para a chave de assinatura dos tokens, `Authentication:Jwt:SigningKey` (variável `Authentication__Jwt__SigningKey`), compartilhada pelos dois hosts; sem ela, nenhum host sobe ([README](../../README.md#chave-de-assinatura-dos-tokens)).
 - Emissor, audiência e tempos de vida dos tokens ficam em `Authentication:Jwt` no `appsettings.json` de cada host; só a audiência difere (`ouroboros-api` e `ouroboros-backoffice`).
+- Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` no `appsettings.json` de cada host, com os mesmos valores nos dois; cada host tem os próprios contadores ([Limitar requisições](../identity/auth-rate-limiting.md#configuração)).
 - As migrations continuam usando `Ouroboros.Api` como startup project (veja o [README](../../README.md#banco-de-dados-local)).
 - Os dois hosts podem rodar ao mesmo tempo; os comandos estão no [README](../../README.md#executar-os-hosts).
 
@@ -84,6 +95,7 @@ Os detalhes da validação dos tokens e das políticas estão em [Autenticação
 
 - Há dois processos para executar, configurar e, no futuro, publicar.
 - Um módulo novo precisa ser registrado no `Program.cs` de cada host que deve expô-lo.
+- Todo host precisa registrar o Identity, porque o `UseRateLimiter()` da configuração comum depende do `AddRateLimiter` registrado por ele.
 - Os dois hosts compartilham a chave de assinatura dos tokens; a separação entre eles vem da audiência, não da chave.
 - Um controller pertence ao host em cujo projeto é declarado; não há convenção de herança para classificá-lo. A pasta, o namespace e o prefixo de rota de cada host são verificados pelos testes de arquitetura.
 - O .NET 10 gera um `Program` público em cada host web. Por isso, os testes referenciam o backoffice com `extern alias backoffice` e localizam seu ponto de entrada pelo tipo [`BackofficeApiEntryPoint`](../../src/Ouroboros.Backoffice.Api/BackofficeApiEntryPoint.cs).
@@ -109,5 +121,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT, audiência por host e política padrão do backoffice (camadas 2 e 3).
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): comandos de operação no backoffice (`create-admin`).
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login de backoffice só para `Admin` (camada 4).
+- [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `UseRateLimiter()` no pipeline comum, antes da autenticação.
 
 [Voltar à arquitetura](README.md)

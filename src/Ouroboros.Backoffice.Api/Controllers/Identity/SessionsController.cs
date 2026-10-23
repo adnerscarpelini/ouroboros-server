@@ -1,6 +1,8 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 
 namespace Ouroboros.Backoffice.Api.Controllers.Identity;
@@ -14,9 +16,11 @@ public sealed class SessionsController(ILogin login) : ControllerBase
 {
     [HttpPost]
     [AllowAnonymous]
+    [EnableRateLimiting(IdentityRateLimitPolicies.Login)]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
     public async Task<IActionResult> Create(CreateSessionRequest request, CancellationToken cancellationToken)
     {
         var result = await login.ExecuteAsync(

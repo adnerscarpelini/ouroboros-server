@@ -19,6 +19,8 @@ Os dois hosts ([Hosts](hosts.md)) recebem a mesma configuração de [`OuroborosH
 - `app.UseExceptionHandler()`, que converte exceções não tratadas em ProblemDetails;
 - `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo.
 
+Desde a #14, o `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
+
 ## Formatos
 
 ### Erro inesperado (500)
@@ -76,6 +78,21 @@ Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou
 
 A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
+### Limite de requisições (429)
+
+Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), os endpoints anônimos de autenticação têm limite de requisições por IP. Acima do limite, o `OnRejected` do rate limiter, registrado pelo Identity, responde `429` pelo `IProblemDetailsService`, com o `traceId` da mesma configuração, o header `Retry-After` em segundos e um log `Warning` com o caminho e o IP:
+
+```json
+{
+  "type": "https://www.rfc-editor.org/rfc/rfc6585#section-4",
+  "title": "Muitas requisições. Tente novamente mais tarde.",
+  "status": 429,
+  "traceId": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+}
+```
+
+O `type` aponta para a [RFC 6585, seção 4](https://www.rfc-editor.org/rfc/rfc6585#section-4), e não para o catálogo, porque o limite não é uma falha de negócio de um módulo. Detalhes em [Limitar requisições de autenticação por IP](../identity/auth-rate-limiting.md).
+
 ## Convenção de `type` para falhas de negócio
 
 ```text
@@ -121,5 +138,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers dos hosts.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeira falha de negócio do catálogo, `invalid-credentials`.
+- [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `429` do limite de requisições por IP, com `Retry-After`.
 
 [Voltar à arquitetura](README.md)
