@@ -76,7 +76,7 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 
 ## Limitações
 
-- **Os access tokens já emitidos continuam válidos.** O logout-all atinge só os refresh tokens. A validação do JWT não consulta o banco, então os access tokens em uso, inclusive o que chamou o logout-all e os de outros dispositivos, valem até expirar, no máximo 15 minutos ([Autenticação](../architecture/authentication.md#emissão-do-access-token)). Revogá-los ficou fora do escopo da issue. Quem suspeita de invasão deve considerar essa janela.
+- **Os access tokens já emitidos continuam válidos.** O logout-all atinge só os refresh tokens. A validação do JWT não consulta o banco, então os access tokens em uso, inclusive o que chamou o logout-all e os de outros dispositivos, valem até expirar, no máximo 15 minutos ([Autenticação](../architecture/authentication.md#emissão-do-access-token)), inclusive na rota `me`, desde que o usuário siga ativo e com o mesmo papel ([Consultar o próprio usuário](me.md#limitações)). Revogá-los ficou fora do escopo da issue. Quem suspeita de invasão deve considerar essa janela.
 - **Login depois do logout-all abre sessão nova.** O logout-all não bloqueia a conta nem impede novos logins: quem tiver a senha entra de novo. Se a senha pode ter vazado, ela precisa ser trocada, o que ainda não existe.
 - **Login simultâneo.** Uma sessão aberta por um login cuja transação ainda não confirmou quando o logout-all revoga os tokens não é alcançada e continua ativa, como um login feito logo depois.
 - **As sessões não mudam de estado.** As linhas de `identity.sessions` continuam lá, sem token ativo; não há coluna de encerramento nem listagem de sessões.
@@ -99,7 +99,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 A espera pelo lock e a ausência de deadlock entre chamadas simultâneas não têm teste próprio; o mecanismo de lock da sessão é exercitado nos [`RefreshTokenReuseTests`](refresh-token-reuse.md#como-verificar). A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo host é coberta em [Autenticação](../architecture/authentication.md#testes).
 
-Na validação da #18, a suíte tinha 277 testes.
+Na validação da #18, a suíte tinha 277 testes. A consulta do próprio usuário, que também exige access token, está em [Consultar o próprio usuário](me.md).
 
 ## Referências
 

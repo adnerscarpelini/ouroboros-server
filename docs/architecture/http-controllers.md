@@ -34,7 +34,7 @@ Os controllers seguem a [autenticação JWT e autorização por políticas](auth
 
 - **Nega por padrão.** A política de fallback de cada host exige usuário autenticado e, no backoffice, também o papel `Admin`, em todo endpoint. Não há base de controller: um controller de backoffice sem nenhuma anotação já exige `Admin`, e um token de `Customer` recebe `403` em qualquer endpoint `api/v1/admin/<module>`. Só fica anônimo quem declara `[AllowAnonymous]` (por exemplo, o login da #12).
 - **Actions exigem capacidades, não papéis.** Quando uma action precisa de permissão específica, declara `[Authorize(Policy = ...)]` com o nome da capacidade. Os nomes são constantes `public` em `Contracts` do módulo dono, como [`IdentityPolicies.AdminsInvite`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs) (`identity:admins.invite`). O mapeamento de capacidade para papel continua `internal`, num único lugar do módulo, registrado em `Add<Module>Module` com `services.AddAuthorization(...)`.
-- **Usuário autenticado pelos claims.** Uma action que precisa saber quem chama lê os claims do access token com os nomes de [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityClaims.cs) (`Subject` = `sub`, `Role` = `role`, `Session` = `sid`), `public` em `Contracts` do Identity desde a #18, e passa ao caso de uso o `ExternalId` do `sub`; sem um `sub` válido, responde `401`. Exemplo: a action `LogoutAll` dos `SessionsController` ([Encerrar todas as sessões](../identity/logout-all.md)).
+- **Usuário autenticado pelos claims.** Uma action que precisa saber quem chama lê os claims do access token com os nomes de [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityClaims.cs) (`Subject` = `sub`, `Role` = `role`, `Session` = `sid`), `public` em `Contracts` do Identity desde a #18, e passa ao caso de uso o `ExternalId` do `sub`; sem um `sub` válido, responde `401`. Exemplos: a action `LogoutAll` dos `SessionsController` ([Encerrar todas as sessões](../identity/logout-all.md)) e a action `Get` dos `MeController`, que também passa o canal do host e responde `401` com `WWW-Authenticate: Bearer` quando o caso de uso não encontra o usuário ([Consultar o próprio usuário](../identity/me.md)).
 
 ## Como criar um endpoint
 
@@ -144,18 +144,20 @@ Erros comuns que o compilador ou os testes apontam:
 
 ## Estado atual
 
-Os primeiros controllers chegaram com o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), um em cada host; a #15 acrescentou a eles a renovação do access token ([Renovar o access token com rotação do refresh token](../identity/refresh-session.md)), a #17, o logout ([Encerrar a sessão atual](../identity/logout.md)), e a #18, o logout-all ([Encerrar todas as sessões](../identity/logout-all.md)):
+Os primeiros controllers chegaram com o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), um em cada host; a #15 acrescentou a eles a renovação do access token ([Renovar o access token com rotação do refresh token](../identity/refresh-session.md)), a #17, o logout ([Encerrar a sessão atual](../identity/logout.md)), e a #18, o logout-all ([Encerrar todas as sessões](../identity/logout-all.md)); a #19 trouxe um segundo controller em cada host, o da consulta do próprio usuário ([Consultar o próprio usuário](../identity/me.md)):
 
 | Host | Controller | Rota |
 | --- | --- | --- |
 | `Ouroboros.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/identity/sessions`, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/identity/sessions/logout` (anônimas); `POST /api/v1/identity/sessions/logout-all` (exige token de `Customer`) |
+| `Ouroboros.Api` | [`Controllers/Identity/MeController`](../../src/Ouroboros.Api/Controllers/Identity/MeController.cs) | `GET /api/v1/identity/me` (exige token de `Customer`) |
 | `Ouroboros.Backoffice.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/admin/identity/sessions`, `POST /api/v1/admin/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/logout` (anônimas); `POST /api/v1/admin/identity/sessions/logout-all` (exige token de `Admin`) |
+| `Ouroboros.Backoffice.Api` | [`Controllers/Identity/MeController`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/MeController.cs) | `GET /api/v1/admin/identity/me` (exige token de `Admin`) |
 
-Cada host tem os próprios DTOs (`CreateSessionRequest`, `RefreshSessionBody`, corpo da renovação e do logout, e `SessionResponse`) e as constantes do `type` dos erros em `SessionModels.cs`, na mesma pasta do controller.
+Cada host tem os próprios DTOs (`CreateSessionRequest`, `RefreshSessionBody`, corpo da renovação e do logout, e `SessionResponse`) e as constantes do `type` dos erros em `SessionModels.cs`, na mesma pasta do controller. O `MeResponse` fica no próprio `MeController.cs`.
 
-Os casos de uso expostos em `Contracts` do Identity são o [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs), o [`IRefreshSession`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/IRefreshSession.cs), o [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) e o [`ILogoutAll`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogoutAll.cs) (`Contracts/Sessions`), usados pelos dois controllers, e o [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) (`Contracts/Administrators`), usado pelo comando `create-admin` do backoffice, não por um controller. Também ficam em `Contracts` os nomes das políticas em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use, e os nomes dos claims do access token em [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityClaims.cs), usados pela action `LogoutAll`.
+Os casos de uso expostos em `Contracts` do Identity são o [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs), o [`IRefreshSession`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/IRefreshSession.cs), o [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) e o [`ILogoutAll`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogoutAll.cs) (`Contracts/Sessions`), usados pelos `SessionsController`, o [`IGetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Users/IGetCurrentUser.cs) (`Contracts/Users`), usado pelos `MeController`, e o [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) (`Contracts/Administrators`), usado pelo comando `create-admin` do backoffice, não por um controller. Também ficam em `Contracts` os nomes das políticas em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use, e os nomes dos claims do access token em [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityClaims.cs), usados pelas actions `LogoutAll` e `Get` dos `MeController`.
 
-Sem token, as rotas de logout-all e qualquer outra rota fora das de login, de renovação e de logout respondem `401`; com token válido, uma rota inexistente responde `404` (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)).
+Sem token, as rotas de logout-all, as de `me` e qualquer outra rota fora das de login, de renovação e de logout respondem `401`; com token válido, uma rota inexistente responde `404` (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)).
 
 ## Testes de arquitetura
 
@@ -176,7 +178,7 @@ Na raiz do repositório:
 dotnet test --solution Ouroboros.slnx
 ```
 
-O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes; na da #12, 216; na da #15, 252; na da #17, 270; na da #18, 277.
+O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes; na da #12, 216; na da #15, 252; na da #17, 270; na da #18, 277; na da #19, 284.
 
 ## Origem
 
@@ -188,5 +190,6 @@ O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testi
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): controllers nos hosts e casos de uso em `Contracts`.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeiros controllers, o login nos dois hosts.
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): primeira action autenticada (logout-all) e `IdentityClaims` em `Contracts`.
+- [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): `MeController` nos dois hosts e caso de uso `IGetCurrentUser` em `Contracts/Users`.
 
 [Voltar à arquitetura](README.md)
