@@ -38,6 +38,9 @@ internal sealed class EmailToken : Entity
     public static EmailToken ForRegistration(string email, byte[] tokenHash, DateTimeOffset expiresAt) =>
         Create(EmailTokenPurpose.Registration, email, null, tokenHash, expiresAt);
 
+    public static EmailToken ForPasswordReset(long userId, string email, byte[] tokenHash, DateTimeOffset expiresAt) =>
+        Create(EmailTokenPurpose.PasswordReset, email, userId, tokenHash, expiresAt);
+
     private static EmailToken Create(EmailTokenPurpose purpose, string email, long? userId, byte[] tokenHash, DateTimeOffset expiresAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);

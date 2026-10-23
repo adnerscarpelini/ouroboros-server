@@ -59,6 +59,8 @@ public sealed record SignUpRequest([Required, EmailAddress] string Email); // co
 public sealed record SignUpRequest([property: Required] string Email);     // o ASP.NET lança erro
 ```
 
+Uma regra conferida pelo caso de uso também pode virar `400` de validação: nas solicitações de [cadastro](../identity/registration.md#e-mail-inválido-400) e de [redefinição de senha](../identity/password-reset.md#e-mail-inválido-400), um e-mail fora da regra estrita de e-mail é devolvido pelo controller com `ModelState.AddModelError` e `ValidationProblem(ModelState)`, com a mensagem `Informe um e-mail válido.` no campo `Email`, no mesmo formato acima.
+
 ### Falha de negócio
 
 O controller do host traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
@@ -78,7 +80,7 @@ Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a 
 
 Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
 
-A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, as de solicitação e de conclusão do cadastro são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
+A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, as de solicitação e de conclusão do cadastro e a de solicitação de redefinição de senha são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
 ### Limite de requisições (429)
 
@@ -142,5 +144,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeira falha de negócio do catálogo, `invalid-credentials`.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `429` do limite de requisições por IP, com `Retry-After`.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): falhas `invalid-registration-token` e `password-rejected` da conclusão do cadastro, a segunda com `detail`.
+- [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitação de redefinição de senha com `400` de validação para e-mail inválido e `202` igual para os demais casos, sem falha de negócio própria.
 
 [Voltar à arquitetura](README.md)

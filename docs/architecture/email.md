@@ -67,7 +67,7 @@ O `.eml` é uma mensagem MIME simples (RFC 5322): cabeçalhos `From`, `To`, `Sub
 
 ## Como usar nos casos de uso
 
-O primeiro caso de uso que envia e-mail é a [solicitação de cadastro de cliente](../identity/registration.md) (#20); a redefinição de senha (#22) e o convite (#25) devem seguir as mesmas regras:
+O primeiro caso de uso que envia e-mail é a [solicitação de cadastro de cliente](../identity/registration.md) (#20); a [solicitação de redefinição de senha](../identity/password-reset.md) (#22) segue as mesmas regras, e o convite (#25) deve segui-las:
 
 1. Gravar a transação (usuário, token etc.) antes de enviar.
 2. Montar o `EmailMessage` com o link no corpo e chamar `IEmailSender.SendAsync`.
@@ -76,9 +76,11 @@ O primeiro caso de uso que envia e-mail é a [solicitação de cadastro de clien
 
 Na solicitação de cadastro, o [`RequestRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/RequestRegistration.cs) grava o token de uso único (só o hash, na tabela `identity.email_tokens`), confirma a transação e só então envia o link `<CompletionUrl>?token=<token>`. Como a resposta não pode revelar se o e-mail tem conta, uma falha no envio não muda o `202`: a exceção é capturada e registrada em nível `Error` só com o tipo da exceção, sem o destinatário, o link nem a mensagem da exceção, que poderiam conter o token. O link é montado com o token escapado para URL (`Uri.EscapeDataString`). Fluxos que, como esse, não podem revelar o resultado devem seguir o mesmo padrão; os demais podem propagar a falha.
 
+A solicitação de redefinição de senha, no [`RequestPasswordReset`](../../src/Modules/Ouroboros.Modules.Identity/Application/PasswordResets/RequestPasswordReset.cs), segue o mesmo padrão, com uma regra a mais: o destinatário é o e-mail gravado na conta, nunca o texto recebido na requisição ([Redefinir a senha por e-mail](../identity/password-reset.md#regras-da-solicitação)).
+
 ## Ver os e-mails em desenvolvimento
 
-Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emails/`, na raiz do repositório; hoje, só a API externa envia, ao receber uma [solicitação de cadastro](../identity/registration.md#solicitar-o-cadastro) para um e-mail livre. Abra o `.eml` em qualquer cliente de e-mail (Outlook, Thunderbird, Mail) ou num editor de texto. Para limpar, apague os arquivos da pasta.
+Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emails/`, na raiz do repositório; hoje, só a API externa envia, ao receber uma [solicitação de cadastro](../identity/registration.md#solicitar-o-cadastro) para um e-mail livre ou uma [solicitação de redefinição de senha](../identity/password-reset.md#solicitar-a-redefinição) para uma conta de cliente ativa. Abra o `.eml` em qualquer cliente de e-mail (Outlook, Thunderbird, Mail) ou num editor de texto. Para limpar, apague os arquivos da pasta.
 
 ## Limitações
 
@@ -96,7 +98,7 @@ Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emai
 
 ## Consequências
 
-- Um ambiente que precise enviar e-mails (Staging, Production) depende de um adaptador real; até lá, os fluxos que enviam falham nesses ambientes (na solicitação de cadastro, a falha só vai para o log, e a resposta continua `202`).
+- Um ambiente que precise enviar e-mails (Staging, Production) depende de um adaptador real; até lá, os fluxos que enviam falham nesses ambientes (nas solicitações de cadastro e de redefinição de senha, a falha só vai para o log, e a resposta continua `202`).
 - Os casos de uso dependem só da porta; trocar o meio de entrega não muda o código deles.
 - Os arquivos em `.local/emails` contêm tokens válidos de desenvolvimento e ficam fora do Git.
 
@@ -105,7 +107,7 @@ Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emai
 - [`EmailTests`](../../tests/Ouroboros.IntegrationTests/EmailTests.cs), em `Ouroboros.IntegrationTests`, sem banco nem Docker: o `.eml` tem destinatário, assunto e corpo; o log não contém o corpo nem o token; o assunto acentuado é codificado; quebras de linha no destinatário ou no assunto são recusadas; o `Date` sai em UTC; o validador recusa o adaptador local fora de `Development` e o aceita em `Development`; enviar sem provedor falha; a API sem provedor resolve o `UnconfiguredEmailSender`.
 - [`EmailConfigurationTests`](../../tests/Ouroboros.ArchitectureTests/EmailConfigurationTests.cs), em `Ouroboros.ArchitectureTests`: o host fora de `Development` com o adaptador local não sobe; sem provedor, sobe.
 
-Nos testes de integração dos casos de uso que enviam e-mail, o `IEmailSender` é substituído pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs), que guarda as mensagens em memória, extrai o token do link e pode simular falha no envio; os testes não dependem do adaptador `.eml`, que só existe em `Development` ([Cadastrar cliente por e-mail](../identity/registration.md#como-verificar)).
+Nos testes de integração dos casos de uso que enviam e-mail, o `IEmailSender` é substituído pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs), que guarda as mensagens em memória, extrai o token do link e pode simular falha no envio; os testes não dependem do adaptador `.eml`, que só existe em `Development` ([Cadastrar cliente por e-mail](../identity/registration.md#como-verificar) e [Redefinir a senha por e-mail](../identity/password-reset.md#como-verificar)).
 
 Na validação da #10, a suíte tinha 108 testes. O QA também subiu um host real em `Development`, que gravou o `.eml`, e confirmou que em `Production` e `Staging` o host não sobe, com mensagem clara.
 
@@ -117,5 +119,6 @@ Na validação da #10, a suíte tinha 108 testes. O QA também subiu um host rea
 
 - [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10): envio de e-mails por uma porta com adaptador local.
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): primeiro caso de uso que envia e-mail, a solicitação de cadastro de cliente.
+- [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitação de redefinição de senha, com o link enviado ao e-mail da conta.
 
 [Voltar à arquitetura](README.md)

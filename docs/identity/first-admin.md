@@ -64,7 +64,7 @@ As verificações 5 e 6 e a gravação acontecem numa transação que começa co
 
 ## Limitações
 
-- O comando só cria o primeiro administrador. Não há recuperação de acesso caso o único `Admin` perca a senha; a redefinição de senha e o convite chegam em outras issues.
+- O comando só cria o primeiro administrador. Não há recuperação de acesso caso o único `Admin` perca a senha: a [solicitação de redefinição de senha](password-reset.md#contas-de-backoffice) da API externa (#22) só atende contas `Customer`, e o convite chega em outra issue.
 - O e-mail não é confirmado: o comando confia em quem opera a aplicação.
 - A lista de senhas comuns é local; a consulta a senhas vazadas (Pwned Passwords) está fora do escopo.
 

@@ -8,12 +8,14 @@ using Microsoft.IdentityModel.Tokens;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Application.Administrators;
 using Ouroboros.Modules.Identity.Application.Notifications;
+using Ouroboros.Modules.Identity.Application.PasswordResets;
 using Ouroboros.Modules.Identity.Application.Registrations;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Application.Sessions;
 using Ouroboros.Modules.Identity.Application.Users;
 using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
+using Ouroboros.Modules.Identity.Contracts.PasswordResets;
 using Ouroboros.Modules.Identity.Contracts.Registrations;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Contracts.Users;
@@ -53,6 +55,7 @@ public static class DependencyInjection
         services.AddScoped<IGetCurrentUser, GetCurrentUser>();
         services.AddScoped<IRequestRegistration, RequestRegistration>();
         services.AddScoped<ICompleteRegistration, CompleteRegistration>();
+        services.AddScoped<IRequestPasswordReset, RequestPasswordReset>();
         services.AddScoped<AccountLockout>();
 
         services.TryAddSingleton(TimeProvider.System);
