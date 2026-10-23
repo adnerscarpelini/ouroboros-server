@@ -102,7 +102,7 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 - **Limite por IP antes de tudo.** O limite de requisições roda antes do controller: uma requisição recusada com `429` não chega ao caso de uso, não soma falha no [bloqueio](account-lockout.md) e não custa hash de senha ([Limitar requisições](auth-rate-limiting.md)).
 - **Bloqueio após falhas seguidas.** Cada senha errada soma uma falha no usuário; ao atingir `Identity:Lockout:MaxFailedAttempts` (5), a conta fica bloqueada por `Identity:Lockout:DurationMinutes` (15 minutos). Um login bem-sucedido zera o contador. Detalhes em [Bloquear a conta após falhas consecutivas de senha](account-lockout.md).
 - **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)). Num login recusado, nada é gravado além da falha de senha no contador do bloqueio.
-- **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos.
+- **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos. Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; desde a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16), apresentar de novo um token revogado encerra só a sessão dele ([reuso](refresh-token-reuse.md)).
 - **Só o hash do refresh token.** O banco guarda o SHA-256 do refresh token, nunca o valor entregue ao cliente. Um hash rápido basta porque o token tem 256 bits de entropia, ao contrário de uma senha.
 - **Sem segredos nos logs.** A senha, o access token e o refresh token não aparecem nos logs, em nenhum nível.
 
@@ -132,7 +132,6 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [reno
 
 ## Limitações
 
-- **Reuso do refresh token não revoga a sessão.** Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; apresentar de novo um token já revogado responde `401`, mas a revogação da sessão ao detectar reuso fica com a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16).
 - **Não há logout.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram; encerrar a sessão atual e todas as sessões fica com a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17) e a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18). A validação do access token não consulta a sessão: um token emitido vale até expirar.
 - **Limite por IP, em memória e por instância.** Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), o login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
@@ -171,5 +170,6 @@ Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): bloqueio da conta após falhas consecutivas de senha.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): limite de requisições por IP.
 - [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): coluna `revoked_at` e `LoginChannels` compartilhado com a renovação.
+- [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16): reuso de refresh token revogado encerra a sessão.
 
 [Voltar à documentação](../README.md)
