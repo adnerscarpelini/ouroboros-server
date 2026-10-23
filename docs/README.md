@@ -9,7 +9,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Hosts da API externa e do backoffice](architecture/hosts.md): API externa e backoffice em hosts distintos, cada um com os controllers do seu público no próprio projeto.
 - [Controllers HTTP nos hosts](architecture/http-controllers.md): controllers declarados nos hosts, casos de uso expostos em `Contracts` dos módulos e como criar um endpoint.
 - [Versionamento da API HTTP](architecture/api-versioning.md): versão na URL (`/api/v1/...`) e como declarar ou descontinuar versões.
-- [Respostas de erro com ProblemDetails](architecture/error-responses.md): formato único de erro (RFC 9457) com `traceId`, validação, falhas de negócio e erros inesperados.
+- [Respostas de erro com ProblemDetails](architecture/error-responses.md): formato único de erro (RFC 9457) com `traceId`, validação, falhas de negócio, limite de requisições e erros inesperados.
 - [Catálogo de erros](errors/README.md): `type` estável de cada falha de negócio, uma página por módulo.
 - [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
 - [Identificadores, datas e nomes das entidades](architecture/entity-conventions.md): chave interna `long`, `ExternalId` UUIDv7 exposto, datas de auditoria e snake_case.
@@ -27,6 +27,7 @@ As funcionalidades ficam em `<module-name>/<feature-name>.md`:
   - [Criar o primeiro administrador](identity/first-admin.md): comando `create-admin` do host de backoffice, com a senha em variável de ambiente, só enquanto não houver `Admin`.
   - [Fazer login com e-mail e senha](identity/login.md): `POST /api/v1/identity/sessions` (só `Customer`) e `POST /api/v1/admin/identity/sessions` (só `Admin`), com sessão nova, access token JWT e refresh token opaco gravado só como SHA-256.
   - [Bloquear a conta após falhas consecutivas de senha](identity/account-lockout.md): cinco falhas seguidas bloqueiam a conta por 15 minutos (parâmetros do sistema), com o mesmo `401` do login e contagem atômica no banco.
+  - [Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md): rate limiter nativo com janela fixa por IP e política por endpoint (login: 10 por minuto), configurado em `Identity:RateLimiting` e validado na subida, com `429`, `Retry-After` e log.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.
 

@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Impedir que um atacante teste senhas indefinidamente contra a mesma conta, mesmo trocando de IP. Depois de um número de falhas de senha seguidas, a conta fica bloqueada por um tempo, e o [login](login.md) a recusa mesmo com a senha correta.
+Impedir que um atacante teste senhas indefinidamente contra a mesma conta, mesmo trocando de IP. Complementa o [limite de requisições por IP](auth-rate-limiting.md), que contém tentativas espalhadas por várias contas a partir do mesmo endereço. Depois de um número de falhas de senha seguidas, a conta fica bloqueada por um tempo, e o [login](login.md) a recusa mesmo com a senha correta.
 
 Módulo responsável: Identity. A regra fica no caso de uso `Login` e na classe [`AccountLockout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/AccountLockout.cs), em `Application/Sessions`; não há rota própria. O bloqueio vale para as duas rotas de login, a da API externa e a do backoffice, porque o contador fica no usuário.
 
@@ -80,7 +80,7 @@ No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao inst
 
 - **Falhas concorrentes ao bloqueio.** Uma requisição que leu o usuário antes de ele ser bloqueado e erra a senha depois ainda soma a falha, mesmo com a conta já bloqueada. Só acontece com tentativas simultâneas; o efeito é o contador começar acima de zero quando o bloqueio vence. Foi aceito.
 - **Bloqueio provocado por terceiros.** Quem conhece o e-mail pode bloquear a conta por 15 minutos errando a senha, em qualquer um dos dois hosts. É o custo conhecido do bloqueio por conta; bloqueio progressivo, CAPTCHA e notificação ao dono da conta ficaram fora do escopo.
-- **Sem limite por IP.** O bloqueio protege uma conta, não o servidor: tentativas contra várias contas e o consumo de CPU pelo endpoint anônimo continuam possíveis até o limite de requisições ([#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14)).
+- **O bloqueio protege uma conta, não o servidor.** Tentativas contra várias contas são contidas pelo limite de requisições por IP, da [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) ([Limitar requisições de autenticação por IP](auth-rate-limiting.md)). Uma requisição recusada com `429` não chega ao login e não soma falha no contador. Um atacante com muitos IPs ainda pode distribuir tentativas contra várias contas.
 - **Não há desbloqueio manual.** O bloqueio só termina pelo tempo, por enquanto.
 
 ## Como verificar
