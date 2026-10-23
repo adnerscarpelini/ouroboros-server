@@ -16,6 +16,7 @@ using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Email;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Modules.Identity.Infrastructure.RateLimiting;
 using Ouroboros.Modules.Identity.Infrastructure.Security;
 
 namespace Ouroboros.Modules.Identity;
@@ -36,6 +37,7 @@ public static class DependencyInjection
 
         AddTokenAuthentication(services);
         AddEmail(services);
+        AuthRateLimiting.Add(services);
 
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<UserPasswordVerifier>();

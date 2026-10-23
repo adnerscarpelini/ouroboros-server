@@ -23,6 +23,10 @@ public sealed class IntegrationApiFactory(string connectionString) : WebApplicat
             {
                 ["ConnectionStrings:Ouroboros"] = connectionString,
                 ["Authentication:Jwt:SigningKey"] = SigningKey,
+
+                // No TestServer todas as requisições vêm do mesmo IP (desconhecido); o limite do login fica
+                // alto para não interferir nos outros testes. RateLimitingTests usa limites próprios.
+                ["Identity:RateLimiting:Policies:identity-login:PermitLimit"] = "100000",
             }));
 
         // Controllers de teste (por exemplo, a sonda de migrations) ficam neste assembly.
