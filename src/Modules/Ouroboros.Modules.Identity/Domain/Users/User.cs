@@ -24,6 +24,13 @@ internal sealed class User : Entity
 
     public bool IsActive { get; private set; }
 
+    // Falhas de senha seguidas desde o último login bem-sucedido ou o último bloqueio. O incremento é
+    // feito no banco, de forma atômica (veja AccountLockout), e não por este objeto.
+    public int FailedLoginCount { get; private set; }
+
+    // Fim do bloqueio por falhas de senha; null quando a conta nunca foi bloqueada ou já foi liberada.
+    public DateTimeOffset? LockedUntil { get; private set; }
+
     public static User Create(string email, string passwordHash, UserRole role)
     {
         var normalizedEmail = NormalizeEmail(email);
@@ -46,5 +53,14 @@ internal sealed class User : Entity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
         PasswordHash = passwordHash;
+    }
+
+    public bool IsLockedAt(DateTimeOffset now) => LockedUntil > now;
+
+    // Login bem-sucedido zera o contador e remove um bloqueio já vencido.
+    public void ResetFailedLogins()
+    {
+        FailedLoginCount = 0;
+        LockedUntil = null;
     }
 }

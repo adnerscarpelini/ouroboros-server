@@ -26,6 +26,8 @@ Por outro lado, escrever o hash de senha à mão é um risco desnecessário: alg
 | `PasswordHash` | Obrigatório; o domínio guarda só o hash, nunca a senha. Muda por `ChangePasswordHash`. |
 | `Role` | [`UserRole`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/UserRole.cs): `Customer` ou `Admin`, exatamente um por usuário. |
 | `IsActive` | Nasce `true`. Ainda não há operação que o altere. O login recusa usuário inativo com o mesmo `401` de senha errada. |
+| `FailedLoginCount` | Nasce 0. Falhas de senha seguidas; o incremento é feito por um `UPDATE` atômico no banco, não pela entidade. Zerado por `ResetFailedLogins` no login bem-sucedido. |
+| `LockedUntil` | Nasce nulo. Fim do bloqueio por falhas de senha; `IsLockedAt(now)` indica se ainda vale. Limpo por `ResetFailedLogins`. Detalhes em [Bloquear a conta](../identity/account-lockout.md). |
 
 A unicidade do e-mail sem distinção de maiúsculas vem da normalização: `Cliente@Example.COM` e `cliente@example.com` viram o mesmo valor, e o índice único do banco recai sobre ele. `User.NormalizeEmail` é público dentro do módulo para que buscas por e-mail usem a mesma regra.
 
@@ -60,6 +62,7 @@ Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Id
 - `AddIdentityModule` registra as opções `Authentication:Jwt` validadas na subida (`JwtOptions` e `JwtOptionsValidator`), o esquema JwtBearer com a audiência do host e as políticas por capacidade do módulo (nomes em [`Contracts/IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs)).
 - [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
 - Desde a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), o login emite o access token e um refresh token opaco de 32 bytes, gravado só como SHA-256, e abre uma sessão (tabelas `identity.sessions` e `identity.refresh_tokens`); detalhes em [Fazer login com e-mail e senha](../identity/login.md).
+- Desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), falhas seguidas de senha bloqueiam a conta por um tempo, com limite e duração lidos dos parâmetros do sistema; durante o bloqueio, a senha real não é verificada. Detalhes em [Bloquear a conta após falhas consecutivas de senha](../identity/account-lockout.md).
 
 ## E-mail
 
@@ -69,7 +72,7 @@ Desde a [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10), o 
 
 As tabelas `identity.sessions` e `identity.refresh_tokens`, da migration `AddSessions`, estão descritas em [Fazer login com e-mail e senha](../identity/login.md#persistência).
 
-A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e criada pela migration `AddUsers`:
+A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs), criada pela migration `AddUsers` e ampliada pela `AddAccountLockout` (#13):
 
 | Coluna | Tipo | Observação |
 | --- | --- | --- |
@@ -79,9 +82,11 @@ A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules
 | `password_hash` | `text` | Hash no formato V3, em Base64. |
 | `role` | `varchar(20)` | Nome do papel (`Customer`, `Admin`), não o número do enum. |
 | `is_active` | `boolean` | |
+| `failed_login_count` | `integer` | Padrão `0`. Desde a `AddAccountLockout`. |
+| `locked_until` | `timestamptz`, nulo | Desde a `AddAccountLockout`. |
 | `created_at`, `updated_at` | `timestamptz` | Preenchidas pelo interceptor. |
 
-Todas as colunas são `not null`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions` e `DbSet<RefreshToken> RefreshTokens` e aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)).
+Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions` e `DbSet<RefreshToken> RefreshTokens` e aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)).
 
 ## Alternativas descartadas
 
@@ -92,7 +97,8 @@ Todas as colunas são `not null`. O `IdentityDbContext` expõe `DbSet<User> User
 
 ## Consequências
 
-- O login (#12) usa o `UserPasswordVerifier` e salva o usuário junto com a sessão, persistindo um eventual rehash; outros fluxos que verifiquem senha devem fazer o mesmo.
+- O login (#12) usa o `UserPasswordVerifier` e salva o usuário junto com a sessão, persistindo um eventual rehash e, desde a #13, o contador de falhas zerado; outros fluxos que verifiquem senha devem fazer o mesmo.
+- O contador de falhas é incrementado por SQL direto (`UPDATE ... RETURNING`) na tabela do próprio módulo, e não pela entidade, para que falhas simultâneas não se percam ([Bloquear a conta](../identity/account-lockout.md#contagem-atômica)).
 - Novos fluxos de credencial (cadastro, troca de senha) validam a senha com `PasswordPolicy` e geram o hash por `IPasswordHasher.Hash`; nunca recebem o hash de fora do módulo.
 - O e-mail é guardado em minúsculas; a grafia original digitada pelo usuário não é preservada.
 - Papéis são fixos no enum; mudar para vários papéis por usuário ou papéis dinâmicos exigiria nova decisão e migration.
@@ -104,7 +110,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); e os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar).
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); e os do bloqueio de conta, em [Bloquear a conta](../identity/account-lockout.md#como-verificar).
 
 ## Referências
 
@@ -119,5 +125,6 @@ Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [
 - [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10): envio de e-mails por uma porta com adaptador local.
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): política de senha, NFKC no hasher e caso de uso do primeiro administrador.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login, sessões, refresh token e verificação com hash fictício.
+- [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): contador de falhas e bloqueio da conta no `User`.
 
 [Voltar à arquitetura](README.md)

@@ -41,6 +41,7 @@ public static class DependencyInjection
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
         services.AddScoped<ILogin, Login>();
+        services.AddScoped<AccountLockout>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();

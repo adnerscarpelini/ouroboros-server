@@ -15,5 +15,7 @@ internal sealed class UserConfiguration : EntityConfiguration<User>
         builder.Property(user => user.PasswordHash);
         builder.Property(user => user.Role).HasConversion<string>().HasMaxLength(20);
         builder.Property(user => user.IsActive);
+        builder.Property(user => user.FailedLoginCount);
+        builder.Property(user => user.LockedUntil).HasColumnType("timestamptz");
     }
 }
