@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Domain.Users;
 
 namespace Ouroboros.Modules.Identity.Infrastructure.Persistence.Configurations;

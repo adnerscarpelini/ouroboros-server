@@ -1,3 +1,5 @@
+using Ouroboros.BuildingBlocks.Domain;
+
 namespace Ouroboros.Modules.Identity.Domain.Users;
 
 internal sealed class User : Entity

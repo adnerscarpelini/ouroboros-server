@@ -2,12 +2,12 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 
-namespace Ouroboros.Modules.Identity.Infrastructure.Persistence;
+namespace Ouroboros.BuildingBlocks.Persistence;
 
-// Aplica snake_case a tabelas, colunas, chaves e índices do modelo do módulo. É feito no próprio
+// Aplica snake_case a tabelas, colunas, chaves e índices do modelo de um módulo. É feito no próprio
 // modelo, e não por uma convenção global, para não renomear a tabela de histórico de migrations
 // (__EFMigrationsHistory), cujas colunas já existem nos bancos criados.
-internal static class SnakeCaseNaming
+public static class SnakeCaseNaming
 {
     // Deve ser a última chamada do OnModelCreating, depois de todas as configurações.
     public static void Apply(ModelBuilder modelBuilder)

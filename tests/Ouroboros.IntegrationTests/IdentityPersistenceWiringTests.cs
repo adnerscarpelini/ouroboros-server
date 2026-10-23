@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.Extensions.DependencyInjection;
+using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;

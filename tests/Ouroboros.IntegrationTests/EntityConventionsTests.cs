@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Time.Testing;
 using Npgsql;
-using Ouroboros.Modules.Identity.Domain;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.BuildingBlocks.Domain;
+using Ouroboros.BuildingBlocks.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 

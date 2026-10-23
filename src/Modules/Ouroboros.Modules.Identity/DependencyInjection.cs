@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Application.Notifications;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts;
@@ -36,7 +37,7 @@ public static class DependencyInjection
         services.AddSingleton<UserPasswordVerifier>();
 
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton<AuditTimestampsInterceptor>();
+        services.TryAddSingleton<AuditTimestampsInterceptor>();
 
         // O histórico de migrations fica no schema do próprio módulo.
         services.AddDbContext<IdentityDbContext>((provider, options) => options
