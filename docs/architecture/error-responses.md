@@ -72,11 +72,13 @@ return Problem(
 
 O exemplo é ilustrativo, e o código acima não está no catálogo. A primeira falha de negócio real é a [`invalid-credentials`](../errors/identity.md#invalid-credentials) do login (#12), traduzida pelos `SessionsController` dos dois hosts ([Fazer login com e-mail e senha](../identity/login.md)).
 
+Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a conclusão do cadastro traduz dois resultados em `400`: [`invalid-registration-token`](../errors/identity.md#invalid-registration-token), sem `detail` e com a mesma resposta para todos os motivos, e [`password-rejected`](../errors/identity.md#password-rejected), a primeira falha de negócio com `detail`, que traz a regra da política de senha violada ([Concluir o cadastro](../identity/registration.md#concluir-o-cadastro)). Os dois se distinguem do `400` de validação pelo `type` e pela ausência de `errors`: o de validação só aparece quando o token ou a senha excedem o tamanho máximo do DTO.
+
 ### Respostas sem corpo (401, 403, 404, 405, 415)
 
 Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
 
-A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, a de solicitação de cadastro são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
+A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, as de solicitação e de conclusão do cadastro são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
 ### Limite de requisições (429)
 
@@ -139,5 +141,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers dos hosts.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeira falha de negócio do catálogo, `invalid-credentials`.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `429` do limite de requisições por IP, com `Retry-After`.
+- [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): falhas `invalid-registration-token` e `password-rejected` da conclusão do cadastro, a segunda com `detail`.
 
 [Voltar à arquitetura](README.md)

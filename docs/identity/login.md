@@ -19,7 +19,7 @@ As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refr
 
 - O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../../README.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../../README.md#chave-de-assinatura-dos-tokens)).
-- Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). Ainda não há cadastro de clientes ([#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20) e [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21)), então o login da API externa só é exercitado hoje com usuários criados pelos testes.
+- Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail, desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21) ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
 
 ## Como usar
 

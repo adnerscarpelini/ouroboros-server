@@ -37,4 +37,14 @@ internal static class IdentityErrors
         "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-refresh-token";
 
     public const string InvalidRefreshTokenTitle = "Refresh token inválido.";
+
+    public const string InvalidRegistrationToken =
+        "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-registration-token";
+
+    public const string InvalidRegistrationTokenTitle = "Link de cadastro inválido ou expirado.";
+
+    public const string PasswordRejected =
+        "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#password-rejected";
+
+    public const string PasswordRejectedTitle = "A senha não atende à política de senha.";
 }
