@@ -12,7 +12,10 @@ public sealed class IntegrationApiFactory(string connectionString) : WebApplicat
     // Chave fictícia de 256+ bits, só para testes.
     public const string SigningKey = "integration-tests-signing-key-with-at-least-256-bits";
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    protected override void ConfigureWebHost(IWebHostBuilder builder) => Configure(builder, connectionString);
+
+    // Mesma configuração para os dois hosts (veja BackofficeIntegrationApiFactory).
+    internal static void Configure(IWebHostBuilder builder, string connectionString)
     {
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(

@@ -189,24 +189,4 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
     }
 
     private Task<long> CountUsersAsync() => QueryScalarAsync<long>("SELECT count(*) FROM identity.users");
-
-    private sealed class ListLoggerProvider(ConcurrentQueue<string> entries) : ILoggerProvider
-    {
-        public ILogger CreateLogger(string categoryName) => new ListLogger(entries);
-
-        public void Dispose()
-        {
-        }
-
-        private sealed class ListLogger(ConcurrentQueue<string> entries) : ILogger
-        {
-            public IDisposable? BeginScope<TState>(TState state)
-                where TState : notnull => null;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
-                entries.Enqueue(formatter(state, exception) + exception);
-        }
-    }
 }

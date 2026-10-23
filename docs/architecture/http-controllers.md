@@ -37,31 +37,37 @@ Os controllers seguem a [autenticação JWT e autorização por políticas](auth
 
 ## Como criar um endpoint
 
-O exemplo abaixo é **ilustrativo**: ainda não há casos de uso expostos nem controllers reais. O primeiro será o login (#12), e os nomes podem mudar quando ele for implementado.
+O exemplo abaixo segue o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), resumido; o código completo está nos arquivos citados.
 
-1. **Contrato no módulo.** Em `src/Modules/Ouroboros.Modules.Identity/Contracts/Login/`, declare a interface do caso de uso e seus tipos de entrada e saída, todos `public`, com `ExternalId` como identificador e sem entidades:
+1. **Contrato no módulo.** Em `src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/`, declare a interface do caso de uso e seus tipos de entrada e saída, todos `public`, com `ExternalId` como identificador e sem entidades ([`ILogin.cs`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs)):
 
    ```csharp
-   namespace Ouroboros.Modules.Identity.Contracts.Login;
+   namespace Ouroboros.Modules.Identity.Contracts.Sessions;
 
    public interface ILogin
    {
        Task<LoginResult> ExecuteAsync(LoginRequest request, CancellationToken cancellationToken);
    }
 
-   public sealed record LoginRequest(string Email, string Password);
+   public sealed record LoginRequest(string Email, string Password, LoginChannel Channel);
 
-   public sealed record LoginResult(bool Succeeded, string? AccessToken, DateTimeOffset? ExpiresAt);
+   public enum LoginChannel { CustomerApp, Backoffice }
+
+   public sealed record LoginResult(SessionTokens? Tokens) { /* InvalidCredentials, Succeeded */ }
+
+   public sealed record SessionTokens(
+       string AccessToken, DateTimeOffset AccessTokenExpiresAt,
+       string RefreshToken, DateTimeOffset RefreshTokenExpiresAt);
    ```
 
-2. **Implementação interna.** Em `Application/Login/`, implemente a interface num tipo `internal sealed`. A regra de negócio, o domínio e a persistência ficam aqui e nas demais pastas internas do módulo.
+2. **Implementação interna.** Em `Application/Sessions/`, implemente a interface num tipo `internal sealed` ([`Login.cs`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Login.cs)). A regra de negócio, o domínio e a persistência ficam aqui e nas demais pastas internas do módulo.
 
    ```csharp
-   namespace Ouroboros.Modules.Identity.Application.Login;
+   namespace Ouroboros.Modules.Identity.Application.Sessions;
 
    internal sealed class Login(/* dependências internas */) : ILogin
    {
-       public Task<LoginResult> ExecuteAsync(LoginRequest request, CancellationToken cancellationToken) => ...;
+       public async Task<LoginResult> ExecuteAsync(LoginRequest request, CancellationToken cancellationToken) => ...;
    }
    ```
 
@@ -69,7 +75,7 @@ O exemplo abaixo é **ilustrativo**: ainda não há casos de uso expostos nem co
 
 4. **Erros de negócio.** Se o caso de uso tiver falhas de negócio, documente cada uma no [catálogo de erros](../errors/README.md#como-adicionar-um-erro) do módulo antes de traduzi-las no controller.
 
-5. **Controller no host.** Na pasta do módulo dentro do host do público, crie um controller `public`. Ele recebe a interface por injeção, valida a entrada, chama o caso de uso e traduz o resultado:
+5. **Controller no host.** Na pasta do módulo dentro do host do público, crie um controller `public`. Ele recebe a interface por injeção, valida a entrada com os DTOs HTTP do próprio host, chama o caso de uso e traduz o resultado ([`SessionsController.cs`](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs), com os DTOs em [`SessionModels.cs`](../../src/Ouroboros.Api/Controllers/Identity/SessionModels.cs)):
 
    ```csharp
    namespace Ouroboros.Api.Controllers.Identity;
@@ -81,17 +87,22 @@ O exemplo abaixo é **ilustrativo**: ainda não há casos de uso expostos nem co
    {
        [HttpPost]
        [AllowAnonymous]
-       public async Task<IActionResult> Create(LoginRequest request, CancellationToken cancellationToken)
+       [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+       [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
+       [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+       public async Task<IActionResult> Create(CreateSessionRequest request, CancellationToken cancellationToken)
        {
-           var result = await login.ExecuteAsync(request, cancellationToken);
-           return result.Succeeded
-               ? Ok(result)
-               : Problem(type: "<URI do catálogo>", title: "...", statusCode: StatusCodes.Status401Unauthorized);
+           var result = await login.ExecuteAsync(
+               new LoginRequest(request.Email, request.Password, LoginChannel.CustomerApp), cancellationToken);
+
+           return result.Tokens is { } tokens
+               ? Ok(SessionResponse.From(tokens))
+               : Problem(type: IdentityErrors.InvalidCredentials, title: IdentityErrors.InvalidCredentialsTitle, statusCode: StatusCodes.Status401Unauthorized);
        }
    }
    ```
 
-   No backoffice, o controller fica em `src/Ouroboros.Backoffice.Api/Controllers/<Module>/`, com rota `api/v{version:apiVersion}/admin/<module>/...`, e declara a capacidade quando houver:
+   No backoffice, o controller fica em `src/Ouroboros.Backoffice.Api/Controllers/<Module>/`, com rota `api/v{version:apiVersion}/admin/<module>/...`. O login do backoffice ([`SessionsController.cs`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs)) é igual ao da API externa, com a rota `api/v{version:apiVersion}/admin/identity/sessions` e o canal `LoginChannel.Backoffice`. Uma action que exige capacidade a declara, como neste exemplo **ilustrativo** (o convite de administradores, [#25](https://github.com/adnerscarpelini/ouroboros-server/issues/25), ainda não existe):
 
    ```csharp
    namespace Ouroboros.Backoffice.Api.Controllers.Identity;
@@ -132,7 +143,18 @@ Erros comuns que o compilador ou os testes apontam:
 
 ## Estado atual
 
-Ainda não há casos de uso expostos nem controllers nos hosts; as pastas `Controllers` dos hosts serão criadas com o primeiro endpoint, o login (#12). O único tipo em `Contracts` é o [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use. Por isso, nos dois hosts, qualquer rota responde `401` sem token e `404` com token válido (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)).
+Os primeiros controllers chegaram com o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), um em cada host:
+
+| Host | Controller | Rota |
+| --- | --- | --- |
+| `Ouroboros.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/identity/sessions` (anônima) |
+| `Ouroboros.Backoffice.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/admin/identity/sessions` (anônima) |
+
+Cada host tem os próprios DTOs (`CreateSessionRequest` e `SessionResponse`) e a constante do `type` do erro em `SessionModels.cs`, na mesma pasta do controller.
+
+Os casos de uso expostos em `Contracts` do Identity são o [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs) (`Contracts/Sessions`), usado pelos dois controllers, e o [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) (`Contracts/Administrators`), usado pelo comando `create-admin` do backoffice, não por um controller. Também ficam em `Contracts` os nomes das políticas em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use.
+
+Fora as duas rotas de login, qualquer rota responde `401` sem token e `404` com token válido (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)).
 
 ## Testes de arquitetura
 
@@ -153,7 +175,7 @@ Na raiz do repositório:
 dotnet test --solution Ouroboros.slnx
 ```
 
-O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes.
+O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes; na da #12, 216.
 
 ## Origem
 
@@ -163,5 +185,6 @@ O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testi
 - [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): hosts separados e descoberta dos controllers por público (descoberta substituída).
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT, política padrão que nega por padrão e políticas por capacidade.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): controllers nos hosts e casos de uso em `Contracts`.
+- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeiros controllers, o login nos dois hosts.
 
 [Voltar à arquitetura](README.md)

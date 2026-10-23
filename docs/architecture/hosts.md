@@ -66,15 +66,15 @@ dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mai
 
 ## Camadas de proteção do backoffice
 
-Usuários não administradores não devem conseguir usar o backoffice. A proteção é feita em camadas; as três primeiras estão implementadas:
+Usuários não administradores não devem conseguir usar o backoffice. A proteção é feita em camadas; as quatro primeiras estão implementadas:
 
 1. **Implementada (#32, #47):** cada host só conhece os controllers do seu público, que ficam no seu próprio projeto. Uma rota de backoffice não existe na API externa (com token válido, responde 404), e vice-versa.
-2. **Implementada (#9):** a política padrão do backoffice exige o papel `Admin` em todo endpoint, sem depender de base de controller nem de anotação na action. Só escapam endpoints marcados com `[AllowAnonymous]`; ainda não há nenhum (o login de administrador e a conclusão de convite chegam com a #12). Um token de `Customer` recebe 403 no backoffice.
+2. **Implementada (#9):** a política padrão do backoffice exige o papel `Admin` em todo endpoint, sem depender de base de controller nem de anotação na action. Só escapam endpoints marcados com `[AllowAnonymous]`; hoje, só o login de administrador (`POST /api/v1/admin/identity/sessions`, #12). Um token de `Customer` recebe 403 no backoffice.
 3. **Implementada (#9):** cada host aceita só tokens da sua audiência (`aud`): tokens da API externa (`ouroboros-api`) recebem 401 no backoffice, e tokens do backoffice (`ouroboros-backoffice`), 401 na API externa.
-4. **Prevista (#12):** o login de backoffice aceita só usuários `Admin`.
+4. **Implementada (#12):** o login de backoffice aceita só usuários `Admin`; um `Customer` com as credenciais corretas recebe o mesmo `401` de senha errada, e o token emitido tem a audiência `ouroboros-backoffice` ([Fazer login com e-mail e senha](../identity/login.md)).
 5. **Deploy:** o backoffice deve ser publicado só na rede interna ou VPN. Ainda não há ambiente de deploy; a restrição de rede não substitui as camadas anteriores.
 
-Os detalhes da validação dos tokens e das políticas estão em [Autenticação JWT e autorização por políticas](authentication.md). Como ainda não há login, nenhum endpoint emite tokens; sem token, os dois hosts respondem 401 a qualquer rota.
+Os detalhes da validação dos tokens e das políticas estão em [Autenticação JWT e autorização por políticas](authentication.md). Os tokens são emitidos pelo login de cada host, com a audiência do host; sem token, os dois hosts respondem 401 a qualquer rota, exceto o login.
 
 ## Alternativas descartadas
 
@@ -108,6 +108,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): controllers declarados nos hosts, substituindo a descoberta por público.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT, audiência por host e política padrão do backoffice (camadas 2 e 3).
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): comandos de operação no backoffice (`create-admin`).
-- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login de backoffice só para `Admin` (camada 4, pendente).
+- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login de backoffice só para `Admin` (camada 4).
 
 [Voltar à arquitetura](README.md)
