@@ -24,6 +24,14 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
     public Task LockSessionAsync(long sessionId, CancellationToken cancellationToken) =>
         Database.ExecuteSqlAsync($"SELECT 1 FROM identity.sessions WHERE id = {sessionId} FOR UPDATE", cancellationToken);
 
+    // Trava a linha do usuário até o fim da transação atual. Serializa o que depende da senha vigente: a
+    // abertura de sessão no login e a troca de senha (redefinição). Quem também trava sessões trava o
+    // usuário primeiro. FOR NO KEY UPDATE conflita consigo mesmo, mas não com o FOR KEY SHARE que o
+    // PostgreSQL pede ao inserir linhas com FK para o usuário (sessões, tokens de e-mail): com FOR UPDATE,
+    // uma nova solicitação de redefinição entrava em deadlock com a conclusão de outra.
+    public Task LockUserAsync(long userId, CancellationToken cancellationToken) =>
+        Database.ExecuteSqlAsync($"SELECT 1 FROM identity.users WHERE id = {userId} FOR NO KEY UPDATE", cancellationToken);
+
     // Trava todas as sessões de um usuário, sempre na ordem do id, para que duas chamadas simultâneas
     // não se bloqueiem em ordens diferentes.
     public Task LockUserSessionsAsync(long userId, CancellationToken cancellationToken) =>

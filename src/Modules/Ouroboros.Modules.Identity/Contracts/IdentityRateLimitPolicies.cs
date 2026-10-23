@@ -16,4 +16,6 @@ public static class IdentityRateLimitPolicies
     public const string RegistrationCompletion = "identity-registration-completion";
 
     public const string PasswordReset = "identity-password-reset";
+
+    public const string PasswordResetCompletion = "identity-password-reset-completion";
 }

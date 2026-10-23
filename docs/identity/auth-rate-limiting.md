@@ -4,7 +4,7 @@
 
 Conter força bruta, credential stuffing e consumo de CPU pelos endpoints anônimos de autenticação. O [bloqueio de conta](account-lockout.md) protege uma conta; o limite por IP protege o servidor contra tentativas espalhadas por muitas contas a partir do mesmo endereço.
 
-Módulo responsável: Identity. O módulo registra o rate limiter e as políticas em `AddIdentityModule`; os hosts ativam o middleware ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e aplicam a política em cada action com `[EnableRateLimiting]`. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md) e a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação de [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos (como a conclusão da redefinição de senha).
+Módulo responsável: Identity. O módulo registra o rate limiter e as políticas em `AddIdentityModule`; os hosts ativam o middleware ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e aplicam a política em cada action com `[EnableRateLimiting]`. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
 
 ## Comportamento
 
@@ -12,7 +12,7 @@ Módulo responsável: Identity. O módulo registra o rate limiter e as política
 - **Um contador por IP e por política.** A partição é o `HttpContext.Connection.RemoteIpAddress`. Cada política tem os próprios contadores: estourar o limite do login não afeta outra política, e um IP que estourou não afeta outro IP.
 - **Toda requisição ao endpoint conta**, com sucesso ou não: login bem-sucedido, `401`, `400` de entrada inválida e as próprias recusas dentro da janela.
 - **Recusa antes de qualquer trabalho.** O middleware fica antes da autenticação, então o excesso é recusado sem validar token, sem ler o corpo, sem consultar o banco e sem calcular hash de senha.
-- **Os dois hosts têm o mesmo limite, com contadores separados**, porque são processos distintos ([Hosts](../architecture/hosts.md)). Na API externa e no backoffice, o login usa a mesma política, `identity-login`; a renovação, a `identity-refresh`; e o logout, a `identity-logout`. A solicitação de cadastro e a conclusão, que existem só na API externa, usam a `identity-registration` e a `identity-registration-completion`, e a solicitação de redefinição de senha, também só na API externa, usa a `identity-password-reset`; o backoffice também configura essas políticas, porque valida a mesma lista de políticas obrigatórias.
+- **Os dois hosts têm o mesmo limite, com contadores separados**, porque são processos distintos ([Hosts](../architecture/hosts.md)). Na API externa e no backoffice, o login usa a mesma política, `identity-login`; a renovação, a `identity-refresh`; e o logout, a `identity-logout`. A solicitação de cadastro e a conclusão, que existem só na API externa, usam a `identity-registration` e a `identity-registration-completion`, e a solicitação e a conclusão da redefinição de senha, também só na API externa, usam a `identity-password-reset` e a `identity-password-reset-completion`; o backoffice também configura essas políticas, porque valida a mesma lista de políticas obrigatórias.
 
 ### Resposta acima do limite (429)
 
@@ -48,18 +48,19 @@ Cada política fica em `Identity:RateLimiting:Policies:<nome>`, no `appsettings.
       "identity-logout": { "PermitLimit": 30, "Window": "00:01:00" },
       "identity-registration": { "PermitLimit": 5, "Window": "00:01:00" },
       "identity-registration-completion": { "PermitLimit": 10, "Window": "00:01:00" },
-      "identity-password-reset": { "PermitLimit": 5, "Window": "00:01:00" }
+      "identity-password-reset": { "PermitLimit": 5, "Window": "00:01:00" },
+      "identity-password-reset-completion": { "PermitLimit": 10, "Window": "00:01:00" }
     }
   }
 }
 ```
 
-| Campo | Significado | Login (`identity-login`) | Renovação (`identity-refresh`) | Logout (`identity-logout`) | Cadastro (`identity-registration`) | Conclusão do cadastro (`identity-registration-completion`) | Redefinição de senha (`identity-password-reset`) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `PermitLimit` | Requisições aceitas por IP dentro de uma janela; inteiro positivo. | `10` | `30` | `30` | `5` | `10` | `5` |
-| `Window` | Duração da janela, no formato `hh:mm:ss` (ou `d.hh:mm:ss`); positiva. | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) |
+| Campo | Significado | Login (`identity-login`) | Renovação (`identity-refresh`) | Logout (`identity-logout`) | Cadastro (`identity-registration`) | Conclusão do cadastro (`identity-registration-completion`) | Redefinição de senha (`identity-password-reset`) | Conclusão da redefinição (`identity-password-reset-completion`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `PermitLimit` | Requisições aceitas por IP dentro de uma janela; inteiro positivo. | `10` | `30` | `30` | `5` | `10` | `5` | `10` |
+| `Window` | Duração da janela, no formato `hh:mm:ss` (ou `d.hh:mm:ss`); positiva. | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) |
 
-A política do logout não foi pedida pela issue (#17); foi acrescentada para que todo endpoint anônimo de autenticação tenha limite por IP, com o mesmo valor da renovação. A do cadastro (#20) é a mais restrita porque cada solicitação aceita pode gerar um token, uma gravação e um e-mail. A da conclusão do cadastro (#21) aceita 10 por minuto, o mesmo valor do login; como no login, cada conclusão com token válido e senha aceita pela política calcula um hash de senha. A da solicitação de redefinição de senha (#22) tem o mesmo valor da solicitação de cadastro, pelo mesmo motivo.
+A política do logout não foi pedida pela issue (#17); foi acrescentada para que todo endpoint anônimo de autenticação tenha limite por IP, com o mesmo valor da renovação. A do cadastro (#20) é a mais restrita porque cada solicitação aceita pode gerar um token, uma gravação e um e-mail. A da conclusão do cadastro (#21) aceita 10 por minuto, o mesmo valor do login; como no login, cada conclusão com token válido e senha aceita pela política calcula um hash de senha. A da solicitação de redefinição de senha (#22) tem o mesmo valor da solicitação de cadastro, pelo mesmo motivo. A da conclusão da redefinição (#23) tem o mesmo valor da conclusão do cadastro: cada conclusão com token válido e senha aceita pela política verifica a senha atual e calcula um hash.
 
 Como qualquer configuração do ASP.NET Core, os valores podem ser sobrescritos por outras fontes, como variáveis de ambiente. Alterar um valor exige reiniciar o host: as políticas são montadas uma vez, na subida.
 
@@ -79,7 +80,7 @@ Os limites do [bloqueio de conta](account-lockout.md#configuração) ficam nos [
 
 ## Como adicionar a política de um novo endpoint
 
-Para um endpoint anônimo de autenticação (conclusão da redefinição de senha etc.), como foi feito na renovação (#15), no logout (#17), na solicitação de cadastro (#20), na conclusão do cadastro (#21) e na solicitação de redefinição de senha (#22):
+Para um endpoint anônimo de autenticação, como foi feito na renovação (#15), no logout (#17), na solicitação de cadastro (#20), na conclusão do cadastro (#21) e na solicitação (#22) e na conclusão (#23) da redefinição de senha:
 
 1. Crie a constante do nome em [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs), em `Contracts`, seguindo o padrão `identity-<endpoint>`.
 2. Inclua a constante em `AuthRateLimitOptions.RequiredPolicies`, para que a falta de configuração impeça a subida.
@@ -94,13 +95,13 @@ Para um endpoint anônimo de autenticação (conclusão da redefinição de senh
 public async Task<IActionResult> Create(CreateSessionRequest request, CancellationToken cancellationToken)
 ```
 
-Cada política configurada vira uma política nomeada com o próprio contador; não é preciso alterar o `AuthRateLimiting`. Nos testes de integração, aumente o limite da nova política na `IntegrationApiFactory`, como já é feito para o login, a renovação, o logout, a solicitação e a conclusão do cadastro e a solicitação de redefinição de senha (veja [Como verificar](#como-verificar)).
+Cada política configurada vira uma política nomeada com o próprio contador; não é preciso alterar o `AuthRateLimiting`. Nos testes de integração, aumente o limite da nova política na `IntegrationApiFactory`, como já é feito para o login, a renovação, o logout, a solicitação e a conclusão do cadastro e a solicitação e a conclusão da redefinição de senha (veja [Como verificar](#como-verificar)).
 
 ## Implementação
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs) | `Contracts` (`public`) | Nomes das políticas usados pelos controllers dos hosts; hoje, `Login = "identity-login"`, `Refresh = "identity-refresh"`, `Logout = "identity-logout"`, `Registration = "identity-registration"`, `RegistrationCompletion = "identity-registration-completion"` e `PasswordReset = "identity-password-reset"`. |
+| [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs) | `Contracts` (`public`) | Nomes das políticas usados pelos controllers dos hosts; hoje, `Login = "identity-login"`, `Refresh = "identity-refresh"`, `Logout = "identity-logout"`, `Registration = "identity-registration"`, `RegistrationCompletion = "identity-registration-completion"`, `PasswordReset = "identity-password-reset"` e `PasswordResetCompletion = "identity-password-reset-completion"`. |
 | [`AuthRateLimitOptions`, `FixedWindowPolicy` e `AuthRateLimitOptionsValidator`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/RateLimiting/AuthRateLimitOptions.cs) | `Infrastructure/RateLimiting` (`internal`) | Seção `Identity:RateLimiting`, lista das políticas obrigatórias e validação na subida. |
 | [`AuthRateLimiting`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/RateLimiting/AuthRateLimiting.cs) | `Infrastructure/RateLimiting` (`internal`) | Chamado por `AddIdentityModule`: registra as opções, o `AddRateLimiter` com a resposta `429` (ProblemDetails, `Retry-After` e log) e uma política de janela fixa por IP para cada política configurada. |
 | [`OuroborosHostExtensions.UseOuroborosHost`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs) | `Ouroboros.Hosting` | `app.UseRateLimiter()` depois de `UseStatusCodePages()` e antes de `UseAuthentication()`. |
@@ -134,11 +135,11 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - sem a política do login, o validador falha citando a chave;
 - a renovação tem a própria política (`Refresh_has_its_own_policy`): com `identity-refresh` limitada a 1, a segunda renovação do mesmo IP recebe `429`, e o login do mesmo IP continua aceito.
 
-A política `identity-logout` não tem teste próprio de `429`; usa o mesmo mecanismo das demais, e a sua ausência na configuração impede a subida pela lista `RequiredPolicies`. A `identity-registration` tem: com o limite em 1, a segunda solicitação de cadastro recebe `429` ([Cadastrar cliente por e-mail](registration.md#como-verificar)). A `identity-registration-completion` não tem teste próprio de `429`, pelo mesmo motivo da `identity-logout`. A `identity-password-reset` tem: com o limite em 1, a segunda solicitação de redefinição recebe `429` ([Redefinir a senha por e-mail](password-reset.md#como-verificar)).
+A política `identity-logout` não tem teste próprio de `429`; usa o mesmo mecanismo das demais, e a sua ausência na configuração impede a subida pela lista `RequiredPolicies`. A `identity-registration` tem: com o limite em 1, a segunda solicitação de cadastro recebe `429` ([Cadastrar cliente por e-mail](registration.md#como-verificar)). A `identity-registration-completion` não tem teste próprio de `429`, pelo mesmo motivo da `identity-logout`. A `identity-password-reset` tem: com o limite em 1, a segunda solicitação de redefinição recebe `429` ([Redefinir a senha por e-mail](password-reset.md#como-verificar)). A `identity-password-reset-completion` não tem teste próprio de `429`, pelo mesmo motivo da `identity-logout`.
 
 No `TestServer`, todas as requisições chegam sem IP e dividiriam o mesmo contador. Por isso, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva os limites do login, da renovação, do logout, da solicitação e da conclusão do cadastro e da solicitação de redefinição de senha para 100.000, para não interferir nos demais testes ([Testes de integração](../architecture/integration-tests.md)).
 
-Na validação da #14, a suíte tinha 237 testes; na da #15, 252; na da #17, 270; na da #20, 305; na da #21, 319; na da #22, 332.
+Na validação da #14, a suíte tinha 237 testes; na da #15, 252; na da #17, 270; na da #20, 305; na da #21, 319; na da #22, 332; na da #23, 353.
 
 ## Referências
 
@@ -154,5 +155,6 @@ Na validação da #14, a suíte tinha 237 testes; na da #15, 252; na da #17, 270
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): política `identity-registration` da solicitação de cadastro.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): política `identity-registration-completion` da conclusão do cadastro.
 - [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): política `identity-password-reset` da solicitação de redefinição de senha.
+- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): política `identity-password-reset-completion` da conclusão da redefinição de senha.
 
 [Voltar à documentação](../README.md)

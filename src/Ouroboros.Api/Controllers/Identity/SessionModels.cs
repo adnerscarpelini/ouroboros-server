@@ -43,6 +43,11 @@ internal static class IdentityErrors
 
     public const string InvalidRegistrationTokenTitle = "Link de cadastro inválido ou expirado.";
 
+    public const string InvalidPasswordResetToken =
+        "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-password-reset-token";
+
+    public const string InvalidPasswordResetTokenTitle = "Link de redefinição de senha inválido ou expirado.";
+
     public const string PasswordRejected =
         "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#password-rejected";
 
