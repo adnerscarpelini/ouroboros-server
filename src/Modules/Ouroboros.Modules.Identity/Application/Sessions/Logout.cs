@@ -14,7 +14,7 @@ internal sealed class Logout(IdentityDbContext context, TimeProvider timeProvide
             return LogoutResult.InvalidToken;
         }
 
-        var hash = RefreshTokens.Hash(request.RefreshToken);
+        var hash = OpaqueTokens.Hash(request.RefreshToken);
         var token = await context.RefreshTokens
             .Where(token => token.TokenHash == hash)
             .Select(token => new { token.Id, token.SessionId })

@@ -11,7 +11,13 @@ internal sealed class AuthRateLimitOptions
     public const string SectionName = "Identity:RateLimiting";
 
     // Políticas que precisam estar configuradas porque algum endpoint as usa.
-    public static readonly IReadOnlyList<string> RequiredPolicies = [IdentityRateLimitPolicies.Login, IdentityRateLimitPolicies.Refresh, IdentityRateLimitPolicies.Logout];
+    public static readonly IReadOnlyList<string> RequiredPolicies =
+    [
+        IdentityRateLimitPolicies.Login,
+        IdentityRateLimitPolicies.Refresh,
+        IdentityRateLimitPolicies.Logout,
+        IdentityRateLimitPolicies.Registration,
+    ];
 
     public Dictionary<string, FixedWindowPolicy> Policies { get; set; } = [];
 }

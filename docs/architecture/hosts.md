@@ -71,7 +71,7 @@ dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mai
 
 - `Ouroboros.Backoffice.Api` usa o mesmo `UserSecretsId` da `Ouroboros.Api`: em desenvolvimento, os dois leem a mesma connection string `ConnectionStrings:Ouroboros` dos user-secrets. Fora de desenvolvimento, ela vem da variável `ConnectionStrings__Ouroboros` de cada processo. O mesmo vale para a chave de assinatura dos tokens, `Authentication:Jwt:SigningKey` (variável `Authentication__Jwt__SigningKey`), compartilhada pelos dois hosts; sem ela, nenhum host sobe ([README](../../README.md#chave-de-assinatura-dos-tokens)).
 - Emissor, audiência e tempos de vida dos tokens ficam em `Authentication:Jwt` no `appsettings.json` de cada host; só a audiência difere (`ouroboros-api` e `ouroboros-backoffice`).
-- Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` no `appsettings.json` de cada host, com os mesmos valores nos dois; cada host tem os próprios contadores ([Limitar requisições](../identity/auth-rate-limiting.md#configuração)).
+- Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` no `appsettings.json` de cada host, com os mesmos valores nos dois (inclusive a política `identity-registration`, que o backoffice configura sem usar, porque valida a mesma lista de políticas obrigatórias); cada host tem os próprios contadores ([Limitar requisições](../identity/auth-rate-limiting.md#configuração)).
 - As migrations continuam usando `Ouroboros.Api` como startup project (veja o [README](../../README.md#banco-de-dados-local)).
 - Os dois hosts podem rodar ao mesmo tempo; os comandos estão no [README](../../README.md#executar-os-hosts).
 
@@ -85,7 +85,7 @@ Usuários não administradores não devem conseguir usar o backoffice. A proteç
 4. **Implementada (#12):** o login de backoffice aceita só usuários `Admin`; um `Customer` com as credenciais corretas recebe o mesmo `401` de senha errada, e o token emitido tem a audiência `ouroboros-backoffice` ([Fazer login com e-mail e senha](../identity/login.md)). Desde a #15, a renovação segue a mesma regra: o backoffice só renova sessões de `Admin`, e a API externa, só de `Customer` ([Renovar o access token](../identity/refresh-session.md)). O logout (#17) não confere o canal, porque não emite token: quem tem o refresh token encerra a sessão dele em qualquer host ([Encerrar a sessão atual](../identity/logout.md)). O logout-all (#18) exige access token, então segue as camadas 2 e 3: no backoffice, só um `Admin` encerra as próprias sessões, e um token de `Customer` da API externa recebe 401 ([Encerrar todas as sessões](../identity/logout-all.md)). A consulta do próprio usuário (#19) vai além das camadas 2 e 3: confere no banco o papel do canal, então um `Admin` rebaixado a `Customer` recebe 401 em `GET /api/v1/admin/identity/me` antes de o token expirar ([Consultar o próprio usuário](../identity/me.md)).
 5. **Deploy:** o backoffice deve ser publicado só na rede interna ou VPN. Ainda não há ambiente de deploy; a restrição de rede não substitui as camadas anteriores.
 
-Os detalhes da validação dos tokens e das políticas estão em [Autenticação JWT e autorização por políticas](authentication.md). Os tokens são emitidos pelo login de cada host, com a audiência do host; sem token, os dois hosts respondem 401 a qualquer rota, inclusive ao logout-all e à rota `me`, exceto o login, a renovação e o logout.
+Os detalhes da validação dos tokens e das políticas estão em [Autenticação JWT e autorização por políticas](authentication.md). Os tokens são emitidos pelo login de cada host, com a audiência do host; sem token, os dois hosts respondem 401 a qualquer rota, inclusive ao logout-all e à rota `me`, exceto o login, a renovação e o logout e, na API externa, a solicitação de cadastro (`POST /api/v1/identity/registrations`, #20), anônima e só desse host, porque administradores não se cadastram sozinhos ([Cadastrar cliente por e-mail](../identity/registration.md)).
 
 ## Alternativas descartadas
 
@@ -125,6 +125,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout anônimo também no backoffice, para o `Admin` poder sair.
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): logout-all também no backoffice, autenticado com token de `Admin`.
 - [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): consulta do próprio usuário também no backoffice, com o papel `Admin` conferido no banco.
+- [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): solicitação de cadastro anônima só na API externa.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `UseRateLimiter()` no pipeline comum, antes da autenticação.
 
 [Voltar à arquitetura](README.md)
