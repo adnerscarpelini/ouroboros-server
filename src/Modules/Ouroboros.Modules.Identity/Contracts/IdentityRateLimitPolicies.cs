@@ -10,4 +10,6 @@ public static class IdentityRateLimitPolicies
     public const string Refresh = "identity-refresh";
 
     public const string Logout = "identity-logout";
+
+    public const string Registration = "identity-registration";
 }

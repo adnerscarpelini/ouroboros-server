@@ -4,9 +4,10 @@ using System.Text;
 
 namespace Ouroboros.Modules.Identity.Application.Security;
 
-// Refresh token opaco: 32 bytes aleatórios em Base64Url. O banco guarda só o SHA-256 do valor; um
-// hash rápido basta porque o token tem 256 bits de entropia, ao contrário de uma senha.
-internal static class RefreshTokens
+// Token opaco (refresh token e links enviados por e-mail): 32 bytes aleatórios em Base64Url. O banco
+// guarda só o SHA-256 do valor; um hash rápido basta porque o token tem 256 bits de entropia, ao
+// contrário de uma senha.
+internal static class OpaqueTokens
 {
     public const int SizeInBytes = 32;
 

@@ -34,9 +34,9 @@ internal sealed class User : Entity
     public static User Create(string email, string passwordHash, UserRole role)
     {
         var normalizedEmail = NormalizeEmail(email);
-        if (normalizedEmail.Length > EmailMaxLength)
+        if (!EmailAddresses.IsValid(normalizedEmail))
         {
-            throw new ArgumentException($"O e-mail excede {EmailMaxLength} caracteres.", nameof(email));
+            throw new ArgumentException("O e-mail não é um endereço válido.", nameof(email));
         }
 
         ArgumentException.ThrowIfNullOrWhiteSpace(passwordHash);
