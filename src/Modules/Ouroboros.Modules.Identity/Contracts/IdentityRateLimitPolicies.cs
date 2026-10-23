@@ -12,4 +12,6 @@ public static class IdentityRateLimitPolicies
     public const string Logout = "identity-logout";
 
     public const string Registration = "identity-registration";
+
+    public const string RegistrationCompletion = "identity-registration-completion";
 }

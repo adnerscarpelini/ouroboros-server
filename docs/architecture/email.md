@@ -78,7 +78,7 @@ Na solicitação de cadastro, o [`RequestRegistration`](../../src/Modules/Ourobo
 
 ## Ver os e-mails em desenvolvimento
 
-Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emails/`, na raiz do repositório; hoje, só a API externa envia, ao receber uma [solicitação de cadastro](../identity/registration.md#como-usar) para um e-mail livre. Abra o `.eml` em qualquer cliente de e-mail (Outlook, Thunderbird, Mail) ou num editor de texto. Para limpar, apague os arquivos da pasta.
+Com um host rodando em `Development`, cada envio cria um arquivo em `.local/emails/`, na raiz do repositório; hoje, só a API externa envia, ao receber uma [solicitação de cadastro](../identity/registration.md#solicitar-o-cadastro) para um e-mail livre. Abra o `.eml` em qualquer cliente de e-mail (Outlook, Thunderbird, Mail) ou num editor de texto. Para limpar, apague os arquivos da pasta.
 
 ## Limitações
 
