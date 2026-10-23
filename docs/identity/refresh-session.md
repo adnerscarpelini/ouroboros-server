@@ -126,14 +126,14 @@ A migration `AddRefreshTokenRevocation` acrescenta uma coluna à tabela `identit
 
 | Coluna | Tipo | Observação |
 | --- | --- | --- |
-| `revoked_at` | `timestamptz`, nulo | Instante em que o token deixou de valer; nulo enquanto ativo. Preenchida pela renovação, pela [detecção de reuso](refresh-token-reuse.md) ([#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16)) e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)), todos travando antes a sessão ([regra](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)). |
+| `revoked_at` | `timestamptz`, nulo | Instante em que o token deixou de valer; nulo enquanto ativo. Preenchida pela renovação, pela [detecção de reuso](refresh-token-reuse.md) ([#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16)) pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) e pelo [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), todos travando antes a sessão ([regra](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)). |
 
 Uma sessão acumula um refresh token por renovação: só o último está ativo, e os anteriores ficam com `revoked_at` preenchido. Depois de um reuso, nenhum fica ativo.
 
 ## Limitações
 
 - **Sem tolerância a renovações concorrentes.** Desde a #16, um cliente que envie duas renovações com o mesmo token perde a sessão ([Revogar a sessão ao detectar reuso](refresh-token-reuse.md#limitações)).
-- **Sessão sem expiração por inatividade.** A sessão não tem estado de encerramento nem expiração por inatividade (fora do escopo): enquanto houver renovação a cada 7 dias, ela continua, até o [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)). Encerrar todas as sessões do usuário fica com a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18).
+- **Sessão sem expiração por inatividade.** A sessão não tem estado de encerramento nem expiração por inatividade (fora do escopo): enquanto houver renovação a cada 7 dias, ela continua, até o [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) ou o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), que encerra todas as sessões do usuário.
 - **Renovação concorrente com o logout.** Uma renovação que termine antes de um logout com o mesmo token deixa a sessão ativa com o token novo, e o logout responde `204` ([Encerrar a sessão atual](logout.md#limitações)).
 - **O access token anterior continua válido.** A renovação não invalida o access token emitido antes; a validação do token não consulta a sessão, então ele vale até expirar ([Autenticação](../architecture/authentication.md#emissão-do-access-token)).
 - **Checagem do usuário antes da transação.** O usuário ativo e o papel são verificados antes de abrir a transação. Um usuário desativado ou com o papel alterado nos milissegundos entre a checagem e o `UPDATE` ainda recebe o par novo. O risco foi aceito; o par novo deixa de renovar na chamada seguinte.
@@ -161,7 +161,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 Em [`RateLimitingTests`](../../tests/Ouroboros.IntegrationTests/RateLimitingTests.cs), `Refresh_has_its_own_policy` confere que, com a política `identity-refresh` limitada a 1, a segunda renovação do mesmo IP recebe `429` e o login do mesmo IP continua aceito. Como no `TestServer` todas as requisições chegam do mesmo IP, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva também o limite da renovação para 100.000.
 
-Na validação da #15, a suíte tinha 252 testes; na da #16, 260; na da #17, 270.
+Na validação da #15, a suíte tinha 252 testes; na da #16, 260; na da #17, 270; na da #18, 277.
 
 ## Referências
 
@@ -174,5 +174,6 @@ Na validação da #15, a suíte tinha 252 testes; na da #16, 260; na da #17, 270
 - [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovar o access token com rotação do refresh token.
 - [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16): revogar a sessão ao detectar reuso, com lock da sessão na renovação ([Revogar a sessão ao detectar reuso de refresh token](refresh-token-reuse.md)).
 - [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout com o mesmo corpo da renovação e lock da sessão movido para o `IdentityDbContext` ([Encerrar a sessão atual](logout.md)).
+- [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): logout-all revoga os refresh tokens de todas as sessões do usuário, travando-as em ordem de id ([Encerrar todas as sessões](logout-all.md)).
 
 [Voltar à documentação](../README.md)

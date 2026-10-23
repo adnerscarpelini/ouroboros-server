@@ -8,7 +8,7 @@ Módulo responsável: Identity. A detecção fica no mesmo caso de uso da renova
 
 ## Comportamento
 
-- **Reuso detectado.** Na renovação (`POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh`), quando o refresh token apresentado existe e já está revogado, por uma rotação anterior ou pelo [logout](logout.md), todos os tokens ainda não revogados da mesma sessão (`sid`) são revogados.
+- **Reuso detectado.** Na renovação (`POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh`), quando o refresh token apresentado existe e já está revogado, por uma rotação anterior, pelo [logout](logout.md) ou pelo [logout-all](logout-all.md), todos os tokens ainda não revogados da mesma sessão (`sid`) são revogados.
 - **Mesma resposta.** O cliente recebe o mesmo `401` [`invalid-refresh-token`](../errors/identity.md#invalid-refresh-token) de um token inexistente ([Token inválido](refresh-session.md#token-inválido-401)). A resposta não indica que houve reuso.
 - **Só a sessão do token.** As outras sessões do mesmo usuário (outros logins, outros dispositivos) continuam funcionando.
 - **Token só expirado não é reuso.** Um token expirado e nunca revogado recebe `401` sem revogar nada. Um token revogado é tratado como reuso mesmo que também esteja expirado.
@@ -30,11 +30,11 @@ Resultado: com renovações simultâneas, a vencedora recebe `200` com um par no
 ## Atomicidade e serialização por sessão
 
 - **Transação própria para a revogação.** A revogação da sessão roda numa transação separada, com commit, aberta depois do rollback da tentativa de renovação. O rollback da renovação não desfaz a revogação.
-- **Lock da sessão.** A renovação, a revogação e, desde a #17, o [logout](logout.md) começam travando a linha da sessão (`SELECT 1 FROM identity.sessions WHERE id = ... FOR UPDATE`, em `IdentityDbContext.LockSessionAsync`), dentro da transação, antes de mexer nos tokens. Assim, operações sobre a mesma sessão são serializadas; sessões diferentes não se bloqueiam.
+- **Lock da sessão.** A renovação, a revogação e, desde a #17, o [logout](logout.md) começam travando a linha da sessão (`SELECT 1 FROM identity.sessions WHERE id = ... FOR UPDATE`, em `IdentityDbContext.LockSessionAsync`), dentro da transação, antes de mexer nos tokens. Assim, operações sobre a mesma sessão são serializadas; sessões diferentes não se bloqueiam. Desde a #18, o [logout-all](logout-all.md) trava de uma vez todas as sessões do usuário, em ordem de id (`SELECT 1 FROM identity.sessions WHERE user_id = ... ORDER BY id FOR UPDATE`, em `IdentityDbContext.LockUserSessionsAsync`), e por isso também espera as operações em andamento em qualquer uma delas.
 - **Por que o lock é necessário.** Em READ COMMITTED, o nível padrão do PostgreSQL, o `UPDATE` da revogação só enxerga linhas confirmadas. Sem o lock, uma revogação que rodasse enquanto uma renovação da mesma sessão ainda não tinha confirmado não veria o token novo inserido por ela, e esse token sobreviveria ativo. Com o lock, a revogação espera o commit da renovação e o `UPDATE` seguinte já vê o token novo. O defeito foi encontrado e corrigido durante a validação da #16.
-- **Sem deadlock.** Renovação e revogação pegam os locks na mesma ordem: primeiro a sessão, depois os tokens.
+- **Sem deadlock.** Todos os fluxos pegam os locks na mesma ordem: primeiro a sessão, depois os tokens. Renovação, revogação e logout seguram o lock de uma única sessão; o logout-all, o único que trava várias, sempre as trava em ordem de id, então dois logout-all simultâneos do mesmo usuário não se bloqueiam em ordens diferentes, e nenhum outro fluxo segura uma sessão enquanto espera outra.
 
-> **Regra para novas escritas em `identity.refresh_tokens`:** todo código que revogar ou inserir refresh tokens de uma sessão deve, na mesma transação, travar a linha da sessão antes, na mesma ordem (sessão, depois tokens). O lock é o método `LockSessionAsync` do [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), usado pela renovação, pela revogação por reuso e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)).
+> **Regra para novas escritas em `identity.refresh_tokens`:** todo código que revogar ou inserir refresh tokens de uma sessão deve, na mesma transação, travar a linha da sessão antes, na mesma ordem (sessão, depois tokens). O lock de uma sessão é o método `LockSessionAsync` do [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), usado pela renovação, pela revogação por reuso e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)). Quem mexer em várias sessões na mesma transação deve travá-las todas antes, sempre em ordem de id, com o `LockUserSessionsAsync`, como o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)); nunca trave uma segunda sessão depois de já segurar o lock de outra fora dessa ordem.
 
 ## Log
 
@@ -78,7 +78,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 Os testes da renovação em si continuam em [`RefreshSessionTests`](../../tests/Ouroboros.IntegrationTests/RefreshSessionTests.cs) ([Renovar o access token](refresh-session.md#como-verificar)).
 
-Na validação da #16, a suíte tinha 260 testes; na da #17, 270.
+Na validação da #16, a suíte tinha 260 testes; na da #17, 270; na da #18, 277.
 
 ## Referências
 
@@ -90,5 +90,7 @@ Na validação da #16, a suíte tinha 260 testes; na da #17, 270.
 
 - [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16): revogar a sessão ao detectar reuso de refresh token.
 - Depende de [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovação com rotação do refresh token.
+- [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout, com o lock da sessão no `IdentityDbContext`.
+- [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): logout-all, com o lock de todas as sessões do usuário em ordem de id.
 
 [Voltar à documentação](../README.md)
