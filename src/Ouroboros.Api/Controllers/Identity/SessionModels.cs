@@ -9,7 +9,10 @@ public sealed record CreateSessionRequest(
     [Required, MaxLength(254)] string Email,
     [Required, MaxLength(1024)] string Password);
 
-// Resposta do login (RFC 6749, seção 5.1, com as expirações como instantes).
+// Token vazio ou ausente não é erro de validação: recebe o mesmo 401 de token inexistente.
+public sealed record RefreshSessionBody([MaxLength(256)] string? RefreshToken);
+
+// Resposta do login e da renovação (RFC 6749, seção 5.1, com as expirações como instantes).
 public sealed record SessionResponse(
     string AccessToken,
     string TokenType,
@@ -28,4 +31,9 @@ internal static class IdentityErrors
         "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-credentials";
 
     public const string InvalidCredentialsTitle = "E-mail ou senha inválidos.";
+
+    public const string InvalidRefreshToken =
+        "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-refresh-token";
+
+    public const string InvalidRefreshTokenTitle = "Refresh token inválido.";
 }

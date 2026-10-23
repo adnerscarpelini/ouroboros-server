@@ -26,6 +26,7 @@ internal sealed class RefreshTokenConfiguration : EntityConfiguration<RefreshTok
         builder.Property(token => token.TokenHash).HasColumnType("bytea");
         builder.HasIndex(token => token.TokenHash).IsUnique();
         builder.Property(token => token.ExpiresAt).HasColumnType("timestamptz");
+        builder.Property(token => token.RevokedAt).HasColumnType("timestamptz");
         builder.HasIndex(token => token.SessionId);
     }
 }

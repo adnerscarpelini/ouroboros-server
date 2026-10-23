@@ -6,4 +6,6 @@ namespace Ouroboros.Modules.Identity.Contracts;
 public static class IdentityRateLimitPolicies
 {
     public const string Login = "identity-login";
+
+    public const string Refresh = "identity-refresh";
 }

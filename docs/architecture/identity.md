@@ -11,7 +11,7 @@ Por outro lado, escrever o hash de senha à mão é um risco desnecessário: alg
 
 ## Decisão
 
-- **Domínio próprio.** O módulo tem a própria entidade `User`, segue as convenções de identificadores, datas e nomes, e implementa os próprios fluxos de JWT ([#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), veja [Tokens](#tokens)) e de sessão e refresh token (com o login, na [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), veja [Fazer login com e-mail e senha](../identity/login.md)).
+- **Domínio próprio.** O módulo tem a própria entidade `User`, segue as convenções de identificadores, datas e nomes, e implementa os próprios fluxos de JWT ([#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), veja [Tokens](#tokens)) e de sessão e refresh token (com o login, na [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), veja [Fazer login com e-mail e senha](../identity/login.md), e a renovação com rotação, na [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), veja [Renovar o access token com rotação do refresh token](../identity/refresh-session.md)).
 - **Do ASP.NET Core Identity, só o `PasswordHasher<T>`**, atrás de uma interface do módulo. Não se usam `IdentityDbContext`, `IdentityUser`, `UserManager` nem `MapIdentityApi`.
 - **Iterações no nível da OWASP.** O hasher usa o formato V3 (PBKDF2 com HMAC-SHA512) com `IterationCount = 210.000`, a recomendação da OWASP para PBKDF2-HMAC-SHA512; o padrão do framework é 100.000.
 - **Rehash na verificação.** Quando a verificação indica que o hash usa parâmetros mais fracos que os atuais, a senha é aceita e o hash é refeito com os parâmetros atuais.
@@ -62,8 +62,9 @@ Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Id
 - `AddIdentityModule` registra as opções `Authentication:Jwt` validadas na subida (`JwtOptions` e `JwtOptionsValidator`), o esquema JwtBearer com a audiência do host e as políticas por capacidade do módulo (nomes em [`Contracts/IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs)).
 - [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
 - Desde a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), o login emite o access token e um refresh token opaco de 32 bytes, gravado só como SHA-256, e abre uma sessão (tabelas `identity.sessions` e `identity.refresh_tokens`); detalhes em [Fazer login com e-mail e senha](../identity/login.md).
+- Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), a renovação troca um refresh token ativo por um par novo na mesma sessão: o token recebido é revogado (`revoked_at`) por um `UPDATE` condicional na mesma transação em que o novo é gravado, e cada host só renova sessões do seu papel; detalhes em [Renovar o access token com rotação do refresh token](../identity/refresh-session.md).
 - Desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), falhas seguidas de senha bloqueiam a conta por um tempo, com limite e duração lidos dos parâmetros do sistema; durante o bloqueio, a senha real não é verificada. Detalhes em [Bloquear a conta após falhas consecutivas de senha](../identity/account-lockout.md).
-- Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), `AddIdentityModule` registra o rate limiter nativo do ASP.NET Core, com uma política de janela fixa por IP para cada endpoint anônimo de autenticação (hoje, só `identity-login`), configurada em `Identity:RateLimiting` e validada na subida; os nomes das políticas ficam em [`Contracts/IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs). Detalhes em [Limitar requisições de autenticação por IP](../identity/auth-rate-limiting.md).
+- Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), `AddIdentityModule` registra o rate limiter nativo do ASP.NET Core, com uma política de janela fixa por IP para cada endpoint anônimo de autenticação (hoje, `identity-login` e, desde a #15, `identity-refresh`), configurada em `Identity:RateLimiting` e validada na subida; os nomes das políticas ficam em [`Contracts/IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs). Detalhes em [Limitar requisições de autenticação por IP](../identity/auth-rate-limiting.md).
 
 ## E-mail
 
@@ -71,7 +72,7 @@ Desde a [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10), o 
 
 ## Persistência
 
-As tabelas `identity.sessions` e `identity.refresh_tokens`, da migration `AddSessions`, estão descritas em [Fazer login com e-mail e senha](../identity/login.md#persistência).
+As tabelas `identity.sessions` e `identity.refresh_tokens`, da migration `AddSessions`, estão descritas em [Fazer login com e-mail e senha](../identity/login.md#persistência); a coluna `revoked_at`, da migration `AddRefreshTokenRevocation` (#15), em [Renovar o access token](../identity/refresh-session.md#persistência).
 
 A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs), criada pela migration `AddUsers` e ampliada pela `AddAccountLockout` (#13):
 
@@ -99,6 +100,7 @@ Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` e
 ## Consequências
 
 - O login (#12) usa o `UserPasswordVerifier` e salva o usuário junto com a sessão, persistindo um eventual rehash e, desde a #13, o contador de falhas zerado; outros fluxos que verifiquem senha devem fazer o mesmo.
+- A revogação do refresh token na renovação também é um `UPDATE` condicional (`ExecuteUpdateAsync`), e não uma alteração da entidade, para que só uma renovação simultânea com o mesmo token vença ([Renovar o access token](../identity/refresh-session.md#regras)).
 - O contador de falhas é incrementado por SQL direto (`UPDATE ... RETURNING`) na tabela do próprio módulo, e não pela entidade, para que falhas simultâneas não se percam ([Bloquear a conta](../identity/account-lockout.md#contagem-atômica)).
 - Novos fluxos de credencial (cadastro, troca de senha) validam a senha com `PasswordPolicy` e geram o hash por `IPasswordHasher.Hash`; nunca recebem o hash de fora do módulo.
 - O e-mail é guardado em minúsculas; a grafia original digitada pelo usuário não é preservada.
@@ -111,7 +113,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); os do bloqueio de conta, em [Bloquear a conta](../identity/account-lockout.md#como-verificar); e os do limite de requisições, em [Limitar requisições](../identity/auth-rate-limiting.md#como-verificar).
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar); os do login, em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); os do bloqueio de conta, em [Bloquear a conta](../identity/account-lockout.md#como-verificar); os do limite de requisições, em [Limitar requisições](../identity/auth-rate-limiting.md#como-verificar); e os da renovação, em [Renovar o access token](../identity/refresh-session.md#como-verificar).
 
 ## Referências
 
@@ -128,5 +130,6 @@ Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login, sessões, refresh token e verificação com hash fictício.
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): contador de falhas e bloqueio da conta no `User`.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): limite de requisições por IP dos endpoints anônimos de autenticação.
+- [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovação do access token com rotação do refresh token.
 
 [Voltar à arquitetura](README.md)
