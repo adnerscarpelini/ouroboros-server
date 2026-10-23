@@ -9,11 +9,18 @@ namespace Ouroboros.IntegrationTests;
 // configuração, acima de variáveis de ambiente e user-secrets, para não depender da máquina.
 public sealed class IntegrationApiFactory(string connectionString) : WebApplicationFactory<Program>
 {
+    // Chave fictícia de 256+ bits, só para testes.
+    public const string SigningKey = "integration-tests-signing-key-with-at-least-256-bits";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(
-            new Dictionary<string, string?> { ["ConnectionStrings:Ouroboros"] = connectionString }));
+            new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:Ouroboros"] = connectionString,
+                ["Authentication:Jwt:SigningKey"] = SigningKey,
+            }));
 
         // Controllers de teste (por exemplo, a sonda de migrations) ficam neste assembly.
         builder.ConfigureServices(services =>

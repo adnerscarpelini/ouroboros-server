@@ -1,4 +1,5 @@
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Ouroboros.ArchitectureTests.Misplaced;
@@ -8,6 +9,7 @@ namespace Ouroboros.ArchitectureTests.Misplaced;
 [ApiController]
 internal abstract class AdminControllerBase : ControllerBase;
 
+[AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/misplaced-probe")]
 internal sealed class MisplacedAdminController : AdminControllerBase

@@ -11,7 +11,7 @@ Por outro lado, escrever o hash de senha à mão é um risco desnecessário: alg
 
 ## Decisão
 
-- **Domínio próprio.** O módulo tem a própria entidade `User`, segue as convenções de identificadores, datas e nomes, e implementará os próprios fluxos de JWT e refresh token (login na [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12)).
+- **Domínio próprio.** O módulo tem a própria entidade `User`, segue as convenções de identificadores, datas e nomes, e implementa os próprios fluxos de JWT ([#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), veja [Tokens](#tokens)) e de refresh token (com o login, na [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12)).
 - **Do ASP.NET Core Identity, só o `PasswordHasher<T>`**, atrás de uma interface do módulo. Não se usam `IdentityDbContext`, `IdentityUser`, `UserManager` nem `MapIdentityApi`.
 - **Iterações no nível da OWASP.** O hasher usa o formato V3 (PBKDF2 com HMAC-SHA512) com `IterationCount = 210.000`, a recomendação da OWASP para PBKDF2-HMAC-SHA512; o padrão do framework é 100.000.
 - **Rehash na verificação.** Quando a verificação indica que o hash usa parâmetros mais fracos que os atuais, a senha é aceita e o hash é refeito com os parâmetros atuais.
@@ -44,6 +44,14 @@ O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sa
 O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o módulo já referencia por causa dos [controllers](http-controllers.md). O pacote `Microsoft.Extensions.Identity.Core`, citado na issue, contém a mesma classe; referenciá-lo seria redundante e gera o aviso NU1510, então ele não foi adicionado.
 
 **Custo:** com 210.000 iterações, cada hash ou verificação consome da ordem de 100 a 500 ms de CPU, conforme a máquina. É intencional (é o que encarece ataques de força bruta) e deve ser considerado em endpoints de login e cadastro.
+
+## Tokens
+
+Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Identity emite e valida os access tokens JWT (HS256), conforme [Autenticação JWT e autorização por políticas](authentication.md):
+
+- `AddIdentityModule` registra as opções `Authentication:Jwt` validadas na subida (`JwtOptions` e `JwtOptionsValidator`), o esquema JwtBearer com a audiência do host e as políticas por capacidade do módulo ([`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/IdentityPolicies.cs)).
+- [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
+- O refresh token, a sessão e o login ficam com a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12); hoje nenhum endpoint emite tokens.
 
 ## Persistência
 
@@ -82,7 +90,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes.
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes).
 
 ## Referências
 
@@ -93,5 +101,6 @@ Na validação da #8, a suíte tinha 58 testes.
 ## Origem
 
 - [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): domínio de identidade próprio com o hasher do ASP.NET Core Identity.
+- [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): emissão e validação dos access tokens JWT.
 
 [Voltar à arquitetura](README.md)

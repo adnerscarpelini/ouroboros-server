@@ -70,9 +70,11 @@ return Problem(
 
 O exemplo é ilustrativo: ainda não há falhas de negócio reais nos módulos, e o código acima não está no catálogo.
 
-### Respostas sem corpo (404, 405, 415)
+### Respostas sem corpo (401, 403, 404, 405, 415)
 
-Rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
+Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
+
+A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404`; o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
 ## Convenção de `type` para falhas de negócio
 
@@ -116,5 +118,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 ## Origem
 
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): decisão e implementação.
+- [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
 
 [Voltar à arquitetura](README.md)

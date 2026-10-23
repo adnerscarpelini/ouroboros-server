@@ -16,7 +16,9 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
     [Fact]
     public async Task External_host_serves_customer_routes_but_not_backoffice_routes()
     {
+        // Com token: sem ele, a política padrão responde 401 antes de saber se a rota existe.
         using var client = ProbeHost.CreateClient(external, new ProbeCallCounter());
+        client.DefaultRequestHeaders.Authorization = new("Bearer", TestTokens.Create(TestTokens.ExternalAudience, "Customer"));
 
         var customer = await client.GetAsync("/api/v1/probe", TestContext.Current.CancellationToken);
         var admin = await client.GetAsync("/api/v1/admin/probe", TestContext.Current.CancellationToken);
@@ -29,6 +31,7 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
     public async Task Backoffice_host_serves_backoffice_routes_but_not_customer_routes()
     {
         using var client = ProbeHost.CreateClient(backoffice, new ProbeCallCounter());
+        client.DefaultRequestHeaders.Authorization = new("Bearer", TestTokens.Create(TestTokens.BackofficeAudience, "Admin"));
 
         var admin = await client.GetAsync("/api/v1/admin/probe", TestContext.Current.CancellationToken);
         var customer = await client.GetAsync("/api/v1/probe", TestContext.Current.CancellationToken);
@@ -38,7 +41,7 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
         Assert.Equal(HttpStatusCode.NotFound, customer.StatusCode);
     }
 
-    // Oráculo explícito: entre os controllers do assembly de testes, só o AdminProbeController é de
+    // Oráculo explícito: entre os controllers do assembly de testes, só os de Controllers.Admin são de
     // backoffice. O MisplacedAdminController herda uma base com o mesmo nome fora de Controllers.Admin.
     [Fact]
     public void Each_host_registers_only_controllers_of_its_audience()
@@ -46,7 +49,9 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
         var externalControllers = TestControllers(ControllersOf(external));
         var backofficeControllers = TestControllers(ControllersOf(backoffice));
 
-        Assert.Equal([typeof(AdminProbeController)], backofficeControllers);
+        Assert.Equal(
+            [typeof(AdminProbeController), typeof(SecuredAdminProbeController)],
+            backofficeControllers.OrderBy(type => type.Name));
         Assert.DoesNotContain(typeof(AdminProbeController), externalControllers);
         Assert.Contains(typeof(ProbeController), externalControllers);
         Assert.Contains(typeof(MisplacedAdminController), externalControllers);

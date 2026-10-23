@@ -16,9 +16,30 @@ A autenticação trará os primeiros endpoints do Ouroboros. Pela [regra de visi
   | `Controllers/Admin` | `api/v{version:apiVersion}/admin/<module>/...` | Backoffice, servido pelo host de backoffice (`Ouroboros.Backoffice.Api`). |
 
 - O segmento `v{version:apiVersion}` e o atributo `[ApiVersion]` de cada controller seguem o [versionamento da API](api-versioning.md).
-- Controllers de backoffice herdam a `internal abstract class AdminControllerBase : ControllerBase` do próprio módulo, que já aplica `[ApiController]`. A exigência do papel `Admin` será declarada nessa base e protegerá todo o backoffice do módulo.
+- Controllers de backoffice herdam a `internal abstract class AdminControllerBase : ControllerBase` do próprio módulo, que já aplica `[ApiController]` e `[Authorize(Roles = "Admin")]` (veja [Autorização](#autorização)).
 - Endpoints de backoffice nunca ficam nas rotas do cliente, e cada público tem seus próprios DTOs de resposta.
 - Cada público tem seu próprio host: a API externa registra os controllers de cliente e anônimos, e o backoffice, só os que herdam a `AdminControllerBase`, conforme [Hosts da API externa e do backoffice](hosts.md). Essa separação (#32) substitui a API única com rotas por público decidida na #3; como os controllers já ficavam nos módulos, ela não mudou módulos nem casos de uso.
+
+## Autorização
+
+Os controllers seguem a [autenticação JWT e autorização por políticas](authentication.md) (#9):
+
+- **Nega por padrão.** A política de fallback de cada host exige usuário autenticado e, no backoffice, o papel `Admin`. Uma action ou controller sem anotação de autorização já exige token; só fica anônimo quem declara `[AllowAnonymous]` (por exemplo, o login da #12).
+- **A base de backoffice exige `Admin`.** A `AdminControllerBase` do módulo declara `[Authorize(Roles = "Admin")]`, então todo o backoffice do módulo fica protegido mesmo que uma action esqueça de declarar sua política. Um token de `Customer` recebe `403` em qualquer endpoint `api/v1/admin/<module>`.
+- **Actions exigem capacidades, não papéis.** Quando uma action precisa de permissão específica, declara uma política nomeada por capacidade, como `[Authorize(Policy = IdentityPolicies.AdminsInvite)]` (`identity:admins.invite`). O mapeamento de papel para política fica num único lugar do módulo dono, em `Controllers/<Module>Policies`, registrado em `Add<Module>Module` com `services.AddAuthorization(...)`.
+
+```csharp
+[ApiVersion(1)]
+[Route("api/v{version:apiVersion}/admin/identity/admins")]
+internal sealed class AdminsController : AdminControllerBase
+{
+    [HttpPost("invitations")]
+    [Authorize(Policy = IdentityPolicies.AdminsInvite)]
+    public IActionResult Invite(InviteAdminRequest request) => ...;
+}
+```
+
+O exemplo é ilustrativo: ainda não há esse controller.
 
 ## Como os controllers internal são descobertos
 
@@ -29,18 +50,16 @@ O `ControllerFeatureProvider` padrão do ASP.NET Core só reconhece controllers 
 
 O SDK também gera `[assembly: ApplicationPart]` em cada host para os módulos referenciados que usam ASP.NET Core, então hoje o registro explícito é redundante. Ele é mantido para deixar claro que o módulo publica controllers, sem depender desse detalhe do SDK.
 
-Os testes sobem os hosts com `WebApplicationFactory`, por meio da [`OuroborosApiFactory` e da `BackofficeApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs), que fornecem a connection string fictícia exigida na subida (veja [Persistência](persistence.md#testes)). A da API externa usa o `Program` da `Ouroboros.Api`; a do backoffice usa o tipo `BackofficeApiEntryPoint`, porque o .NET 10 gera um `Program` público em cada host web.
+Os testes sobem os hosts com `WebApplicationFactory`, por meio da [`OuroborosApiFactory` e da `BackofficeApiFactory`](../../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs), que fornecem a connection string fictícia (veja [Persistência](persistence.md#testes)) e a `SigningKey` de teste exigidas na subida. A da API externa usa o `Program` da `Ouroboros.Api`; a do backoffice usa o tipo `BackofficeApiEntryPoint`, porque o .NET 10 gera um `Program` público em cada host web.
 
 ## Alternativas descartadas
 
 - Controllers em `Ouroboros.Api`: exigiriam tornar públicos os casos de uso, contrariando a regra de visibilidade.
-- Minimal APIs com grupos de rota por público: a Microsoft as recomenda para projetos novos ([APIs overview](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/apis)), mas o projeto prefere controllers explícitos por familiaridade e por agruparem as ações de um recurso. Em troca, a proteção do backoffice depende de herança verificada por teste, e não de um grupo de rota.
+- Minimal APIs com grupos de rota por público: a Microsoft as recomenda para projetos novos ([APIs overview](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/apis)), mas o projeto prefere controllers explícitos por familiaridade e por agruparem as ações de um recurso. Em troca, a separação do backoffice depende de herança verificada por teste, e não de um grupo de rota; a exigência do papel `Admin` não depende só dela, porque a política padrão do backoffice também a aplica.
 
 ## Estado atual
 
-Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, qualquer rota responde 404 nos dois hosts (em ProblemDetails, veja [Respostas de erro](error-responses.md)). Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
-
-A exigência do papel `Admin` na `AdminControllerBase` (token de `Customer` recebe 403) entra com a autenticação JWT na #9 e ainda não está implementada: hoje a base não aplica nenhuma restrição.
+Somente o Identity está preparado para controllers: registra sua application part, usa `Microsoft.AspNetCore.App`, referencia `Asp.Versioning.Abstractions` e `Microsoft.AspNetCore.Authentication.JwtBearer`, tem a [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs), que exige o papel `Admin`, e as políticas por capacidade em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/IdentityPolicies.cs) (`identity:admins.invite`, ainda sem endpoint que a use). Ainda não há controllers concretos nem a pasta `Controllers/Customer`; o primeiro endpoint será o login (#12). Por isso, nos dois hosts, qualquer rota responde `401` sem token e `404` com token válido (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Customers, Accounts e Transactions ainda usam o pacote de abstrações de DI.
 
 ## Testes de arquitetura
 
@@ -50,6 +69,7 @@ O projeto [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.Architectu
 - [`ControllerDiscoveryTests`](../../tests/Ouroboros.ArchitectureTests/ControllerDiscoveryTests.cs): registra na API externa uma application part com um controller `internal` que depende de um serviço `internal` e verifica que ele responde na rota declarada (`/api/v1/probe`). Remover o `AudienceControllerFeatureProvider` faz esse teste falhar.
 - [`HostSeparationTests`](../../tests/Ouroboros.ArchitectureTests/HostSeparationTests.cs): verifica que cada host só registra os controllers do seu público; detalhes em [Hosts](hosts.md#testes).
 - [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): sobre as actions que os dois hosts realmente registram (a união deles), exige que todo controller de módulo declare ao menos um `[ApiVersion]` (`[ApiVersionNeutral]` não é aceito) e use attribute routing com prefixo `api/v{version:apiVersion}/<module>/` ou `api/v{version:apiVersion}/admin/<module>/`, e que o segmento `admin/` apareça se e somente se o controller herdar a `AdminControllerBase` do módulo. Como só enxerga controllers descobertos, depende da garantia do teste anterior.
+- [`AuthorizationTests`](../../tests/Ouroboros.ArchitectureTests/AuthorizationTests.cs): política padrão, validação do token, `403` de `Customer` no backoffice e exigência do papel `Admin` na `AdminControllerBase` de cada módulo; detalhes em [Autenticação](authentication.md#testes). Os controllers de teste que não exercitam autorização declaram `[AllowAnonymous]` ou recebem um token válido.
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): verifica os headers de versão, a rejeição de versão não declarada ou ausente e a versão descontinuada; detalhes em [Versionamento da API HTTP](api-versioning.md#testes).
 
 Na raiz do repositório:
@@ -63,7 +83,7 @@ O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testi
 ## Origem
 
 - [#3](https://github.com/adnerscarpelini/ouroboros-server/issues/3): decisão e implementação inicial.
-- [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT e exigência do papel `Admin` na `AdminControllerBase`.
+- [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT, política padrão que nega por padrão, exigência do papel `Admin` na `AdminControllerBase` e políticas por capacidade.
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): segmento de versão nas rotas e `[ApiVersion]` nos controllers.
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): tradução de falhas de negócio em ProblemDetails.
 - [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): hosts separados para a API externa e o backoffice, substituindo a API única.

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +11,9 @@ namespace Ouroboros.Hosting;
 // Program.cs, então a composição de cada um fica visível ali.
 public static class OuroborosHostExtensions
 {
+    // Papel fixo de administrador, o mesmo emitido no claim role dos tokens.
+    public const string AdminRole = "Admin";
+
     public static WebApplicationBuilder AddOuroborosHost(this WebApplicationBuilder builder, HostAudience audience)
     {
         builder.Services.AddSingleton(new CurrentHost(audience));
@@ -32,6 +36,13 @@ public static class OuroborosHostExtensions
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
 
+        // Nega por padrão: um endpoint só é anônimo se declarar [AllowAnonymous]. No backoffice, além
+        // de autenticado, o usuário precisa ter o papel Admin, mesmo que o controller esqueça de
+        // herdar a AdminControllerBase.
+        builder.Services.AddAuthorization(options => options.FallbackPolicy = audience == HostAudience.Backoffice
+            ? new AuthorizationPolicyBuilder().RequireAuthenticatedUser().RequireRole(AdminRole).Build()
+            : new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+
         return builder;
     }
 
@@ -39,6 +50,8 @@ public static class OuroborosHostExtensions
     {
         app.UseExceptionHandler();
         app.UseStatusCodePages();
+        app.UseAuthentication();
+        app.UseAuthorization();
         app.MapControllers();
         return app;
     }

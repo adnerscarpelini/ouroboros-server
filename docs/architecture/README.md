@@ -11,5 +11,6 @@ Notas gerais e decisões do Ouroboros, distinguindo a estrutura implementada das
 - [Identificadores, datas e nomes das entidades](entity-conventions.md): `Id` `long` interno e `ExternalId` UUIDv7 público, `CreatedAt`/`UpdatedAt` preenchidos por interceptor, nomes em snake_case e como criar uma entidade.
 - [Testes de integração com PostgreSQL](integration-tests.md): PostgreSQL em container com Testcontainers, migrations aplicadas uma vez num banco modelo, um banco clonado por teste e como escrever um teste.
 - [Domínio de identidade próprio e hash de senha](identity.md): `User` próprio em vez do ASP.NET Core Identity completo, `PasswordHasher<T>` V3 com 210.000 iterações atrás de uma porta do módulo, rehash na verificação e tabela `identity.users`.
+- [Autenticação JWT e autorização por políticas](authentication.md): access token HS256 emitido e validado pelo Identity, audiência por host, chave fora do Git validada na subida, política padrão que nega por padrão (`Admin` no backoffice) e políticas por capacidade.
 
 [Voltar à documentação](../README.md)
