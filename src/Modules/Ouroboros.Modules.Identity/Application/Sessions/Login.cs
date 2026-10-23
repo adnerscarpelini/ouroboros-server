@@ -42,7 +42,7 @@ internal sealed class Login(
         }
 
         // Usuário inativo ou de outro papel recebe a mesma resposta de senha errada.
-        if (!user.IsActive || user.Role != RoleOf(request.Channel))
+        if (!user.IsActive || user.Role != LoginChannels.RoleOf(request.Channel))
         {
             return LoginResult.InvalidCredentials;
         }
@@ -59,11 +59,4 @@ internal sealed class Login(
         var accessToken = accessTokenIssuer.Issue(user, session.ExternalId);
         return new LoginResult(new SessionTokens(accessToken.Token, accessToken.ExpiresAt, refreshToken, refreshTokenExpiresAt));
     }
-
-    private static UserRole RoleOf(LoginChannel channel) => channel switch
-    {
-        LoginChannel.CustomerApp => UserRole.Customer,
-        LoginChannel.Backoffice => UserRole.Admin,
-        _ => throw new ArgumentOutOfRangeException(nameof(channel), channel, "Canal de login desconhecido."),
-    };
 }

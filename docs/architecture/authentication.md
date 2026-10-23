@@ -22,7 +22,7 @@ Seção `Authentication:Jwt`, lida por [`JwtOptions`](../../src/Modules/Ouroboro
 | `Issuer` | `appsettings.json` de cada host | `ouroboros` nos dois. |
 | `Audience` | `appsettings.json` de cada host | `ouroboros-api` em [`Ouroboros.Api`](../../src/Ouroboros.Api/appsettings.json); `ouroboros-backoffice` em [`Ouroboros.Backoffice.Api`](../../src/Ouroboros.Backoffice.Api/appsettings.json). |
 | `AccessTokenLifetime` | `appsettings.json` de cada host | `00:15:00` (15 minutos). |
-| `RefreshTokenLifetime` | `appsettings.json` de cada host | `7.00:00:00` (7 dias); define a expiração do refresh token emitido no login ([#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12)). |
+| `RefreshTokenLifetime` | `appsettings.json` de cada host | `7.00:00:00` (7 dias); define a expiração do refresh token emitido no login ([#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12)) e em cada renovação, contada a partir dela ([#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15)). |
 | `SigningKey` | Fora do Git: user-secrets em desenvolvimento, variável `Authentication__Jwt__SigningKey` nos demais ambientes | Chave aleatória de pelo menos 32 bytes. |
 
 Os dois hosts compartilham o `UserSecretsId`, então leem a mesma `SigningKey` em desenvolvimento. A chave é usada como texto: seus bytes em UTF-8 formam a chave HMAC, então uma string Base64 de 64 caracteres equivale a 64 bytes. Como gerar e gravar a chave: [README](../../README.md#chave-de-assinatura-dos-tokens).
@@ -60,7 +60,7 @@ Token ausente ou inválido responde `401`; token válido sem o papel ou a polít
 | `sid` | `ExternalId` da sessão. |
 | `jti` | Identificador único do token (UUIDv7). |
 
-`Issue(user, sessionId)` retorna o token e o instante de expiração. Os nomes dos claims ficam em [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/IdentityClaims.cs). Desde a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), o emissor é chamado pelo login, que abre a sessão cujo `ExternalId` vai no `sid` e entrega também um refresh token opaco ([Fazer login com e-mail e senha](../identity/login.md)). A renovação do access token pelo refresh token ainda não existe ([#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15)), e a validação do access token não consulta a sessão.
+`Issue(user, sessionId)` retorna o token e o instante de expiração. Os nomes dos claims ficam em [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/IdentityClaims.cs). Desde a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12), o emissor é chamado pelo login, que abre a sessão cujo `ExternalId` vai no `sid` e entrega também um refresh token opaco ([Fazer login com e-mail e senha](../identity/login.md)). Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o emissor também é chamado pela renovação, que troca o refresh token por um par novo na mesma sessão (mesmo `sid`), com o papel lido do banco e a audiência do host em que a renovação foi feita ([Renovar o access token com rotação do refresh token](../identity/refresh-session.md)). A validação do access token não consulta a sessão: um token emitido vale até expirar, mesmo depois de uma renovação.
 
 ## Autorização
 
@@ -75,7 +75,7 @@ Token ausente ou inválido responde `401`; token válido sem o papel ou a polít
 
 `UseOuroborosHost` inclui `UseAuthentication()` e `UseAuthorization()` no pipeline, antes de `MapControllers()`.
 
-- Um endpoint só é anônimo com `[AllowAnonymous]`. Hoje os únicos anônimos são os dois logins da #12 (`POST /api/v1/identity/sessions` e `POST /api/v1/admin/identity/sessions`, veja [Fazer login com e-mail e senha](../identity/login.md)).
+- Um endpoint só é anônimo com `[AllowAnonymous]`. Hoje os únicos anônimos são os dois logins da #12 (`POST /api/v1/identity/sessions` e `POST /api/v1/admin/identity/sessions`, veja [Fazer login com e-mail e senha](../identity/login.md)) e as duas renovações da #15 (`POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh`, veja [Renovar o access token com rotação do refresh token](../identity/refresh-session.md)).
 - A política padrão também vale para requisições que não correspondem a nenhuma rota. Sem token, até uma rota inexistente responde `401`, então a resposta não revela quais rotas existem; com token válido, a mesma rota responde `404`.
 - No backoffice, o fallback exige `Admin` em todo endpoint, sem depender de base de controller nem de anotação: um token de `Customer` recebe `403` em qualquer endpoint `api/v1/admin/<module>`, mesmo que o controller não declare nenhuma política. Até a #47, a `AdminControllerBase` de cada módulo também exigia `Admin`; ela foi removida junto com os controllers dos módulos ([Controllers HTTP nos hosts](http-controllers.md#autorização)).
 
@@ -114,9 +114,9 @@ Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests
   - token da API externa no backoffice e vice-versa: `401`;
   - `SigningKey` ausente, vazia, só com espaços ou com menos de 256 bits impede a subida, com mensagem que cita a chave;
 
-Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), [`AccessTokenIssuerTests`](../../tests/Ouroboros.IntegrationTests/AccessTokenIssuerTests.cs): o token emitido pelo `AccessTokenIssuer` é aceito pela API externa com `sub`, `role` e `sid`, usa HS256, a audiência do host e validade de 15 minutos. Os testes do login, que emitem tokens pelos dois hosts e verificam a audiência de cada um, estão em [Fazer login com e-mail e senha](../identity/login.md#como-verificar).
+Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), [`AccessTokenIssuerTests`](../../tests/Ouroboros.IntegrationTests/AccessTokenIssuerTests.cs): o token emitido pelo `AccessTokenIssuer` é aceito pela API externa com `sub`, `role` e `sid`, usa HS256, a audiência do host e validade de 15 minutos. Os testes do login, que emitem tokens pelos dois hosts e verificam a audiência de cada um, estão em [Fazer login com e-mail e senha](../identity/login.md#como-verificar); os da renovação, em [Renovar o access token](../identity/refresh-session.md#como-verificar).
 
-Na validação da #9, a suíte tinha 91 testes; na da #47, 93; na da #12, 216.
+Na validação da #9, a suíte tinha 91 testes; na da #47, 93; na da #12, 216; na da #15, 252.
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests
@@ -134,5 +134,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): hosts separados, com uma audiência por host.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): remoção da `AdminControllerBase` e nomes das políticas em `Contracts`.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login, sessão e refresh token, com os primeiros endpoints anônimos.
+- [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovação do access token com rotação do refresh token, anônima nos dois hosts.
 
 [Voltar à arquitetura](README.md)

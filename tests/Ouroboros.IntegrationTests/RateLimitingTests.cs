@@ -88,6 +88,22 @@ public sealed class RateLimitingTests(PostgresFixture postgres) : IntegrationTes
     }
 
     [Fact]
+    public async Task Refresh_has_its_own_policy()
+    {
+        await using var api = CreateApi(loginLimit: 100).WithWebHostBuilder(builder => builder.ConfigureAppConfiguration(configuration =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Identity:RateLimiting:Policies:identity-refresh:PermitLimit"] = "1",
+                ["Identity:RateLimiting:Policies:identity-refresh:Window"] = "01:00:00",
+            })));
+        using var client = api.CreateClient();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await RefreshAsync(client, "10.0.0.1")).StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await RefreshAsync(client, "10.0.0.1")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await LoginAsync(client, LoginRoute, "10.0.0.1")).StatusCode);
+    }
+
+    [Fact]
     public async Task Backoffice_login_is_limited_too()
     {
         await using var backoffice = new BackofficeIntegrationApiFactory(ConnectionString)
@@ -162,6 +178,16 @@ public sealed class RateLimitingTests(PostgresFixture postgres) : IntegrationTes
         using var request = new HttpRequestMessage(HttpMethod.Post, route)
         {
             Content = JsonContent.Create(new { Email = "ninguem@example.com", Password = "uma senha qualquer bem longa" }),
+        };
+        request.Headers.Add(TestClientAddressStartupFilter.Header, clientAddress);
+        return await client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string clientAddress)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/identity/sessions/refresh")
+        {
+            Content = JsonContent.Create(new { RefreshToken = "token-que-nao-existe" }),
         };
         request.Headers.Add(TestClientAddressStartupFilter.Header, clientAddress);
         return await client.SendAsync(request, TestContext.Current.CancellationToken);

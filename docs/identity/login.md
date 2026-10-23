@@ -13,11 +13,11 @@ Módulo responsável: Identity. A regra fica no caso de uso `ILogin` do módulo;
 | API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions` | `Customer` | `ouroboros-api` |
 | Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions` | `Admin` | `ouroboros-backoffice` |
 
-As duas rotas são anônimas (`[AllowAnonymous]`), as únicas dos hosts até agora, e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. Desde a #14, as duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada host, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito pelo host em que o login foi feito ([Autenticação](../architecture/authentication.md#validação-do-token)).
+As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refresh-session.md), e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. Desde a #14, as duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada host, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito pelo host em que o login foi feito ([Autenticação](../architecture/authentication.md#validação-do-token)).
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions` e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../../README.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
+- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../../README.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../../README.md#chave-de-assinatura-dos-tokens)).
 - Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). Ainda não há cadastro de clientes ([#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20) e [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21)), então o login da API externa só é exercitado hoje com usuários criados pelos testes.
 
@@ -44,7 +44,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:5142/api/v1/admin/identity/
 
 Na API externa (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions`, com um `Customer`.
 
-Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo host.
+Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo host. Antes que ele expire, troque o refresh token por um par novo na rota de renovação do mesmo host ([Renovar o access token com rotação do refresh token](refresh-session.md)).
 
 ### Entrada
 
@@ -76,7 +76,7 @@ Acima de 10 requisições do mesmo IP na mesma janela fixa de 1 minuto, o login 
 | `accessToken` | JWT HS256 com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`), `sid` (`ExternalId` da sessão aberta) e `jti`, além de `iss`, `aud`, `iat`, `nbf` e `exp` ([Emissão do access token](../architecture/authentication.md#emissão-do-access-token)). |
 | `tokenType` | Sempre `Bearer`. |
 | `accessTokenExpiresAt` | Instante de expiração do access token: agora + `AccessTokenLifetime` (15 minutos). |
-| `refreshToken` | Valor opaco: 32 bytes aleatórios em Base64Url (43 caracteres). |
+| `refreshToken` | Valor opaco: 32 bytes aleatórios em Base64Url (43 caracteres), de uso único na [renovação](refresh-session.md). |
 | `refreshTokenExpiresAt` | Instante de expiração do refresh token: agora + `RefreshTokenLifetime` (7 dias). |
 
 O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-editor.org/rfc/rfc6749#section-5.1), com as expirações como instantes em vez de segundos. Os tempos de vida ficam em `Authentication:Jwt` no `appsettings.json` de cada host ([Configuração](../architecture/authentication.md#configuração)). Os valores do exemplo são fictícios.
@@ -96,7 +96,7 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 
 ## Regras
 
-- **O canal define o papel.** Cada controller informa o seu `LoginChannel`: `CustomerApp` na API externa, que aceita só `Customer`, e `Backoffice`, que aceita só `Admin`. É a camada 4 das [camadas de proteção do backoffice](../architecture/hosts.md#camadas-de-proteção-do-backoffice).
+- **O canal define o papel.** Cada controller informa o seu `LoginChannel`: `CustomerApp` na API externa, que aceita só `Customer`, e `Backoffice`, que aceita só `Admin` (o mapeamento fica em `LoginChannels.RoleOf`, usado também pela [renovação](refresh-session.md)). É a camada 4 das [camadas de proteção do backoffice](../architecture/hosts.md#camadas-de-proteção-do-backoffice).
 - **Mesma resposta para toda falha.** O resultado do caso de uso não diz o motivo da falha, e o controller responde sempre o mesmo `401`, para não revelar se a conta existe.
 - **Mesmo custo para e-mail inexistente e conta bloqueada.** Sem usuário ou com a conta bloqueada, a senha real não é verificada: o `UserPasswordVerifier.VerifyWithoutUser` verifica a senha contra um hash fictício, de uma senha aleatória gerado com os parâmetros atuais do hasher. O hash é calculado na criação do verificador (singleton), e não no primeiro uso, para que o primeiro login com e-mail inexistente não demore mais que os outros. Usuário inativo ou de outro papel também passa pela verificação real da senha antes da recusa. Os parâmetros do bloqueio são lidos no início de todo login, com ou sem usuário, pelo mesmo motivo.
 - **Limite por IP antes de tudo.** O limite de requisições roda antes do controller: uma requisição recusada com `429` não chega ao caso de uso, não soma falha no [bloqueio](account-lockout.md) e não custa hash de senha ([Limitar requisições](auth-rate-limiting.md)).
@@ -113,11 +113,12 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 | [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LoginRequest(Email, Password, Channel))`, que retorna `LoginResult`. O mesmo arquivo declara `LoginChannel` (`CustomerApp`, `Backoffice`), `LoginResult` (`Tokens`, `Succeeded` e `InvalidCredentials`, sem motivo da falha) e `SessionTokens` (os dois tokens e as expirações). |
 | [`Login`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Login.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
 | [`RefreshTokens`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/RefreshTokens.cs) | `Application/Security` (`internal`) | Gera o refresh token (32 bytes aleatórios em Base64Url) e calcula o seu SHA-256. |
-| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Login)]`; os DTOs `CreateSessionRequest` e `SessionResponse` e o `type` do erro ficam em `SessionModels.cs`, um por host. |
+| [`LoginChannels`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/LoginChannels.cs) | `Application/Sessions` (`internal`) | `RoleOf(channel)`: papel aceito por canal, compartilhado com a [renovação](refresh-session.md). |
+| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Login)]`; os DTOs `CreateSessionRequest` e `SessionResponse` e o `type` do erro ficam em `SessionModels.cs`, um por host. O mesmo controller tem a action `Refresh` da [renovação](refresh-session.md). |
 
 ## Persistência
 
-A migration `AddSessions` cria duas tabelas no schema `identity`, mapeadas por [`SessionConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/SessionConfiguration.cs) a partir das entidades [`Session`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/Session.cs) e [`RefreshToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/RefreshToken.cs), em `Domain/Sessions`. Além das colunas abaixo, as duas têm `id`, `external_id`, `created_at` e `updated_at`, conforme as [convenções das entidades](../architecture/entity-conventions.md); todas as colunas são `not null`.
+A migration `AddSessions` cria duas tabelas no schema `identity`, mapeadas por [`SessionConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/SessionConfiguration.cs) a partir das entidades [`Session`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/Session.cs) e [`RefreshToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/RefreshToken.cs), em `Domain/Sessions`. Além das colunas abaixo, as duas têm `id`, `external_id`, `created_at` e `updated_at`, conforme as [convenções das entidades](../architecture/entity-conventions.md); todas as colunas são `not null`, exceto `revoked_at`.
 
 | Tabela | Coluna | Observação |
 | --- | --- | --- |
@@ -125,13 +126,14 @@ A migration `AddSessions` cria duas tabelas no schema `identity`, mapeadas por [
 | `refresh_tokens` | `session_id` | FK para `identity.sessions` com exclusão em cascata, índice `ix_refresh_tokens_session_id`. |
 | `refresh_tokens` | `token_hash` | `bytea` com os 32 bytes do SHA-256 do token, índice único `ix_refresh_tokens_token_hash`. |
 | `refresh_tokens` | `expires_at` | `timestamptz`, instante de expiração do token. |
+| `refresh_tokens` | `revoked_at` | `timestamptz`, nulo enquanto o token está ativo. Criada pela migration `AddRefreshTokenRevocation` (#15); veja [Renovar o access token](refresh-session.md#persistência). |
 
-Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e a renovação ([#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15)) deverá acrescentar os seguintes.
+Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [renovação](refresh-session.md) revoga o atual e acrescenta o seguinte.
 
 ## Limitações
 
-- **O refresh token ainda não tem uso.** Ele é emitido e gravado, mas não há rota que o troque por um access token novo; a renovação com rotação chega com a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), e a revogação da sessão ao detectar reuso, com a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16). Depois de 15 minutos, o cliente precisa fazer login de novo.
-- **Não há logout.** As sessões não têm estado de encerramento e não expiram por conta própria; encerrar a sessão atual e todas as sessões fica com a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17) e a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18). A validação do access token não consulta a sessão: um token emitido vale até expirar.
+- **Reuso do refresh token não revoga a sessão.** Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; apresentar de novo um token já revogado responde `401`, mas a revogação da sessão ao detectar reuso fica com a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16).
+- **Não há logout.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram; encerrar a sessão atual e todas as sessões fica com a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17) e a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18). A validação do access token não consulta a sessão: um token emitido vale até expirar.
 - **Limite por IP, em memória e por instância.** Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), o login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
 - **Tempo de resposta não medido.** Os testes verificam que o e-mail inexistente executa uma verificação de hash, mas não medem a diferença de tempo entre as respostas.
@@ -155,7 +157,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - e-mail ou senha ausente responde `400`;
 - os logs, capturados no nível `Trace` pelo [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs), não contêm a senha nem os tokens, num login bem-sucedido e num recusado.
 
-Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar), e os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
+Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); e os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
 
 ## Referências
 
@@ -168,5 +170,6 @@ Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): fazer login com e-mail e senha.
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): bloqueio da conta após falhas consecutivas de senha.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): limite de requisições por IP.
+- [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): coluna `revoked_at` e `LoginChannels` compartilhado com a renovação.
 
 [Voltar à documentação](../README.md)
