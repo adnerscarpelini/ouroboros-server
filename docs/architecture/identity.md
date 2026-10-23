@@ -53,6 +53,10 @@ Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Id
 - [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
 - O refresh token, a sessão e o login ficam com a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12); hoje nenhum endpoint emite tokens.
 
+## E-mail
+
+Desde a [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10), o Identity envia e-mails pela porta `IEmailSender`, em `Application/Notifications`, com os adaptadores em `Infrastructure/Email`: em `Development`, o `PickupDirectoryEmailSender` grava cada mensagem como `.eml` em `.local/emails`; sem provedor configurado, o `UnconfiguredEmailSender` falha ao enviar. `AddIdentityModule` registra as opções `Identity:Email`, validadas na subida. Os casos de uso enviam só depois de gravar a transação, e o token nunca volta na resposta nem vai para o log. Detalhes em [Envio de e-mail por porta com adaptador local](email.md).
+
 ## Persistência
 
 A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e criada pela migration `AddUsers`:
@@ -90,7 +94,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes).
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes), e os do e-mail, em [Envio de e-mail](email.md#testes).
 
 ## Referências
 
@@ -102,5 +106,6 @@ Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [
 
 - [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): domínio de identidade próprio com o hasher do ASP.NET Core Identity.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): emissão e validação dos access tokens JWT.
+- [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10): envio de e-mails por uma porta com adaptador local.
 
 [Voltar à arquitetura](README.md)

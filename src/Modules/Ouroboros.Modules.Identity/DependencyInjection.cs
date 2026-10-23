@@ -5,9 +5,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Ouroboros.Modules.Identity.Application.Notifications;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Domain.Users;
+using Ouroboros.Modules.Identity.Infrastructure.Email;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 using Ouroboros.Modules.Identity.Infrastructure.Security;
 
@@ -28,6 +30,7 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         AddTokenAuthentication(services);
+        AddEmail(services);
 
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<UserPasswordVerifier>();
@@ -84,5 +87,19 @@ public static class DependencyInjection
         services.AddAuthorization(options => options.AddPolicy(
             IdentityPolicies.AdminsInvite,
             policy => policy.RequireRole(nameof(UserRole.Admin))));
+    }
+
+    // O provedor de e-mail vem da configuração (Identity:Email:Provider). O adaptador local só é aceito
+    // em Development; sem provedor, enviar é erro explícito.
+    private static void AddEmail(IServiceCollection services)
+    {
+        services.AddSingleton<IValidateOptions<EmailOptions>, EmailOptionsValidator>();
+        services.AddOptions<EmailOptions>().BindConfiguration(EmailOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<PickupDirectoryEmailSender>();
+        services.AddSingleton<UnconfiguredEmailSender>();
+        services.AddSingleton<IEmailSender>(provider =>
+            provider.GetRequiredService<IOptions<EmailOptions>>().Value.Provider == EmailProvider.PickupDirectory
+                ? provider.GetRequiredService<PickupDirectoryEmailSender>()
+                : provider.GetRequiredService<UnconfiguredEmailSender>());
     }
 }
