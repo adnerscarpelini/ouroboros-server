@@ -43,6 +43,7 @@ public static class DependencyInjection
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
         services.AddScoped<ILogin, Login>();
+        services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<AccountLockout>();
 
         services.TryAddSingleton(TimeProvider.System);

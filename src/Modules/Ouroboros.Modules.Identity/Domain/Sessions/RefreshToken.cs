@@ -19,6 +19,19 @@ internal sealed class RefreshToken : Entity
 
     public DateTimeOffset ExpiresAt { get; private set; }
 
+    // Momento em que o token deixou de valer (rotação, logout ou reuso); null enquanto ativo.
+    public DateTimeOffset? RevokedAt { get; private set; }
+
+    public bool IsActiveAt(DateTimeOffset now) => RevokedAt is null && ExpiresAt > now;
+
+    // Token seguinte de uma sessão já gravada, emitido na renovação.
+    public static RefreshToken Issue(long sessionId, byte[] tokenHash, DateTimeOffset expiresAt)
+    {
+        var token = Create(tokenHash, expiresAt);
+        token.SessionId = sessionId;
+        return token;
+    }
+
     public static RefreshToken Create(byte[] tokenHash, DateTimeOffset expiresAt)
     {
         if (tokenHash.Length != HashLength)

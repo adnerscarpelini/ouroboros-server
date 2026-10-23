@@ -44,6 +44,10 @@ namespace Ouroboros.Modules.Identity.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("external_id");
 
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("revoked_at");
+
                     b.Property<long>("SessionId")
                         .HasColumnType("bigint")
                         .HasColumnName("session_id");
