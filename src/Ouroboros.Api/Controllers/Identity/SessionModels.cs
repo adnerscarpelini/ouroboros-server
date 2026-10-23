@@ -9,7 +9,8 @@ public sealed record CreateSessionRequest(
     [Required, MaxLength(254)] string Email,
     [Required, MaxLength(1024)] string Password);
 
-// Token vazio ou ausente não é erro de validação: recebe o mesmo 401 de token inexistente.
+// Corpo da renovação e do logout. Token vazio ou ausente não é erro de validação: recebe o mesmo 401
+// de token inexistente.
 public sealed record RefreshSessionBody([MaxLength(256)] string? RefreshToken);
 
 // Resposta do login e da renovação (RFC 6749, seção 5.1, com as expirações como instantes).

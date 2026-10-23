@@ -76,7 +76,7 @@ O exemplo é ilustrativo, e o código acima não está no catálogo. A primeira 
 
 Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
 
-A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login e de renovação do access token são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
+A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
 ### Limite de requisições (429)
 

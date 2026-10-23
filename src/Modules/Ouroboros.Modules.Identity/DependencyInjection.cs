@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
+        services.AddScoped<ILogout, Logout>();
         services.AddScoped<AccountLockout>();
 
         services.TryAddSingleton(TimeProvider.System);
