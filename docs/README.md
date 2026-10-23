@@ -16,6 +16,7 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Testes de integração com PostgreSQL](architecture/integration-tests.md): PostgreSQL em container, banco modelo migrado e um banco clonado por teste.
 - [Domínio de identidade próprio e hash de senha](architecture/identity.md): entidade `User` própria, só o `PasswordHasher<T>` do ASP.NET Core Identity com 210.000 iterações e rehash na verificação.
 - [Autenticação JWT e autorização por políticas](architecture/authentication.md): JWT HS256 com audiência por host, chave de assinatura fora do Git e endpoints que exigem token, salvo `[AllowAnonymous]`.
+- [Envio de e-mail por porta com adaptador local](architecture/email.md): porta de envio no Identity, `.eml` em `.local/emails` em desenvolvimento e falha explícita sem provedor.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.

@@ -15,14 +15,14 @@ A solution contém nove projetos reais:
 - `Ouroboros.Api`: API externa (app do cliente, endpoints anônimos e integrações); host ASP.NET Core que compõe os módulos e declara os controllers da API externa em `Controllers/<Module>/`, ainda sem endpoints.
 - `Ouroboros.Backoffice.Api`: API interna de backoffice; host que compõe os módulos e declara os controllers do backoffice em `Controllers/<Module>/`, ainda sem endpoints.
 - `Ouroboros.Hosting`: configuração HTTP comum aos dois hosts (controllers, versionamento, ProblemDetails e política padrão de autorização por público).
-- `Ouroboros.Modules.Identity`: identidade, com a entidade `User`, o hash de senha e a emissão e validação dos tokens JWT.
+- `Ouroboros.Modules.Identity`: identidade, com a entidade `User`, o hash de senha, a emissão e validação dos tokens JWT e a porta de envio de e-mail.
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
 - `Ouroboros.Modules.Transactions`: estrutura para transações.
 - `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades, da separação dos controllers entre os hosts, da descoberta, das rotas e do versionamento dos controllers e da autenticação e autorização.
 - `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
-Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Os módulos não declaram controllers: expõem os casos de uso em `Contracts`. Só o Identity registra algo: a autenticação JWT, as políticas por capacidade (com os nomes em `Contracts`), o hash de senha e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
+Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Os módulos não declaram controllers: expõem os casos de uso em `Contracts`. Só o Identity registra algo: a autenticação JWT, as políticas por capacidade (com os nomes em `Contracts`), o hash de senha, o envio de e-mail e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
 
 Os dois hosts validam access tokens JWT (HS256), cada um só com a sua audiência, e negam por padrão: todo endpoint exige token, salvo os marcados com `[AllowAnonymous]`, e o backoffice exige também o papel `Admin` ([Autenticação JWT e autorização por políticas](docs/architecture/authentication.md)). Ainda não há login: o refresh token e os endpoints que emitem tokens chegam com a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12).
 
@@ -154,6 +154,12 @@ Os dois perfis usam o ambiente `Development`; para o `https`, acrescente `--laun
 
 Todo endpoint exige um access token válido da audiência do host (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; no backoffice, o token precisa ser de um `Admin`. Como ainda não há endpoints nem login, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](docs/architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. Rotas de backoffice (`/api/v1/admin/...`) só existem no backoffice, e as demais, só na API externa; no deploy, o backoffice deve ficar só na rede interna ([Hosts da API externa e do backoffice](docs/architecture/hosts.md)).
 
+## E-mails em desenvolvimento
+
+Não há servidor de e-mail. No ambiente `Development`, os dois hosts gravam cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Ainda nenhum endpoint envia e-mail: o cadastro, a redefinição de senha e o convite de administradores vão usar esse envio.
+
+A configuração fica na seção `Identity:Email` dos `appsettings.Development.json`. O adaptador local só é aceito em `Development`: em outro ambiente, o host não sobe. Sem provedor configurado (o padrão fora de `Development`), o host sobe, mas qualquer envio falha com erro explícito. Detalhes em [Envio de e-mail por porta com adaptador local](docs/architecture/email.md).
+
 ## Documentação
 
 - [Índice](docs/README.md)
@@ -164,3 +170,4 @@ Todo endpoint exige um access token válido da audiência do host (`Authorizatio
 - [Testes de integração com PostgreSQL](docs/architecture/integration-tests.md)
 - [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md)
 - [Autenticação JWT e autorização por políticas](docs/architecture/authentication.md)
+- [Envio de e-mail por porta com adaptador local](docs/architecture/email.md)

@@ -12,5 +12,6 @@ Notas gerais e decisões do Ouroboros, distinguindo a estrutura implementada das
 - [Testes de integração com PostgreSQL](integration-tests.md): PostgreSQL em container com Testcontainers, migrations aplicadas uma vez num banco modelo, um banco clonado por teste e como escrever um teste.
 - [Domínio de identidade próprio e hash de senha](identity.md): `User` próprio em vez do ASP.NET Core Identity completo, `PasswordHasher<T>` V3 com 210.000 iterações atrás de uma porta do módulo, rehash na verificação e tabela `identity.users`.
 - [Autenticação JWT e autorização por políticas](authentication.md): access token HS256 emitido e validado pelo Identity, audiência por host, chave fora do Git validada na subida, política padrão que nega por padrão (`Admin` no backoffice) e políticas por capacidade.
+- [Envio de e-mail por porta com adaptador local](email.md): porta `IEmailSender` no Identity, `.eml` gravados em `.local/emails` só em `Development`, falha explícita sem provedor e envio depois do commit, sem outbox.
 
 [Voltar à documentação](../README.md)
