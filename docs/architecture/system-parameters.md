@@ -25,7 +25,7 @@ public interface ISystemParameters
 - Chave inexistente lança `ParameterNotFoundException` (também em `Contracts`), com a chave na propriedade `Key`. Chave nula ou em branco lança `ArgumentException`.
 - A implementação ([`SystemParameters`](../../src/Modules/Ouroboros.Modules.Settings/Application/Parameters/SystemParameters.cs)) é `internal` e registrada como scoped.
 
-Um módulo que precise de parâmetros passa a referenciar o projeto do Settings e usa apenas `Contracts`, conforme a [regra de dependência entre módulos](module-structure.md#fronteiras-adotadas-para-a-evolução). O primeiro será o Identity, na [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11); hoje nenhum módulo lê parâmetros.
+Um módulo que precise de parâmetros passa a referenciar o projeto do Settings e usa apenas `Contracts`, conforme a [regra de dependência entre módulos](module-structure.md#fronteiras-adotadas-para-a-evolução). O primeiro é o Identity, desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): a [criação do primeiro administrador](../identity/first-admin.md) lê `Identity:AdminInvitations:AllowedEmailDomain`.
 
 ### Tabela `settings.parameters`
 

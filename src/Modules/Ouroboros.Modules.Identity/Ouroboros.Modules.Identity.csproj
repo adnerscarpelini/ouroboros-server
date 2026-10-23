@@ -8,6 +8,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Ouroboros.BuildingBlocks/Ouroboros.BuildingBlocks.csproj" />
+    <!-- Identity lê parâmetros do sistema só pelos Contracts do Settings (dependência unidirecional). -->
+    <ProjectReference Include="../Ouroboros.Modules.Settings/Ouroboros.Modules.Settings.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Application\Security\common-passwords.txt" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Ouroboros.IntegrationTests" />

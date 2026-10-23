@@ -8,15 +8,15 @@ Projeto pessoal de estudos e portfólio em C#/.NET para uma fintech fictícia e 
 
 ## Estado atual
 
-Estrutura inicial de um monólito modular em .NET 10, com as primeiras entidades de domínio (o usuário do Identity e os parâmetros do sistema do Settings). Os casos de uso e os demais modelos de domínio ainda serão definidos.
+Estrutura inicial de um monólito modular em .NET 10, com as primeiras entidades de domínio (o usuário do Identity e os parâmetros do sistema do Settings) e o primeiro caso de uso, a criação do primeiro administrador por comando de linha. Os demais casos de uso e modelos de domínio ainda serão definidos.
 
 A solution contém onze projetos reais:
 
 - `Ouroboros.Api`: API externa (app do cliente, endpoints anônimos e integrações); host ASP.NET Core que compõe os módulos e declara os controllers da API externa em `Controllers/<Module>/`, ainda sem endpoints.
-- `Ouroboros.Backoffice.Api`: API interna de backoffice; host que compõe os módulos e declara os controllers do backoffice em `Controllers/<Module>/`, ainda sem endpoints.
+- `Ouroboros.Backoffice.Api`: API interna de backoffice; host que compõe os módulos, declara os controllers do backoffice em `Controllers/<Module>/`, ainda sem endpoints, e roda comandos de operação em `CommandLine/`, como o `create-admin`.
 - `Ouroboros.Hosting`: configuração HTTP comum aos dois hosts (controllers, versionamento, ProblemDetails e política padrão de autorização por público).
 - `Ouroboros.BuildingBlocks`: código técnico compartilhado pelos módulos (a base `Entity` e os tipos de persistência comuns); não referencia módulos nem hosts.
-- `Ouroboros.Modules.Identity`: identidade, com a entidade `User`, o hash de senha, a emissão e validação dos tokens JWT e a porta de envio de e-mail.
+- `Ouroboros.Modules.Identity`: identidade, com a entidade `User`, o hash e a política de senha, a criação do primeiro administrador, a emissão e validação dos tokens JWT e a porta de envio de e-mail; lê parâmetros do Settings pelos `Contracts`.
 - `Ouroboros.Modules.Settings`: parâmetros do sistema, lidos pelos outros módulos pelo contrato `ISystemParameters`, com validação e histórico de alterações.
 - `Ouroboros.Modules.Customers`: estrutura para clientes.
 - `Ouroboros.Modules.Accounts`: estrutura para contas.
@@ -24,11 +24,11 @@ A solution contém onze projetos reais:
 - `Ouroboros.ArchitectureTests`: testes de arquitetura da visibilidade dos tipos dos módulos, da não exposição do `Id` interno das entidades, das dependências do `Ouroboros.BuildingBlocks`, da separação dos controllers entre os hosts, da descoberta, das rotas e do versionamento dos controllers e da autenticação e autorização.
 - `Ouroboros.IntegrationTests`: testes de integração da API contra um PostgreSQL real em container.
 
-Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Os módulos não declaram controllers: expõem os casos de uso em `Contracts`. Só o Identity e o Settings registram algo. O Identity registra a autenticação JWT, as políticas por capacidade (com os nomes em `Contracts`), o hash de senha, o envio de e-mail e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. O Settings registra o `ISystemParameters` e o `SettingsDbContext`, que usa o schema `settings` e tem as tabelas `parameters` e `parameter_history` ([Parâmetros do sistema com histórico de alterações](docs/architecture/system-parameters.md)). A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md), com a base comum em `Ouroboros.BuildingBlocks` ([Código compartilhado entre módulos](docs/architecture/building-blocks.md)). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
+Cada módulo é uma class library com as pastas `Application`, `Contracts`, `Domain` e `Infrastructure`, além de `DependencyInjection.cs`. Os módulos não declaram controllers: expõem os casos de uso em `Contracts`. Só o Identity e o Settings registram algo. O Identity registra a autenticação JWT, as políticas por capacidade (com os nomes em `Contracts`), o hash de senha, o envio de e-mail, o caso de uso `ICreateFirstAdmin` e o `IdentityDbContext`, que usa o schema `identity` do PostgreSQL e tem a tabela `users`. O Settings registra o `ISystemParameters` e o `SettingsDbContext`, que usa o schema `settings` e tem as tabelas `parameters` e `parameter_history` ([Parâmetros do sistema com histórico de alterações](docs/architecture/system-parameters.md)). A persistência segue a [nota de persistência](docs/architecture/persistence.md): um banco, um schema, um DbContext e um histórico de migrations por módulo. As entidades seguem as [convenções de identificadores, datas e nomes](docs/architecture/entity-conventions.md), com a base comum em `Ouroboros.BuildingBlocks` ([Código compartilhado entre módulos](docs/architecture/building-blocks.md)). O Identity tem domínio próprio e usa do ASP.NET Core Identity só o `PasswordHasher<T>`, com 210.000 iterações e rehash na verificação, conforme o [Domínio de identidade próprio e hash de senha](docs/architecture/identity.md).
 
 Os dois hosts validam access tokens JWT (HS256), cada um só com a sua audiência, e negam por padrão: todo endpoint exige token, salvo os marcados com `[AllowAnonymous]`, e o backoffice exige também o papel `Admin` ([Autenticação JWT e autorização por políticas](docs/architecture/authentication.md)). Ainda não há login: o refresh token e os endpoints que emitem tokens chegam com a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12).
 
-Fora o `User` e os parâmetros do sistema, não há entidades; não há DTOs, handlers, repositórios, login ou operações financeiras implementadas. Os endpoints HTTP serão declarados em controllers `public` nos próprios hosts, organizados por módulo, chamando os casos de uso que os módulos expõem em `Contracts`, conforme [Controllers HTTP nos hosts](docs/architecture/http-controllers.md) (com o passo a passo para criar um endpoint), na API externa ou no backoffice conforme o público ([Hosts da API externa e do backoffice](docs/architecture/hosts.md)), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container; não há testes funcionais de casos de uso nem workflow de CI nesta etapa.
+Fora o `User` e os parâmetros do sistema, não há entidades; não há DTOs, handlers, repositórios, login ou operações financeiras implementadas. O único caso de uso é o `ICreateFirstAdmin`, usado pelo comando `create-admin` ([Criar o primeiro administrador](#criar-o-primeiro-administrador)). Os endpoints HTTP serão declarados em controllers `public` nos próprios hosts, organizados por módulo, chamando os casos de uso que os módulos expõem em `Contracts`, conforme [Controllers HTTP nos hosts](docs/architecture/http-controllers.md) (com o passo a passo para criar um endpoint), na API externa ou no backoffice conforme o público ([Hosts da API externa e do backoffice](docs/architecture/hosts.md)), com a versão na URL (`/api/v1/...`) segundo o [Versionamento da API HTTP](docs/architecture/api-versioning.md). Há testes de arquitetura e testes de integração contra um PostgreSQL real em container, incluindo os do caso de uso do primeiro administrador; não há workflow de CI nesta etapa.
 
 ## Requisitos
 
@@ -116,6 +116,25 @@ dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Settings
 
 `docker compose down` para o banco e mantém os dados no volume `postgres-data`; `docker compose down -v` também apaga o volume. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](docs/architecture/persistence.md).
 
+## Criar o primeiro administrador
+
+Administradores não se cadastram sozinhos. Com o banco configurado e as migrations do Identity e do Settings aplicadas, crie o primeiro `Admin` pelo comando `create-admin` do backoffice, que roda e encerra sem subir o servidor HTTP. A senha vai na variável de ambiente `OUROBOROS_ADMIN_PASSWORD`, nunca em argumento (argumentos ficam no histórico do shell e na lista de processos):
+
+```powershell
+$env:OUROBOROS_ADMIN_PASSWORD = '<senha>'
+dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mail>
+Remove-Item Env:OUROBOROS_ADMIN_PASSWORD
+```
+
+No bash: `OUROBOROS_ADMIN_PASSWORD='<senha>' dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mail>`.
+
+- O e-mail precisa ser do domínio do parâmetro `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`), sem subdomínios.
+- A senha tem de 15 a 128 caracteres, sem regras de composição (frases com espaços e acentos valem), e não pode ser comum nem conter `ouroboros` ou a parte local do e-mail ([Política de senha](docs/architecture/password-policy.md)).
+- Só funciona enquanto não houver nenhum `Admin`; os próximos entram por convite.
+- Código de saída `0`: criado; `1`: recusado, com a mensagem da regra e `Nada foi criado.`; `2`: falta `--email` ou a variável da senha.
+
+Detalhes em [Criar o primeiro administrador](docs/identity/first-admin.md).
+
 ## Chave de assinatura dos tokens
 
 Os dois hosts exigem a chave `Authentication:Jwt:SigningKey`, que assina e valida os access tokens JWT (HS256). Sem ela, ou com uma chave vazia ou menor que 32 bytes (256 bits) em UTF-8, falham ao subir com `OptionsValidationException` e uma mensagem que cita a chave. A chave nunca vai para o Git nem para o `appsettings.json`.
@@ -179,3 +198,5 @@ A configuração fica na seção `Identity:Email` dos `appsettings.Development.j
 - [Autenticação JWT e autorização por políticas](docs/architecture/authentication.md)
 - [Envio de e-mail por porta com adaptador local](docs/architecture/email.md)
 - [Parâmetros do sistema com histórico de alterações](docs/architecture/system-parameters.md)
+- [Política de senha](docs/architecture/password-policy.md)
+- [Criar o primeiro administrador](docs/identity/first-admin.md)
