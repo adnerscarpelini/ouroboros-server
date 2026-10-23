@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.BuildingBlocks.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 

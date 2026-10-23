@@ -6,8 +6,8 @@ Cada módulo é dono dos próprios dados (veja [Estrutura dos módulos](module-s
 
 ## Decisão
 
-- **Um banco, um schema por módulo.** Todos os módulos usam o mesmo banco PostgreSQL; cada um grava apenas no próprio schema (`identity`, `customers`, `accounts`, `transactions`). Foreign keys, JOINs e SQL direto entre schemas de módulos diferentes continuam proibidos.
-- **Um DbContext por módulo**, `internal sealed`, em `Infrastructure/Persistence/`, com `HasDefaultSchema("<schema>")`. O provider é o `Npgsql.EntityFrameworkCore.PostgreSQL`, referenciado pelo próprio módulo.
+- **Um banco, um schema por módulo.** Todos os módulos usam o mesmo banco PostgreSQL; cada um grava apenas no próprio schema (`identity`, `settings`, `customers`, `accounts`, `transactions`). Foreign keys, JOINs e SQL direto entre schemas de módulos diferentes continuam proibidos.
+- **Um DbContext por módulo**, `internal sealed`, em `Infrastructure/Persistence/`, com `HasDefaultSchema("<schema>")`. O provider é o `Npgsql.EntityFrameworkCore.PostgreSQL`, referenciado pelo próprio módulo. O modelo de cada DbContext só tem tabelas no schema do próprio módulo, o que um teste de integração verifica.
 - **Histórico de migrations por módulo**, na tabela `<schema>.__EFMigrationsHistory` (configurada com `MigrationsHistoryTable`). As migrations de um módulo não aparecem no histórico dos outros, e o schema é criado junto com a tabela de histórico no primeiro `database update`.
 - **Uma connection string, `ConnectionStrings:Ouroboros`.** Cada módulo a lê por meio de options `internal` validadas com `Validate` + `ValidateOnStart`: se ela estiver ausente, vazia ou em branco, a API não sobe e lança `OptionsValidationException` com uma mensagem que cita a chave e o user-secrets. O `dotnet ef` falha com a mesma mensagem.
   - Em desenvolvimento, a connection string fica nos user-secrets do projeto `Ouroboros.Api` (`UserSecretsId` no `.csproj`), lidos apenas no ambiente `Development`.
@@ -20,9 +20,20 @@ As versões dos pacotes ficam em [Directory.Packages.props](../../Directory.Pack
 
 ## Estado atual
 
-Só o Identity tem persistência: o [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), registrado em [`AddIdentityModule`](../../src/Modules/Ouroboros.Modules.Identity/DependencyInjection.cs) com as options [`IdentityDatabaseOptions`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDatabaseOptions.cs). O DbContext usa o [`AuditTimestampsInterceptor`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/AuditTimestampsInterceptor.cs) e aplica o [`SnakeCaseNaming`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/SnakeCaseNaming.cs) no `OnModelCreating`, e aplica as configurações das entidades com `ApplyConfigurationsFromAssembly`, antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md)). Há duas migrations: `InitialCreate`, vazia, que cria o schema `identity` com sua tabela de histórico, e `AddUsers`, que cria a tabela `identity.users` da entidade `User` (colunas e índices em [Domínio de identidade](identity.md#persistência)). Customers, Accounts e Transactions ainda não têm DbContext.
+O Identity e o Settings têm persistência.
 
-Como o Identity valida a connection string na subida, a API inteira passa a exigi-la. O passo a passo para subir o banco local e aplicar as migrations está no [README](../../README.md#banco-de-dados-local).
+No Identity, o [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), registrado em [`AddIdentityModule`](../../src/Modules/Ouroboros.Modules.Identity/DependencyInjection.cs) com as options [`IdentityDatabaseOptions`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDatabaseOptions.cs). O DbContext usa o [`AuditTimestampsInterceptor`](../../src/Ouroboros.BuildingBlocks/Persistence/AuditTimestampsInterceptor.cs) e aplica o [`SnakeCaseNaming`](../../src/Ouroboros.BuildingBlocks/Persistence/SnakeCaseNaming.cs), ambos de [BuildingBlocks](building-blocks.md), no `OnModelCreating`, e aplica as configurações das entidades com `ApplyConfigurationsFromAssembly`, antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md)). Há duas migrations: `InitialCreate`, vazia, que cria o schema `identity` com sua tabela de histórico, e `AddUsers`, que cria a tabela `identity.users` da entidade `User` (colunas e índices em [Domínio de identidade](identity.md#persistência)).
+
+No Settings, o [`SettingsDbContext`](../../src/Modules/Ouroboros.Modules.Settings/Infrastructure/Persistence/SettingsDbContext.cs), registrado em [`AddSettingsModule`](../../src/Modules/Ouroboros.Modules.Settings/DependencyInjection.cs) com as options [`SettingsDatabaseOptions`](../../src/Modules/Ouroboros.Modules.Settings/Infrastructure/Persistence/SettingsDatabaseOptions.cs), segue o mesmo padrão, no schema `settings`. Há uma migration, `InitialCreate`, que cria as tabelas `settings.parameters` e `settings.parameter_history` e inclui os valores iniciais por SQL com `uuidv7()`, que exige PostgreSQL 18 ([Parâmetros do sistema](system-parameters.md#valores-iniciais-e-novas-chaves)).
+
+Customers, Accounts e Transactions ainda não têm DbContext.
+
+Como o Identity e o Settings validam a connection string na subida, a API inteira passa a exigi-la. O passo a passo para subir o banco local e aplicar as migrations dos dois módulos está no [README](../../README.md#banco-de-dados-local):
+
+```powershell
+dotnet ef database update --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
+dotnet ef database update --project src/Modules/Ouroboros.Modules.Settings --startup-project src/Ouroboros.Api --context SettingsDbContext
+```
 
 ## Padrão para um módulo novo
 
@@ -32,16 +43,13 @@ Ouroboros.Modules.<Module>/
     └── Persistence/
         ├── <Module>DbContext.cs             # internal sealed, HasDefaultSchema("<schema>"), SnakeCaseNaming por último
         ├── <Module>DatabaseOptions.cs       # internal, lê ConnectionStrings:Ouroboros
-        ├── AuditTimestampsInterceptor.cs    # datas das entidades
-        ├── EntityConfiguration.cs           # mapeamento comum das entidades
         ├── Configurations/                  # uma EntityConfiguration<TEntity> por entidade
-        ├── SnakeCaseNaming.cs               # nomes em snake_case
         └── Migrations/                      # geradas pelo dotnet ef
 ```
 
-1. Referencie `Npgsql.EntityFrameworkCore.PostgreSQL` no `.csproj` do módulo.
-2. Em `Add<Module>Module`, registre as options com `Validate` + `ValidateOnStart`, o `TimeProvider.System` com `TryAddSingleton`, o `AuditTimestampsInterceptor` como singleton e o DbContext com `UseNpgsql(..., npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", <schema>))` e `AddInterceptors(<interceptor resolvido da DI>)`, como no Identity.
-3. No `OnModelCreating`, chame `HasDefaultSchema("<schema>")`, aplique as configurações das entidades (no Identity, com `ApplyConfigurationsFromAssembly`) e termine com `SnakeCaseNaming.Apply(modelBuilder)`; chamado antes, ele não converte o que for configurado depois. A base `Entity` e esses tipos de persistência hoje existem só no Identity: o primeiro módulo a precisar deles decide se os copia ou extrai (veja [convenções das entidades](entity-conventions.md#onde-fica)).
+1. Referencie `Npgsql.EntityFrameworkCore.PostgreSQL` e o projeto `Ouroboros.BuildingBlocks` no `.csproj` do módulo. A base `Entity`, o `EntityConfiguration<TEntity>`, o `AuditTimestampsInterceptor` e o `SnakeCaseNaming` vêm de [BuildingBlocks](building-blocks.md); o módulo não cria cópias deles.
+2. Em `Add<Module>Module`, registre as options com `Validate` + `ValidateOnStart`, o `TimeProvider.System` e o `AuditTimestampsInterceptor` com `TryAddSingleton` e o DbContext com `UseNpgsql(..., npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", <schema>))` e `AddInterceptors(<interceptor resolvido da DI>)`, como no Identity e no Settings.
+3. No `OnModelCreating`, chame `HasDefaultSchema("<schema>")`, aplique as configurações das entidades (no Identity e no Settings, com `ApplyConfigurationsFromAssembly`) e termine com `SnakeCaseNaming.Apply(modelBuilder)`; chamado antes, ele não converte o que for configurado depois.
 4. Gere a migration inicial e aplique-a, na raiz do repositório:
 
 ```powershell
@@ -81,5 +89,6 @@ Containerizar a API, Seq e um compose de produção.
 - [#7](https://github.com/adnerscarpelini/ouroboros-server/issues/7): testes de integração contra PostgreSQL real.
 - [#6](https://github.com/adnerscarpelini/ouroboros-server/issues/6): convenções de identificadores, datas e nomes das entidades.
 - [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): tabela `identity.users` e migration `AddUsers`.
+- [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): módulo Settings, schema `settings` e tipos comuns em BuildingBlocks.
 
 [Voltar à arquitetura](README.md)

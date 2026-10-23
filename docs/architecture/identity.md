@@ -18,7 +18,7 @@ Por outro lado, escrever o hash de senha à mão é um risco desnecessário: alg
 
 ## Modelo do usuário
 
-[`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs) é `internal sealed` e herda `Entity` (`Id`, `ExternalId`, `CreatedAt`, `UpdatedAt`). É criado por `User.Create(email, passwordHash, role)`:
+[`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs) é `internal sealed` e herda a base `Entity` de [BuildingBlocks](building-blocks.md) (`Id`, `ExternalId`, `CreatedAt`, `UpdatedAt`). É criado por `User.Create(email, passwordHash, role)`:
 
 | Propriedade | Regra |
 | --- | --- |

@@ -19,22 +19,24 @@ Antes da primeira entidade (o `User`, na [#8](https://github.com/adnerscarpelini
 
 ### Onde fica
 
-Tudo está no módulo Identity, único com persistência; o [`User`](identity.md#modelo-do-usuário) é a primeira entidade real que segue a convenção:
+Os tipos da convenção ficam no projeto `Ouroboros.BuildingBlocks`, compartilhado pelos módulos ([Código compartilhado entre módulos](building-blocks.md)). O [`User`](identity.md#modelo-do-usuário) do Identity foi a primeira entidade real a segui-la; o `Parameter` e o `ParameterHistory` do Settings ([Parâmetros do sistema](system-parameters.md)) também a seguem:
 
 | Tipo | Papel |
 | --- | --- |
-| [`Domain/Entity`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Entity.cs) | Base `internal abstract` com `Id`, `ExternalId`, `CreatedAt` e `UpdatedAt`, todos com `private set`. |
-| [`EntityConfiguration<TEntity>`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/EntityConfiguration.cs) | Mapeamento comum: chave `Id` identity, `ExternalId` `uuid` com índice único e datas `timestamptz`; as subclasses implementam `ConfigureEntity`. |
-| [`AuditTimestampsInterceptor`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/AuditTimestampsInterceptor.cs) | `SaveChangesInterceptor` que preenche as datas a partir do `TimeProvider`. |
-| [`SnakeCaseNaming`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/SnakeCaseNaming.cs) | Converte os nomes do modelo do módulo; é a última chamada do `OnModelCreating`. |
+| [`Domain/Entity`](../../src/Ouroboros.BuildingBlocks/Domain/Entity.cs) | Base `public abstract` com `Id`, `ExternalId`, `CreatedAt` e `UpdatedAt`, todos com `private set`. |
+| [`Persistence/EntityConfiguration<TEntity>`](../../src/Ouroboros.BuildingBlocks/Persistence/EntityConfiguration.cs) | Mapeamento comum: chave `Id` identity, `ExternalId` `uuid` com índice único e datas `timestamptz`; as subclasses implementam `ConfigureEntity`. |
+| [`Persistence/AuditTimestampsInterceptor`](../../src/Ouroboros.BuildingBlocks/Persistence/AuditTimestampsInterceptor.cs) | `SaveChangesInterceptor` que preenche as datas a partir do `TimeProvider`. |
+| [`Persistence/SnakeCaseNaming`](../../src/Ouroboros.BuildingBlocks/Persistence/SnakeCaseNaming.cs) | Converte os nomes do modelo do módulo; é a última chamada do `OnModelCreating`. |
 
-A base `Entity` e esses tipos ficam no próprio módulo, e não num projeto comum, até que um segundo módulo justifique extraí-los. Quando Customers, Accounts ou Transactions ganharem persistência, a extração será decidida e registrada aqui.
+Os namespaces são `Ouroboros.BuildingBlocks.Domain` (só `Entity`, sem dependência do EF Core) e `Ouroboros.BuildingBlocks.Persistence`. As entidades concretas continuam `internal` em cada módulo.
+
+Na #6, esses tipos nasceram no Identity, com a regra de mantê-los no módulo até que um segundo módulo justificasse extraí-los. Na #33, o Settings foi esse segundo módulo, e os tipos foram movidos para `Ouroboros.BuildingBlocks`, sem mudança de comportamento ([BuildingBlocks](building-blocks.md)).
 
 ## Como criar uma entidade nova
 
-1. Crie a entidade em `Domain/`, `internal`, herdando `Entity`. Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
+1. Crie a entidade em `Domain/`, `internal`, herdando `Entity` (`using Ouroboros.BuildingBlocks.Domain;`; o módulo referencia `Ouroboros.BuildingBlocks`). Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
 2. Crie a configuração em `Infrastructure/Persistence/Configurations/`, `internal sealed`, herdando `EntityConfiguration<TEntity>` e mapeando só o que é próprio da entidade em `ConfigureEntity`. Não renomeie colunas à mão: o `SnakeCaseNaming` cuida disso.
-3. Garanta que a configuração seja aplicada no `OnModelCreating` do DbContext antes de `SnakeCaseNaming.Apply(modelBuilder)`. O `IdentityDbContext` chama `modelBuilder.ApplyConfigurationsFromAssembly(...)`, que encontra toda `IEntityTypeConfiguration<T>` do assembly do módulo; basta criar a classe. Um DbContext que aplique configurações uma a uma (`ApplyConfiguration(new ...())`) precisa listá-la.
+3. Garanta que a configuração seja aplicada no `OnModelCreating` do DbContext antes de `SnakeCaseNaming.Apply(modelBuilder)`. O `IdentityDbContext` e o `SettingsDbContext` chamam `modelBuilder.ApplyConfigurationsFromAssembly(...)`, que encontra toda `IEntityTypeConfiguration<T>` do assembly do módulo; basta criar a classe. Um DbContext que aplique configurações uma a uma (`ApplyConfiguration(new ...())`) precisa listá-la.
 4. Gere a migration, conforme [Persistência](persistence.md#padrão-para-um-módulo-novo).
 5. Na resposta HTTP, use um DTO cujo nome termine em `Response` e exponha o `ExternalId` como `id`, sem o `Id` interno. Rotas e buscas recebem o `ExternalId`.
 
@@ -67,7 +69,7 @@ O `User` ainda não tem resposta HTTP; quando tiver, o DTO seguirá o passo 5, p
 - Todo DbContext de módulo com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md#padrão-para-um-módulo-novo).
 - Mapear uma entidade exige herdar `EntityConfiguration<TEntity>`; uma configuração que não herde dela fica sem o índice único e os tipos de coluna da convenção.
 - O teste que protege a exposição do `Id` depende de nomes. Ele falha se uma propriedade `long` ou `long?` com nome terminado em `Id` aparecer num tipo de `Contracts` ou num tipo cujo nome termine em `Response`. Não detecta campos, propriedades terminadas em `ID` ou `Key`, nem DTOs com outro sufixo; por isso, DTOs de resposta devem terminar em `Response`.
-- O módulo Identity concede `InternalsVisibleTo` a `Ouroboros.IntegrationTests` para que os testes usem a base e a configuração com uma entidade de teste, além das entidades reais; nunca à Api (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
+- Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, os módulos concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca aos hosts (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
 
 ## Testes
 
@@ -87,5 +89,6 @@ Na validação da #6, a suíte tinha 49 testes.
 
 - [#6](https://github.com/adnerscarpelini/ouroboros-server/issues/6): identificadores e datas das entidades.
 - [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): primeira entidade real (`User`) e aplicação das configurações por `ApplyConfigurationsFromAssembly`.
+- [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): extração dos tipos para `Ouroboros.BuildingBlocks`.
 
 [Voltar à arquitetura](README.md)

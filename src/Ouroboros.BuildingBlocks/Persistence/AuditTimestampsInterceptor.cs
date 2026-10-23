@@ -1,12 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Ouroboros.Modules.Identity.Domain;
+using Ouroboros.BuildingBlocks.Domain;
 
-namespace Ouroboros.Modules.Identity.Infrastructure.Persistence;
+namespace Ouroboros.BuildingBlocks.Persistence;
 
 // Preenche CreatedAt e UpdatedAt das entidades a partir do TimeProvider, em UTC, antes de gravar.
-internal sealed class AuditTimestampsInterceptor(TimeProvider timeProvider) : SaveChangesInterceptor
+public sealed class AuditTimestampsInterceptor(TimeProvider timeProvider) : SaveChangesInterceptor
 {
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {

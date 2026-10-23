@@ -13,10 +13,12 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Catálogo de erros](errors/README.md): `type` estável de cada falha de negócio, uma página por módulo.
 - [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
 - [Identificadores, datas e nomes das entidades](architecture/entity-conventions.md): chave interna `long`, `ExternalId` UUIDv7 exposto, datas de auditoria e snake_case.
+- [Código compartilhado entre módulos (BuildingBlocks)](architecture/building-blocks.md): base `Entity` e tipos de persistência comuns em `Ouroboros.BuildingBlocks`, sem dependência de módulos nem hosts.
 - [Testes de integração com PostgreSQL](architecture/integration-tests.md): PostgreSQL em container, banco modelo migrado e um banco clonado por teste.
 - [Domínio de identidade próprio e hash de senha](architecture/identity.md): entidade `User` própria, só o `PasswordHasher<T>` do ASP.NET Core Identity com 210.000 iterações e rehash na verificação.
 - [Autenticação JWT e autorização por políticas](architecture/authentication.md): JWT HS256 com audiência por host, chave de assinatura fora do Git e endpoints que exigem token, salvo `[AllowAnonymous]`.
 - [Envio de e-mail por porta com adaptador local](architecture/email.md): porta de envio no Identity, `.eml` em `.local/emails` em desenvolvimento e falha explícita sem provedor.
+- [Parâmetros do sistema com histórico de alterações](architecture/system-parameters.md): módulo Settings, leitura por `ISystemParameters` sem cache, validação por tipo e padrão e histórico espelho na mesma transação.
 - As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.

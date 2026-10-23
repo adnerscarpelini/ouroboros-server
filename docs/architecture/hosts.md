@@ -15,7 +15,7 @@ Esta decisão substitui a "API única" registrada na #3. O Ouroboros tem dois ho
 
 - Desde a #47, os controllers são declarados nos próprios hosts, organizados por módulo, e chamam os casos de uso expostos em `Contracts` dos módulos, conforme [Controllers HTTP nos hosts](http-controllers.md). A separação entre os públicos é por projeto: cada host usa a descoberta padrão do ASP.NET Core e só conhece os próprios controllers. Até a #47, os controllers ficavam nos módulos e um provider em `Ouroboros.Hosting` escolhia os de cada host ([histórico](http-controllers.md#histórico)).
 - As rotas mantêm os prefixos `api/v{version:apiVersion}/<module>/...` (externa) e `api/v{version:apiVersion}/admin/<module>/...` (backoffice), com o [versionamento da API](api-versioning.md).
-- Cada host registra os módulos no próprio `Program.cs` (`Add<Module>Module`), para que a composição de cada um fique visível ali. Hoje os dois registram os quatro módulos.
+- Cada host registra os módulos no próprio `Program.cs` (`Add<Module>Module`), para que a composição de cada um fique visível ali. Hoje os dois registram os cinco módulos (Identity, Settings, Customers, Accounts e Transactions).
 - A configuração HTTP comum fica no projeto [`Ouroboros.Hosting`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), uma class library que não referencia nenhum módulo.
 
 ### Ouroboros.Hosting

@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="../Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
     <ProjectReference Include="../Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
+    <ProjectReference Include="../Modules/Ouroboros.Modules.Settings/Ouroboros.Modules.Settings.csproj" />
     <ProjectReference Include="../Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj" />
     <ProjectReference Include="../Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
     <ProjectReference Include="../Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />

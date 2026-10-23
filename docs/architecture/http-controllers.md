@@ -107,7 +107,7 @@ O exemplo abaixo é **ilustrativo**: ainda não há casos de uso expostos nem co
    }
    ```
 
-6. **Registro do módulo no host.** O host precisa chamar `Add<Module>Module` no seu `Program.cs`; hoje os dois hosts registram os quatro módulos ([Hosts](hosts.md#decisão)).
+6. **Registro do módulo no host.** O host precisa chamar `Add<Module>Module` no seu `Program.cs`; hoje os dois hosts registram os cinco módulos ([Hosts](hosts.md#decisão)).
 
 7. **Testes.** Rode os [testes de arquitetura](#testes-de-arquitetura): eles reprovam controller fora de `<Host>.Controllers.<Module>`, sem `[ApiVersion]`, com rota fora do prefixo do host ou `internal`. Os testes do comportamento do endpoint acompanham a funcionalidade.
 
