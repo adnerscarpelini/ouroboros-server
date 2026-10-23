@@ -27,10 +27,11 @@ internal sealed class AspNetCorePasswordHasher : IPasswordHasher
         }));
 
     // O usuário não participa do cálculo no PasswordHasher padrão; o parâmetro existe só pela assinatura.
-    public string Hash(string password) => _hasher.HashPassword(null!, password);
+    // A senha é normalizada (NFKC) antes do hash e da verificação, como pede o NIST.
+    public string Hash(string password) => _hasher.HashPassword(null!, PasswordPolicy.Normalize(password));
 
     public PasswordVerificationOutcome Verify(string passwordHash, string providedPassword) =>
-        _hasher.VerifyHashedPassword(null!, passwordHash, providedPassword) switch
+        _hasher.VerifyHashedPassword(null!, passwordHash, PasswordPolicy.Normalize(providedPassword)) switch
         {
             PasswordVerificationResult.Success => PasswordVerificationOutcome.Succeeded,
             PasswordVerificationResult.SuccessRehashNeeded => PasswordVerificationOutcome.SucceededRehashNeeded,

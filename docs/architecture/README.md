@@ -14,6 +14,7 @@ Notas gerais e decisões do Ouroboros, distinguindo a estrutura implementada das
 - [Domínio de identidade próprio e hash de senha](identity.md): `User` próprio em vez do ASP.NET Core Identity completo, `PasswordHasher<T>` V3 com 210.000 iterações atrás de uma porta do módulo, rehash na verificação e tabela `identity.users`.
 - [Autenticação JWT e autorização por políticas](authentication.md): access token HS256 emitido e validado pelo Identity, audiência por host, chave fora do Git validada na subida, política padrão que nega por padrão (`Admin` no backoffice) e políticas por capacidade.
 - [Envio de e-mail por porta com adaptador local](email.md): porta `IEmailSender` no Identity, `.eml` gravados em `.local/emails` só em `Development`, falha explícita sem provedor e envio depois do commit, sem outbox.
+- [Política de senha](password-policy.md): regras do NIST SP 800-63B-4 em `PasswordPolicy` (15 a 128 code points após NFKC, sem composição, lista local de senhas comuns, sem `ouroboros` nem a parte local do e-mail), reutilizadas por todos os fluxos com senha nova, e NFKC no hasher.
 - [Parâmetros do sistema com histórico de alterações](system-parameters.md): módulo Settings (schema `settings`), contrato `ISystemParameters` lido a cada uso, tabela `parameters` validada por tipo e padrão, `parameter_history` gravada na mesma transação e valores iniciais por migration.
 
 [Voltar à documentação](../README.md)

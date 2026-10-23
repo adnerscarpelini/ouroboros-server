@@ -19,7 +19,12 @@ Documentação das funcionalidades e notas gerais do projeto.
 - [Autenticação JWT e autorização por políticas](architecture/authentication.md): JWT HS256 com audiência por host, chave de assinatura fora do Git e endpoints que exigem token, salvo `[AllowAnonymous]`.
 - [Envio de e-mail por porta com adaptador local](architecture/email.md): porta de envio no Identity, `.eml` em `.local/emails` em desenvolvimento e falha explícita sem provedor.
 - [Parâmetros do sistema com histórico de alterações](architecture/system-parameters.md): módulo Settings, leitura por `ISystemParameters` sem cache, validação por tipo e padrão e histórico espelho na mesma transação.
-- As funcionalidades serão documentadas em `<module-name>/<feature-name>.md`, conforme os módulos forem implementados e validados.
+- [Política de senha](architecture/password-policy.md): NIST SP 800-63B-4, 15 a 128 code points após NFKC, sem regras de composição, lista local de senhas comuns e NFKC também no hasher.
+
+As funcionalidades ficam em `<module-name>/<feature-name>.md`:
+
+- Identity
+  - [Criar o primeiro administrador](identity/first-admin.md): comando `create-admin` do host de backoffice, com a senha em variável de ambiente, só enquanto não houver `Admin`.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.
 
