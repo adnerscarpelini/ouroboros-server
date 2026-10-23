@@ -12,7 +12,7 @@ namespace Ouroboros.Backoffice.Api.Controllers.Identity;
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/admin/identity/sessions")]
-public sealed class SessionsController(ILogin login, IRefreshSession refreshSession) : ControllerBase
+public sealed class SessionsController(ILogin login, IRefreshSession refreshSession, ILogout logout) : ControllerBase
 {
     [HttpPost]
     [AllowAnonymous]
@@ -46,6 +46,23 @@ public sealed class SessionsController(ILogin login, IRefreshSession refreshSess
 
         return result.Tokens is { } tokens
             ? Ok(SessionResponse.From(tokens))
+            : Problem(type: IdentityErrors.InvalidRefreshToken, title: IdentityErrors.InvalidRefreshTokenTitle, statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    // Encerra a sessão do refresh token informado: quem tem o token pode encerrar a sessão dele.
+    // Idempotente: token já revogado ou expirado também recebe 204.
+    [HttpPost("logout")]
+    [AllowAnonymous]
+    [EnableRateLimiting(IdentityRateLimitPolicies.Logout)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> Logout(RefreshSessionBody request, CancellationToken cancellationToken)
+    {
+        var result = await logout.ExecuteAsync(new LogoutRequest(request.RefreshToken), cancellationToken);
+
+        return result == LogoutResult.SessionEnded
+            ? NoContent()
             : Problem(type: IdentityErrors.InvalidRefreshToken, title: IdentityErrors.InvalidRefreshTokenTitle, statusCode: StatusCodes.Status401Unauthorized);
     }
 }

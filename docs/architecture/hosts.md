@@ -80,9 +80,9 @@ dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mai
 Usuários não administradores não devem conseguir usar o backoffice. A proteção é feita em camadas; as quatro primeiras estão implementadas:
 
 1. **Implementada (#32, #47):** cada host só conhece os controllers do seu público, que ficam no seu próprio projeto. Uma rota de backoffice não existe na API externa (com token válido, responde 404), e vice-versa.
-2. **Implementada (#9):** a política padrão do backoffice exige o papel `Admin` em todo endpoint, sem depender de base de controller nem de anotação na action. Só escapam endpoints marcados com `[AllowAnonymous]`; hoje, só o login de administrador (`POST /api/v1/admin/identity/sessions`, #12) e a renovação do access token (`POST /api/v1/admin/identity/sessions/refresh`, #15). Um token de `Customer` recebe 403 no backoffice.
+2. **Implementada (#9):** a política padrão do backoffice exige o papel `Admin` em todo endpoint, sem depender de base de controller nem de anotação na action. Só escapam endpoints marcados com `[AllowAnonymous]`; hoje, só o login de administrador (`POST /api/v1/admin/identity/sessions`, #12), a renovação do access token (`POST /api/v1/admin/identity/sessions/refresh`, #15) e o logout (`POST /api/v1/admin/identity/sessions/logout`, #17). Um token de `Customer` recebe 403 no backoffice.
 3. **Implementada (#9):** cada host aceita só tokens da sua audiência (`aud`): tokens da API externa (`ouroboros-api`) recebem 401 no backoffice, e tokens do backoffice (`ouroboros-backoffice`), 401 na API externa.
-4. **Implementada (#12):** o login de backoffice aceita só usuários `Admin`; um `Customer` com as credenciais corretas recebe o mesmo `401` de senha errada, e o token emitido tem a audiência `ouroboros-backoffice` ([Fazer login com e-mail e senha](../identity/login.md)). Desde a #15, a renovação segue a mesma regra: o backoffice só renova sessões de `Admin`, e a API externa, só de `Customer` ([Renovar o access token](../identity/refresh-session.md)).
+4. **Implementada (#12):** o login de backoffice aceita só usuários `Admin`; um `Customer` com as credenciais corretas recebe o mesmo `401` de senha errada, e o token emitido tem a audiência `ouroboros-backoffice` ([Fazer login com e-mail e senha](../identity/login.md)). Desde a #15, a renovação segue a mesma regra: o backoffice só renova sessões de `Admin`, e a API externa, só de `Customer` ([Renovar o access token](../identity/refresh-session.md)). O logout (#17) não confere o canal, porque não emite token: quem tem o refresh token encerra a sessão dele em qualquer host ([Encerrar a sessão atual](../identity/logout.md)).
 5. **Deploy:** o backoffice deve ser publicado só na rede interna ou VPN. Ainda não há ambiente de deploy; a restrição de rede não substitui as camadas anteriores.
 
 Os detalhes da validação dos tokens e das políticas estão em [Autenticação JWT e autorização por políticas](authentication.md). Os tokens são emitidos pelo login de cada host, com a audiência do host; sem token, os dois hosts respondem 401 a qualquer rota, exceto o login e a renovação.
@@ -122,6 +122,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): comandos de operação no backoffice (`create-admin`).
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login de backoffice só para `Admin` (camada 4).
 - [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovação do access token no backoffice só para sessões de `Admin`.
+- [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout anônimo também no backoffice, para o `Admin` poder sair.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `UseRateLimiter()` no pipeline comum, antes da autenticação.
 
 [Voltar à arquitetura](README.md)

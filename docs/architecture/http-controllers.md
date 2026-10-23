@@ -143,16 +143,16 @@ Erros comuns que o compilador ou os testes apontam:
 
 ## Estado atual
 
-Os primeiros controllers chegaram com o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), um em cada host; a #15 acrescentou a eles a renovação do access token ([Renovar o access token com rotação do refresh token](../identity/refresh-session.md)):
+Os primeiros controllers chegaram com o login da #12 ([Fazer login com e-mail e senha](../identity/login.md)), um em cada host; a #15 acrescentou a eles a renovação do access token ([Renovar o access token com rotação do refresh token](../identity/refresh-session.md)), e a #17, o logout ([Encerrar a sessão atual](../identity/logout.md)):
 
 | Host | Controller | Rota |
 | --- | --- | --- |
-| `Ouroboros.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/identity/sessions` e `POST /api/v1/identity/sessions/refresh` (anônimas) |
-| `Ouroboros.Backoffice.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/admin/identity/sessions` e `POST /api/v1/admin/identity/sessions/refresh` (anônimas) |
+| `Ouroboros.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/identity/sessions`, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/identity/sessions/logout` (anônimas) |
+| `Ouroboros.Backoffice.Api` | [`Controllers/Identity/SessionsController`](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `POST /api/v1/admin/identity/sessions`, `POST /api/v1/admin/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/logout` (anônimas) |
 
-Cada host tem os próprios DTOs (`CreateSessionRequest`, `RefreshSessionBody` e `SessionResponse`) e as constantes do `type` dos erros em `SessionModels.cs`, na mesma pasta do controller.
+Cada host tem os próprios DTOs (`CreateSessionRequest`, `RefreshSessionBody`, corpo da renovação e do logout, e `SessionResponse`) e as constantes do `type` dos erros em `SessionModels.cs`, na mesma pasta do controller.
 
-Os casos de uso expostos em `Contracts` do Identity são o [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs) e o [`IRefreshSession`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/IRefreshSession.cs) (`Contracts/Sessions`), usados pelos dois controllers, e o [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) (`Contracts/Administrators`), usado pelo comando `create-admin` do backoffice, não por um controller. Também ficam em `Contracts` os nomes das políticas em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use.
+Os casos de uso expostos em `Contracts` do Identity são o [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs), o [`IRefreshSession`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/IRefreshSession.cs) e o [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) (`Contracts/Sessions`), usados pelos dois controllers, e o [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) (`Contracts/Administrators`), usado pelo comando `create-admin` do backoffice, não por um controller. Também ficam em `Contracts` os nomes das políticas em [`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs), com `identity:admins.invite`, ainda sem endpoint que a use.
 
 Fora as rotas de login e de renovação, qualquer rota responde `401` sem token e `404` com token válido (no backoffice, de um `Admin`), em ProblemDetails (veja [Respostas de erro](error-responses.md#respostas-sem-corpo-401-403-404-405-415)).
 
@@ -175,7 +175,7 @@ Na raiz do repositório:
 dotnet test --solution Ouroboros.slnx
 ```
 
-O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes; na da #12, 216; na da #15, 252.
+O [`global.json`](../../global.json) define `"test": {"runner": "Microsoft.Testing.Platform"}` porque o SDK do .NET 10 não executa xUnit v3 pelo VSTest. Na validação da #47, a suíte tinha 93 testes; na da #12, 216; na da #15, 252; na da #17, 270.
 
 ## Origem
 
