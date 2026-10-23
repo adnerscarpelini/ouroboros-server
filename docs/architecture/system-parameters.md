@@ -25,7 +25,7 @@ public interface ISystemParameters
 - Chave inexistente lança `ParameterNotFoundException` (também em `Contracts`), com a chave na propriedade `Key`. Chave nula ou em branco lança `ArgumentException`.
 - A implementação ([`SystemParameters`](../../src/Modules/Ouroboros.Modules.Settings/Application/Parameters/SystemParameters.cs)) é `internal` e registrada como scoped.
 
-Um módulo que precise de parâmetros passa a referenciar o projeto do Settings e usa apenas `Contracts`, conforme a [regra de dependência entre módulos](module-structure.md#fronteiras-adotadas-para-a-evolução). O primeiro é o Identity, desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): a [criação do primeiro administrador](../identity/first-admin.md) lê `Identity:AdminInvitations:AllowedEmailDomain`, e, desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), o [login](../identity/login.md) lê os parâmetros do [bloqueio de conta](../identity/account-lockout.md#configuração) em toda tentativa.
+Um módulo que precise de parâmetros passa a referenciar o projeto do Settings e usa apenas `Contracts`, conforme a [regra de dependência entre módulos](module-structure.md#fronteiras-adotadas-para-a-evolução). O primeiro é o Identity, desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): a [criação do primeiro administrador](../identity/first-admin.md) lê `Identity:AdminInvitations:AllowedEmailDomain`, desde a [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13), o [login](../identity/login.md) lê os parâmetros do [bloqueio de conta](../identity/account-lockout.md#configuração) em toda tentativa, e, desde a [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20), a [solicitação de cadastro](../identity/registration.md#configuração) lê a validade e o endereço do link a cada solicitação.
 
 ### Tabela `settings.parameters`
 
@@ -97,7 +97,16 @@ A migration `AddLockoutParameters` do Settings, da [#13](https://github.com/adne
 | `Identity:Lockout:MaxFailedAttempts` | `5` | `Integer` | `[1-9][0-9]?` (1 a 99) | não |
 | `Identity:Lockout:DurationMinutes` | `15` | `Integer` | `[1-9][0-9]{0,2}\|1[0-3][0-9]{2}\|14[0-3][0-9]\|1440` (1 a 1440) | não |
 
-Quem lê um parâmetro numérico continua responsável por interpretá-lo: o Identity recusa, com erro, um valor de bloqueio que não seja inteiro positivo, mesmo que tenha sido gravado fora da aplicação.
+A migration `AddRegistrationParameters` do Settings, da [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20), inclui da mesma forma os parâmetros da [solicitação de cadastro de cliente](../identity/registration.md#configuração):
+
+| Chave | Valor | Tipo | Padrão (`validation_pattern`) | Sensível |
+| --- | --- | --- | --- | --- |
+| `Identity:Registration:TokenLifetimeHours` | `24` | `Integer` | `[1-9]\|[1-9][0-9]\|1[0-5][0-9]\|16[0-8]` (1 a 168) | não |
+| `Identity:Registration:CompletionUrl` | `http://localhost:3000/cadastro/concluir` | `String` | `https?://[^\s?#]+` (URL http ou https sem espaços, `?` nem `#`) | não |
+
+O sistema acrescenta `?token=<token>` ao `CompletionUrl`, por isso o padrão recusa query string e fragmento. Alterar qualquer um dos dois vale para os próximos links; os já enviados mantêm a validade com que foram gerados.
+
+Quem lê um parâmetro numérico continua responsável por interpretá-lo: o Identity recusa, com erro, um valor de bloqueio que não seja inteiro positivo ou uma validade de link fora de 1 a 168, mesmo que tenha sido gravado fora da aplicação.
 
 O SQL usa `uuidv7()` para o `external_id`, função que só existe a partir do PostgreSQL 18 (a versão do [`compose.yaml`](../../compose.yaml) e dos testes).
 
@@ -124,7 +133,7 @@ dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Settings
 
 ## Limitações e consequências
 
-- Uma chave apagada ou com valor inválido gravado fora da aplicação só é percebida quando a funcionalidade a lê, não na subida da API. No caso dos parâmetros do bloqueio de conta, todo login passa a responder `500`.
+- Uma chave apagada ou com valor inválido gravado fora da aplicação só é percebida quando a funcionalidade a lê, não na subida da API. No caso dos parâmetros do bloqueio de conta, todo login passa a responder `500`; no dos parâmetros do cadastro, toda solicitação de cadastro.
 - Cada leitura é uma consulta ao banco.
 - O histórico guarda valores de parâmetros sensíveis em texto: segredos nunca devem virar parâmetros.
 - A consistência entre o parâmetro e o histórico vale porque os dois estão no mesmo DbContext; uma gravação que envolva outro módulo exigiria uma decisão de consistência ([Estrutura dos módulos](module-structure.md#fronteiras-adotadas-para-a-evolução)).
@@ -143,5 +152,6 @@ Na validação da #33, a suíte tinha 167 testes. Os testes que exercitam os par
 
 - [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): módulo Settings, tabelas de parâmetros e histórico, contrato de leitura e valores iniciais.
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): parâmetros do bloqueio de conta e migration `AddLockoutParameters`.
+- [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): parâmetros da solicitação de cadastro e migration `AddRegistrationParameters`.
 
 [Voltar à arquitetura](README.md)

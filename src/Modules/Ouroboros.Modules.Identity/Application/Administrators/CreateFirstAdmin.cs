@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using Microsoft.EntityFrameworkCore;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
@@ -78,12 +77,12 @@ internal sealed class CreateFirstAdmin(
     {
         email = normalized;
         host = "";
-        if (!MailAddress.TryCreate(normalized, out var address) || address.Address != normalized)
+        if (!EmailAddresses.IsValid(normalized))
         {
             return false;
         }
 
-        host = address.Host;
+        host = normalized[(normalized.LastIndexOf('@') + 1)..];
         return true;
     }
 }

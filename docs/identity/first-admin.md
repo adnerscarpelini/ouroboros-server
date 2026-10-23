@@ -43,7 +43,7 @@ OUROBOROS_ADMIN_PASSWORD='<senha>' dotnet run --project src/Ouroboros.Backoffice
 
 O caso de uso cria um usuário ativo com exatamente um papel, `Admin`, com a senha transformada em hash pelo [hasher do Identity](../architecture/identity.md#hash-e-rehash). As verificações são feitas nesta ordem, e a primeira que falha encerra o comando sem criar nada:
 
-1. **E-mail válido.** O e-mail é normalizado como no domínio (sem espaços nas pontas e em minúsculas) e precisa ser um endereço válido.
+1. **E-mail válido.** O e-mail é normalizado como no domínio (sem espaços nas pontas e em minúsculas) e precisa atender à [regra estrita de e-mail das contas](registration.md#regra-estrita-de-e-mail): parte local ASCII com letras, dígitos e `._%+-`, sem aspas, espaços, nome de exibição ou comentários, e domínio DNS sem ponto final nem literal de IP. Desde a [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20), e-mails com caracteres fora do ASCII são recusados; antes, valia o `MailAddress` do .NET, que aceitava e reescrevia formas como `"ana"@example.com`.
 2. **Parâmetro do domínio existe.** O domínio aceito é lido do Settings pelo `ISystemParameters` a cada execução. Se o parâmetro não existir, a mensagem pede para aplicar as migrations do Settings.
 3. **Domínio exato.** O domínio do e-mail precisa ser igual ao do parâmetro; subdomínios não são aceitos (com o valor inicial, `@rh.adnerscarpelini.com` é recusado). A mensagem informa o domínio exigido.
 4. **Política de senha.** A senha precisa atender à [política de senha](../architecture/password-policy.md); a mensagem informa a regra violada, sem repetir a senha.
@@ -77,7 +77,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - [`CreateFirstAdminTests`](../../tests/Ouroboros.IntegrationTests/CreateFirstAdminTests.cs), contra o PostgreSQL real: comando com e-mail em maiúsculas e espaços cria `Admin` ativo e termina com `0`; a senha confere com o hasher e não aparece no hash; segundo Admin não é criado; e-mail já usado por um `Customer` não muda nada; e-mail de outro domínio ou de subdomínio é recusado com o domínio exigido na mensagem; parâmetro do domínio ausente é informado sem exceção; senha de 14 caracteres informa o mínimo de 15; senha acima do limite e senha comum em qualquer combinação de maiúsculas são recusadas; variável ausente termina com `2`; a senha não aparece na saída nem nos logs; duas execuções simultâneas criam um único `Admin`.
 - Os testes da política de senha estão em [Política de senha](../architecture/password-policy.md#testes).
 
-Na validação da #11, a suíte tinha 200 testes. O QA também executou o comando como processo real contra um PostgreSQL num banco descartável: oito execuções simultâneas criaram um único `Admin`, e o hash gravado estava no formato V3 (HMAC-SHA512, 210.000 iterações).
+Na validação da #11, a suíte tinha 200 testes. A regra estrita de e-mail da #20 não ganhou teste próprio no `create-admin`; os casos recusados estão nos testes da [solicitação de cadastro](registration.md#como-verificar), que usa a mesma regra. O QA também executou o comando como processo real contra um PostgreSQL num banco descartável: oito execuções simultâneas criaram um único `Admin`, e o hash gravado estava no formato V3 (HMAC-SHA512, 210.000 iterações).
 
 ## Referências
 
@@ -88,5 +88,6 @@ Na validação da #11, a suíte tinha 200 testes. O QA também executou o comand
 ## Origem
 
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): criar o primeiro administrador por comando de linha.
+- [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): regra estrita de e-mail também no `create-admin`.
 
 [Voltar à documentação](../README.md)

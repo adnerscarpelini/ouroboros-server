@@ -24,7 +24,7 @@ internal sealed partial class RefreshSession(
         }
 
         // O token é buscado pelo hash; o valor recebido nunca é gravado nem comparado em texto.
-        var hash = RefreshTokens.Hash(request.RefreshToken);
+        var hash = OpaqueTokens.Hash(request.RefreshToken);
         var found = await (
             from token in context.RefreshTokens
             join session in context.Sessions on token.SessionId equals session.Id
@@ -85,7 +85,7 @@ internal sealed partial class RefreshSession(
             return RefreshSessionResult.InvalidToken;
         }
 
-        var (refreshToken, refreshTokenHash) = RefreshTokens.Generate();
+        var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
         var refreshTokenExpiresAt = now.Add(jwtOptions.Value.RefreshTokenLifetime);
         context.RefreshTokens.Add(RefreshToken.Issue(found.Token.SessionId, refreshTokenHash, refreshTokenExpiresAt));
         await context.SaveChangesAsync(cancellationToken);

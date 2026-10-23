@@ -48,7 +48,7 @@ internal sealed class Login(
         }
 
         user.ResetFailedLogins();
-        var (refreshToken, refreshTokenHash) = RefreshTokens.Generate();
+        var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
         var refreshTokenExpiresAt = now.Add(jwtOptions.Value.RefreshTokenLifetime);
         var session = Session.Open(user.Id, refreshTokenHash, refreshTokenExpiresAt);
         context.Sessions.Add(session);
