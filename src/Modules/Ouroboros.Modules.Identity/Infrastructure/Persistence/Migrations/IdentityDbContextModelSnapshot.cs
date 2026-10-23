@@ -23,6 +23,95 @@ namespace Ouroboros.Modules.Identity.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Sessions.RefreshToken", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expires_at");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("external_id");
+
+                    b.Property<long>("SessionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("session_id");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("token_hash");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_refresh_tokens");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_refresh_tokens_external_id");
+
+                    b.HasIndex("SessionId")
+                        .HasDatabaseName("ix_refresh_tokens_session_id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_refresh_tokens_token_hash");
+
+                    b.ToTable("refresh_tokens", "identity");
+                });
+
+            modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Sessions.Session", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ExternalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("external_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_sessions");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_sessions_external_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_sessions_user_id");
+
+                    b.ToTable("sessions", "identity");
+                });
+
             modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Users.User", b =>
                 {
                     b.Property<long>("Id")
@@ -77,6 +166,31 @@ namespace Ouroboros.Modules.Identity.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_users_external_id");
 
                     b.ToTable("users", "identity");
+                });
+
+            modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Sessions.RefreshToken", b =>
+                {
+                    b.HasOne("Ouroboros.Modules.Identity.Domain.Sessions.Session", null)
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_refresh_tokens_sessions_session_id");
+                });
+
+            modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Sessions.Session", b =>
+                {
+                    b.HasOne("Ouroboros.Modules.Identity.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_sessions_users_user_id");
+                });
+
+            modelBuilder.Entity("Ouroboros.Modules.Identity.Domain.Sessions.Session", b =>
+                {
+                    b.Navigation("RefreshTokens");
                 });
 #pragma warning restore 612, 618
         }
