@@ -15,6 +15,12 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    // Trava a linha da sessão até o fim da transação atual. Toda escrita em refresh_tokens de uma sessão
+    // (renovação, revogação por reuso, logout) trava a sessão antes: sem o lock, em READ COMMITTED, uma
+    // revogação não enxergaria o token que uma renovação em andamento inseriu e ainda não confirmou.
+    public Task LockSessionAsync(long sessionId, CancellationToken cancellationToken) =>
+        Database.ExecuteSqlAsync($"SELECT 1 FROM identity.sessions WHERE id = {sessionId} FOR UPDATE", cancellationToken);
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);

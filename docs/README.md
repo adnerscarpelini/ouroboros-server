@@ -29,7 +29,8 @@ As funcionalidades ficam em `<module-name>/<feature-name>.md`:
   - [Bloquear a conta após falhas consecutivas de senha](identity/account-lockout.md): cinco falhas seguidas bloqueiam a conta por 15 minutos (parâmetros do sistema), com o mesmo `401` do login e contagem atômica no banco.
   - [Renovar o access token com rotação do refresh token](identity/refresh-session.md): `POST /api/v1/identity/sessions/refresh` (só sessões de `Customer`) e `POST /api/v1/admin/identity/sessions/refresh` (só de `Admin`), com refresh token de uso único revogado por `UPDATE` condicional na mesma transação do novo, mesmo `sid` e papel lido do banco.
   - [Revogar a sessão ao detectar reuso de refresh token](identity/refresh-token-reuse.md): token revogado apresentado na renovação revoga todos os tokens da sessão, sem afetar as outras, com o mesmo `401`, transação própria, lock da sessão (`FOR UPDATE`) e aviso no log sem o token.
-  - [Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md): rate limiter nativo com janela fixa por IP e política por endpoint (login: 10 por minuto; renovação: 30 por minuto), configurado em `Identity:RateLimiting` e validado na subida, com `429`, `Retry-After` e log.
+  - [Encerrar a sessão atual (logout)](identity/logout.md): `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout`, anônimos e sem checagem de canal, revogam o refresh token informado com `204` idempotente, sem afetar as outras sessões, com lock da sessão; o access token emitido vale até expirar.
+  - [Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md): rate limiter nativo com janela fixa por IP e política por endpoint (login: 10 por minuto; renovação e logout: 30 por minuto), configurado em `Identity:RateLimiting` e validado na subida, com `429`, `Retry-After` e log.
 
 Os nomes das pastas e arquivos são escritos em inglês; o conteúdo das notas, em português.
 

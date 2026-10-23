@@ -60,10 +60,11 @@ internal sealed partial class RefreshSession(
             return RefreshSessionResult.InvalidToken;
         }
 
-        // Revogar o antigo e gravar o novo na mesma transação, com a sessão travada (veja LockSessionAsync).
+        // Revogar o antigo e gravar o novo na mesma transação, com a sessão travada (veja
+        // IdentityDbContext.LockSessionAsync).
         // O UPDATE condicional garante que só uma renovação simultânea com o mesmo token vence.
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await LockSessionAsync(found.Token.SessionId, cancellationToken);
+        await context.LockSessionAsync(found.Token.SessionId, cancellationToken);
         var revoked = await context.RefreshTokens
             .Where(token => token.Id == found.Token.Id && token.RevokedAt == null && token.ExpiresAt > now)
             .ExecuteUpdateAsync(
@@ -100,7 +101,7 @@ internal sealed partial class RefreshSession(
     private async Task RevokeSessionAsync(ReusedToken reuse, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await LockSessionAsync(reuse.SessionDatabaseId, cancellationToken);
+        await context.LockSessionAsync(reuse.SessionDatabaseId, cancellationToken);
         var now = timeProvider.GetUtcNow();
         var revoked = await context.RefreshTokens
             .Where(token => token.SessionId == reuse.SessionDatabaseId && token.RevokedAt == null)
@@ -117,12 +118,6 @@ internal sealed partial class RefreshSession(
             LogReuseDetected(reuse.UserId, reuse.SessionId);
         }
     }
-
-    // Serializa renovação e revogação da mesma sessão. Sem o lock, em READ COMMITTED, a revogação não
-    // enxergaria o token que uma renovação em andamento inseriu e ainda não confirmou, e esse token
-    // sobreviveria. Com o lock, o UPDATE seguinte começa depois do commit da renovação e o vê.
-    private Task LockSessionAsync(long sessionId, CancellationToken cancellationToken) =>
-        context.Database.ExecuteSqlAsync($"SELECT 1 FROM identity.sessions WHERE id = {sessionId} FOR UPDATE", cancellationToken);
 
     // Só os ids externos do usuário e da sessão: nunca o token.
     [LoggerMessage(Level = LogLevel.Warning, Message = "Reuso de refresh token detectado; sessão {SessionId} do usuário {UserId} revogada.")]
