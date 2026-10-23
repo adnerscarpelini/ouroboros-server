@@ -6,7 +6,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Controllers;
+using Ouroboros.Modules.Identity.Contracts;
+using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 using Ouroboros.Modules.Identity.Infrastructure.Security;
 
@@ -16,9 +17,6 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddIdentityModule(this IServiceCollection services)
     {
-        // Os controllers internal do módulo são descobertos a partir desta application part.
-        services.AddControllers().AddApplicationPart(typeof(DependencyInjection).Assembly);
-
         // Validada na subida da API, depois que todas as fontes de configuração foram carregadas.
         services.AddOptions<IdentityDatabaseOptions>()
             .Configure<IConfiguration>((options, configuration) =>
@@ -82,6 +80,9 @@ public static class DependencyInjection
                 };
             });
 
-        services.AddAuthorization(IdentityPolicies.Configure);
+        // Mapeamento de papel para política: só aqui, no módulo dono das capacidades.
+        services.AddAuthorization(options => options.AddPolicy(
+            IdentityPolicies.AdminsInvite,
+            policy => policy.RequireRole(nameof(UserRole.Admin))));
     }
 }

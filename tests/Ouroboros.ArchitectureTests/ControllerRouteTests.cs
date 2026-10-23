@@ -1,16 +1,18 @@
+extern alias backoffice;
+
+using System.Reflection;
 using Asp.Versioning;
+using backoffice::Ouroboros.Backoffice.Api;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Ouroboros.ArchitectureTests;
 
-// Sem grupos de rota, a separação por público depende de convenção. Este teste a verifica sobre as
-// actions que o host realmente registra: cada rota de módulo começa pelo segmento de versão e pelo
-// prefixo do próprio módulo, todo controller declara ao menos uma [ApiVersion], e o prefixo de
-// backoffice aparece se e somente se o controller herda a AdminControllerBase do módulo.
-// Só são vistos os controllers que o host descobre; ControllerDiscoveryTests garante que os
-// controllers internal são descobertos, sem o que este teste passaria sem verificar nada.
+// Convenção dos controllers de cada host, verificada sobre as actions que o host realmente registra:
+// ficam em <Host>.Controllers.<Module>, o módulo existe, declaram [ApiVersion] e usam a rota do seu
+// público: api/v{version:apiVersion}/<module>/ na API externa e
+// api/v{version:apiVersion}/admin/<module>/ no backoffice.
 public sealed class ControllerRouteTests(OuroborosApiFactory external, BackofficeApiFactory backoffice)
     : IClassFixture<OuroborosApiFactory>, IClassFixture<BackofficeApiFactory>
 {
@@ -18,34 +20,46 @@ public sealed class ControllerRouteTests(OuroborosApiFactory external, Backoffic
     private const string VersionSegment = "api/v{version:apiVersion}/";
 
     [Fact]
-    public void Module_controllers_use_audience_routes_of_their_module()
-    {
-        // Os controllers de módulo ficam divididos entre os dois hosts; a regra vale para a união.
-        var actions = ActionsOf(external.Services).Concat(ActionsOf(backoffice.Services))
-            .Where(action => action.ControllerTypeInfo.Assembly.GetName().Name?
-                .StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal) == true);
+    public void External_host_controllers_follow_the_convention() =>
+        AssertConvention(external.Services, typeof(Program).Assembly, routePrefix: "");
 
-        var violations = actions.Select(FindViolation).OfType<string>().ToList();
+    [Fact]
+    public void Backoffice_host_controllers_follow_the_convention() =>
+        AssertConvention(backoffice.Services, typeof(BackofficeApiEntryPoint).Assembly, routePrefix: "admin/");
+
+    private static void AssertConvention(IServiceProvider services, Assembly hostAssembly, string routePrefix)
+    {
+        var modules = ModuleVisibilityTests.ModuleAssemblyNames
+            .Select(row => row.Data[ModuleAssemblyPrefix.Length..])
+            .ToHashSet(StringComparer.Ordinal);
+
+        var violations = services.GetRequiredService<IActionDescriptorCollectionProvider>()
+            .ActionDescriptors.Items
+            .OfType<ControllerActionDescriptor>()
+            .Where(action => action.ControllerTypeInfo.Assembly == hostAssembly)
+            .Select(action => FindViolation(action, hostAssembly, modules, routePrefix))
+            .OfType<string>()
+            .ToList();
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
     }
 
-    private static IEnumerable<ControllerActionDescriptor> ActionsOf(IServiceProvider services) =>
-        services.GetRequiredService<IActionDescriptorCollectionProvider>()
-            .ActionDescriptors.Items
-            .OfType<ControllerActionDescriptor>();
-
-    private static string? FindViolation(ControllerActionDescriptor action)
+    private static string? FindViolation(
+        ControllerActionDescriptor action,
+        Assembly hostAssembly,
+        HashSet<string> modules,
+        string routePrefix)
     {
         var controllerType = action.ControllerTypeInfo;
-        var moduleAssemblyName = controllerType.Assembly.GetName().Name!;
-        var module = moduleAssemblyName[ModuleAssemblyPrefix.Length..].ToLowerInvariant();
-        var template = action.AttributeRouteInfo?.Template?.TrimStart('~', '/');
         var actionName = $"{controllerType.FullName}.{action.ActionName}";
+        var controllersNamespace = $"{hostAssembly.GetName().Name}.Controllers.";
 
-        if (template is null)
+        var module = controllerType.Namespace?.StartsWith(controllersNamespace, StringComparison.Ordinal) == true
+            ? controllerType.Namespace[controllersNamespace.Length..]
+            : null;
+        if (module is null || module.Contains('.', StringComparison.Ordinal) || !modules.Contains(module))
         {
-            return $"{actionName} não declara rota por atributo.";
+            return $"{actionName} não está em {controllersNamespace}<Module> de um módulo existente.";
         }
 
         if (!controllerType.IsDefined(typeof(ApiVersionAttribute), inherit: true))
@@ -53,22 +67,11 @@ public sealed class ControllerRouteTests(OuroborosApiFactory external, Backoffic
             return $"{actionName} não declara [ApiVersion].";
         }
 
-        var adminPrefix = $"{VersionSegment}admin/{module}/";
-        var customerPrefix = $"{VersionSegment}{module}/";
-        var isAdminRoute = template.StartsWith(adminPrefix, StringComparison.OrdinalIgnoreCase);
-        var isCustomerRoute = template.StartsWith(customerPrefix, StringComparison.OrdinalIgnoreCase);
-        if (!isAdminRoute && !isCustomerRoute)
+        var template = action.AttributeRouteInfo?.Template?.TrimStart('~', '/');
+        var expectedPrefix = $"{VersionSegment}{routePrefix}{module.ToLowerInvariant()}/";
+        if (template is null || !template.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            return $"{actionName} usa a rota '{template}', fora de {customerPrefix} e {adminPrefix}.";
-        }
-
-        var adminBase = controllerType.Assembly.GetType($"{moduleAssemblyName}.Controllers.Admin.AdminControllerBase");
-        var inheritsAdminBase = adminBase is not null && controllerType.IsSubclassOf(adminBase);
-        if (isAdminRoute != inheritsAdminBase)
-        {
-            return isAdminRoute
-                ? $"{actionName} usa a rota de backoffice '{template}' sem herdar AdminControllerBase."
-                : $"{actionName} herda AdminControllerBase mas usa a rota do cliente '{template}'.";
+            return $"{actionName} usa a rota '{template}', fora de {expectedPrefix}.";
         }
 
         return null;

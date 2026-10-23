@@ -50,7 +50,7 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/integration-probe/claims")]
-internal sealed class ClaimsProbeController : ControllerBase
+public sealed class ClaimsProbeController : ControllerBase
 {
     [HttpGet]
     public Dictionary<string, string> Get() =>

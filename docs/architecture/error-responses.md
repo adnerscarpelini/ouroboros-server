@@ -11,7 +11,7 @@ Os primeiros endpoints precisam de um formato único de erro. Validações, falh
   - Erros genéricos (validação, rota inexistente, erro inesperado) usam o `type` padrão do ASP.NET Core.
   - Falhas de negócio usam um URI estável por erro, que aponta para o [catálogo de erros](../errors/README.md).
 - Toda resposta de erro traz a extensão `traceId`, que liga a resposta aos logs da requisição.
-- Cada módulo traduz as próprias falhas de negócio em status HTTP e `type` nos seus controllers.
+- As falhas de negócio são do módulo, mas a tradução para HTTP fica no controller do host: ele recebe o resultado do caso de uso exposto em `Contracts` e o converte em status HTTP e `type` do catálogo do módulo ([Controllers HTTP nos hosts](http-controllers.md)).
 
 Os dois hosts ([Hosts](hosts.md)) recebem a mesma configuração de [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), em `Ouroboros.Hosting`: `AddOuroborosHost` e `UseOuroborosHost` configuram:
 
@@ -53,13 +53,13 @@ Controllers com `[ApiController]` validam a entrada antes da action e respondem 
 Em `record` posicional, os atributos de validação vão no parâmetro, e não na propriedade gerada:
 
 ```csharp
-internal sealed record SignUpRequest([Required, EmailAddress] string Email); // correto
-internal sealed record SignUpRequest([property: Required] string Email);     // o ASP.NET lança erro
+public sealed record SignUpRequest([Required, EmailAddress] string Email); // correto
+public sealed record SignUpRequest([property: Required] string Email);     // o ASP.NET lança erro
 ```
 
 ### Falha de negócio
 
-O controller traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
+O controller do host traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
 
 ```csharp
 return Problem(
@@ -119,5 +119,6 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): decisão e implementação.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
+- [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers dos hosts.
 
 [Voltar à arquitetura](README.md)

@@ -16,17 +16,19 @@ A API ainda não tem endpoints nem clientes. Incluir um prefixo de versão depoi
 - Só a versão maior é exposta (`/api/v1/...`), como no [AIP-185](https://google.aip.dev/185) do Google. Mudanças compatíveis não mudam a versão.
 - Não há versão padrão implícita: toda requisição informa a versão na URL. O Asp.Versioning não permite versão padrão quando a versão está no caminho.
 - `AddOuroborosHost`, em [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), configura nos dois [hosts](hosts.md) `AddApiVersioning` com `UrlSegmentApiVersionReader` e `ReportApiVersions = true`, seguido de `.AddMvc()`.
-- Os módulos com controllers referenciam apenas `Asp.Versioning.Abstractions`, que traz os atributos `[ApiVersion]` e `[MapToApiVersion]`. O Identity já referencia o pacote.
+- `[ApiVersion]` e `[MapToApiVersion]` são declarados nos controllers dos hosts. Os atributos vêm do `Asp.Versioning.Mvc`, referenciado por `Ouroboros.Hosting` e herdado pelos dois hosts; os módulos não referenciam pacotes de versionamento (até a #47, referenciavam `Asp.Versioning.Abstractions`).
 
 ## Como declarar versões
 
-Cada controller de módulo declara as versões que atende:
+Cada controller, no projeto do host (`Controllers/<Module>/`, conforme [Controllers HTTP nos hosts](http-controllers.md)), declara as versões que atende:
 
 ```csharp
+namespace Ouroboros.Api.Controllers.Identity;
+
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/identity/sessions")]
-internal sealed class SessionsController : ControllerBase
+public sealed class SessionsController : ControllerBase
 {
     [HttpPost]
     public IActionResult Create(...) => ...;
@@ -35,9 +37,9 @@ internal sealed class SessionsController : ControllerBase
 
 - Uma action que existe só em algumas versões do controller usa `[MapToApiVersion(n)]`.
 - Para descontinuar uma versão, marque-a com `[ApiVersion(n, Deprecated = true)]` e declare a nova versão. A versão descontinuada continua respondendo normalmente até ser removida.
-- `[ApiVersionNeutral]` não é aceito em controllers de módulo: o teste de rotas exige `[ApiVersion]`.
+- `[ApiVersionNeutral]` não é aceito nos controllers dos hosts: o teste de rotas exige `[ApiVersion]`.
 
-O exemplo acima é ilustrativo; ainda não há controllers concretos (veja [Controllers HTTP nos módulos](http-controllers.md#estado-atual)).
+O exemplo acima é ilustrativo; ainda não há controllers concretos (veja [Controllers HTTP nos hosts](http-controllers.md#estado-atual)).
 
 ## Comportamento
 
@@ -58,11 +60,12 @@ Ficam fora do escopo a documentação OpenAPI por versão e a política de prazo
 Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj):
 
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): `v1` responde com `api-supported-versions`; versão não declarada e URL sem versão não executam a action; versão descontinuada responde e informa `api-deprecated-versions`. Usa os controllers de teste de [`ProbeControllers.cs`](../../tests/Ouroboros.ArchitectureTests/ProbeControllers.cs).
-- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): exige o segmento de versão no prefixo das rotas e `[ApiVersion]` em todo controller de módulo (veja [Testes de arquitetura](http-controllers.md#testes-de-arquitetura)).
+- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): exige, em cada host, o segmento de versão no prefixo das rotas e `[ApiVersion]` em todo controller (veja [Testes de arquitetura](http-controllers.md#testes-de-arquitetura)).
 
 ## Origem
 
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): decisão e implementação.
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): `404` de versão inexistente em ProblemDetails.
+- [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): `[ApiVersion]` declarado nos controllers dos hosts.
 
 [Voltar à arquitetura](README.md)

@@ -6,7 +6,3 @@ public enum HostAudience
     External,
     Backoffice,
 }
-
-// Disponível pela DI para quem precisar saber em qual host está rodando (por exemplo, a audiência
-// dos tokens).
-public sealed record CurrentHost(HostAudience Audience);

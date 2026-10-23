@@ -77,21 +77,17 @@ Token ausente ou inválido responde `401`; token válido sem o papel ou a polít
 
 - Um endpoint só é anônimo com `[AllowAnonymous]`. Os endpoints anônimos previstos (login, conclusão de convite) chegam com a #12.
 - A política padrão também vale para requisições que não correspondem a nenhuma rota. Sem token, até uma rota inexistente responde `401`, então a resposta não revela quais rotas existem; com token válido, a mesma rota responde `404`.
-- No backoffice, um controller que esqueça de herdar a `AdminControllerBase` continua exigindo `Admin` pelo fallback.
-
-### Base dos controllers de backoffice
-
-A [`AdminControllerBase`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/Admin/AdminControllerBase.cs) do Identity declara `[Authorize(Roles = "Admin")]`. Junto com o fallback do backoffice, um token de `Customer` recebe `403` em qualquer endpoint `api/v1/admin/<module>`, mesmo que a action não declare política. A organização dos controllers está em [Controllers HTTP nos módulos](http-controllers.md#autorização).
+- No backoffice, o fallback exige `Admin` em todo endpoint, sem depender de base de controller nem de anotação: um token de `Customer` recebe `403` em qualquer endpoint `api/v1/admin/<module>`, mesmo que o controller não declare nenhuma política. Até a #47, a `AdminControllerBase` de cada módulo também exigia `Admin`; ela foi removida junto com os controllers dos módulos ([Controllers HTTP nos hosts](http-controllers.md#autorização)).
 
 ### Políticas por capacidade
 
-As actions exigem uma capacidade, não um papel: `[Authorize(Policy = IdentityPolicies.AdminsInvite)]`. O módulo dono mapeia cada capacidade para os papéis que a concedem num único lugar, registrado em `Add<Module>Module` com `services.AddAuthorization(...)`. No Identity, [`Controllers/IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/IdentityPolicies.cs) define:
+As actions exigem uma capacidade, não um papel: `[Authorize(Policy = IdentityPolicies.AdminsInvite)]`. Os nomes das políticas são constantes `public` em `Contracts` do módulo dono, para que os controllers dos hosts as referenciem; no Identity, [`Contracts/IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs). O módulo dono mapeia cada capacidade para os papéis que a concedem num único lugar, registrado em `Add<Module>Module` com `services.AddAuthorization(...)` ([`DependencyInjection.cs`](../../src/Modules/Ouroboros.Modules.Identity/DependencyInjection.cs) no Identity):
 
 | Política | Papéis |
 | --- | --- |
 | `identity:admins.invite` | `Admin` |
 
-Nenhum endpoint usa essa política ainda. Uma política própria soma-se ao papel exigido pela base e pelo fallback: no backoffice, o usuário precisa atender a todas.
+Nenhum endpoint usa essa política ainda. Uma política própria soma-se ao papel exigido pelo fallback: no backoffice, o usuário precisa atender a todas.
 
 ## Alternativas descartadas
 
@@ -114,15 +110,13 @@ Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests
   - endpoint sem anotação, sem token: `401` em ProblemDetails; token válido: `200`;
   - `alg=none`, outra chave, expirado, outro emissor, outra audiência, HS384, sem `exp`, `nbf` no futuro e expirado além de 30 segundos: `401`; expirado dentro da tolerância: aceito;
   - o `401` não traz `error_description`;
-  - token sem o papel exigido pela política: `403`; `Customer` em endpoints do backoffice, com e sem política própria: `403`; `Admin` nos mesmos endpoints: autorizado;
+  - token sem o papel exigido pela política: `403`; `Customer` em endpoints do backoffice, com e sem política própria (o controller de teste não tem base nem anotação de papel): `403`; `Admin` nos mesmos endpoints: autorizado;
   - token da API externa no backoffice e vice-versa: `401`;
   - `SigningKey` ausente, vazia, só com espaços ou com menos de 256 bits impede a subida, com mensagem que cita a chave;
-  - a `AdminControllerBase` de cada módulo exige o papel `Admin`.
-- [`HostSeparationTests`](../../tests/Ouroboros.ArchitectureTests/HostSeparationTests.cs) usa tokens válidos para verificar os `404` entre hosts (veja [Hosts](hosts.md#testes)).
 
 Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj), [`AccessTokenIssuerTests`](../../tests/Ouroboros.IntegrationTests/AccessTokenIssuerTests.cs): o token emitido pelo `AccessTokenIssuer` é aceito pela API externa com `sub`, `role` e `sid`, usa HS256, a audiência do host e validade de 15 minutos.
 
-Na validação da #9, a suíte tinha 91 testes.
+Na validação da #9, a suíte tinha 91 testes; na da #47, 93.
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests
@@ -138,6 +132,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT e autorização por políticas.
 - [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): hosts separados, com uma audiência por host.
+- [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): remoção da `AdminControllerBase` e nomes das políticas em `Contracts`.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login, sessão e refresh token (pendente).
 
 [Voltar à arquitetura](README.md)
