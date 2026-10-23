@@ -44,7 +44,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:5142/api/v1/admin/identity/
 
 Na API externa (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions`, com um `Customer`.
 
-Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo host. Antes que ele expire, troque o refresh token por um par novo na rota de renovação do mesmo host ([Renovar o access token com rotação do refresh token](refresh-session.md)). Para sair, encerre a sessão com o refresh token atual ([Encerrar a sessão atual](logout.md)); para encerrar todas as sessões do usuário, chame o logout-all com o access token ([Encerrar todas as sessões](logout-all.md)).
+Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo host. Antes que ele expire, troque o refresh token por um par novo na rota de renovação do mesmo host ([Renovar o access token com rotação do refresh token](refresh-session.md)). Para sair, encerre a sessão com o refresh token atual ([Encerrar a sessão atual](logout.md)); para encerrar todas as sessões do usuário, chame o logout-all com o access token ([Encerrar todas as sessões](logout-all.md)). Para saber quem está autenticado e com qual papel, consulte a rota `me` do mesmo host ([Consultar o próprio usuário](me.md)).
 
 ### Entrada
 
@@ -132,7 +132,7 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [reno
 
 ## Limitações
 
-- **Sessões sem expiração por inatividade.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram. O [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) encerra a sessão atual, e o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), todas. A validação do access token não consulta a sessão: um token emitido vale até expirar, mesmo depois do logout ou do logout-all.
+- **Sessões sem expiração por inatividade.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram. O [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) encerra a sessão atual, e o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), todas. A validação do access token não consulta a sessão: um token emitido vale até expirar, mesmo depois do logout ou do logout-all, inclusive na [rota `me`](me.md) ([#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19)), que confere no banco só se o usuário segue ativo e com o papel do canal.
 - **Limite por IP, em memória e por instância.** Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), o login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
 - **Tempo de resposta não medido.** Os testes verificam que o e-mail inexistente executa uma verificação de hash, mas não medem a diferença de tempo entre as respostas.
@@ -156,7 +156,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - e-mail ou senha ausente responde `400`;
 - os logs, capturados no nível `Trace` pelo [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs), não contêm a senha nem os tokens, num login bem-sucedido e num recusado.
 
-Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); e os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
+Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar); e os da consulta do próprio usuário (`MeTests`), em [Consultar o próprio usuário](me.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
 
 ## Referências
 
@@ -173,5 +173,6 @@ Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta
 - [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16): reuso de refresh token revogado encerra a sessão.
 - [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout da sessão atual.
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): logout de todas as sessões.
+- [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): consulta do próprio usuário com o access token emitido pelo login.
 
 [Voltar à documentação](../README.md)
