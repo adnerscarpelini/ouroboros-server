@@ -11,7 +11,7 @@ namespace Ouroboros.IntegrationTests;
 [AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/integration-probe")]
-internal sealed class MigrationsProbeController(IServiceProvider services) : ControllerBase
+public sealed class MigrationsProbeController(IServiceProvider services) : ControllerBase
 {
     [HttpGet("migrations")]
     public async Task<Dictionary<string, string[]>> GetAppliedMigrations(CancellationToken cancellationToken)

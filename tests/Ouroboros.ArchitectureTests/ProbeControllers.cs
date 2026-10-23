@@ -10,8 +10,8 @@ using Microsoft.Extensions.Logging;
 
 namespace Ouroboros.ArchitectureTests;
 
-// Os módulos ainda não têm controllers concretos. Os testes registram o assembly de testes como
-// application part, como um módulo faria, para exercitar a descoberta e o versionamento.
+// Controllers de teste (públicos, como os dos hosts). Os testes registram o assembly de testes como
+// application part para exercitar o pipeline dos hosts: versionamento, erros e autorização.
 internal static class ProbeHost
 {
     public static HttpClient CreateClient<TEntryPoint>(
@@ -48,14 +48,14 @@ internal static class ProbeHost
     }
 }
 
-internal sealed class ProbeGreeting
+public sealed class ProbeGreeting
 {
-    public const string Text = "internal controller reached";
+    public const string Text = "probe controller reached";
 
     public string Message => Text;
 }
 
-internal sealed class ProbeCallCounter
+public sealed class ProbeCallCounter
 {
     private int _calls;
 
@@ -68,7 +68,7 @@ internal sealed class ProbeCallCounter
 [AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/probe")]
-internal sealed class ProbeController(ProbeGreeting greeting) : ControllerBase
+public sealed class ProbeController(ProbeGreeting greeting) : ControllerBase
 {
     [HttpGet]
     public string Get() => greeting.Message;
@@ -79,7 +79,7 @@ internal sealed class ProbeController(ProbeGreeting greeting) : ControllerBase
 [ApiVersion(1, Deprecated = true)]
 [ApiVersion(2)]
 [Route("api/v{version:apiVersion}/versioned-probe")]
-internal sealed class VersionedProbeController(ProbeCallCounter counter) : ControllerBase
+public sealed class VersionedProbeController(ProbeCallCounter counter) : ControllerBase
 {
     [HttpGet]
     public string Get()
@@ -93,7 +93,7 @@ internal sealed class VersionedProbeController(ProbeCallCounter counter) : Contr
 [AllowAnonymous]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/problem-probe")]
-internal sealed class ProblemProbeController : ControllerBase
+public sealed class ProblemProbeController : ControllerBase
 {
     public const string InternalDetail = "detalhe interno que nunca deve sair na resposta";
     public const string BusinessProblemType = "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/probe.md#probe-conflict";
@@ -109,13 +109,13 @@ internal sealed class ProblemProbeController : ControllerBase
         Problem(type: BusinessProblemType, title: "Conflito de teste.", statusCode: StatusCodes.Status409Conflict);
 }
 
-internal sealed record ProbeRequest([Required, EmailAddress] string Email);
+public sealed record ProbeRequest([Required, EmailAddress] string Email);
 
 // Sem [AllowAnonymous]: depende da política padrão do host, que nega quem não está autenticado.
 [ApiController]
 [ApiVersion(1)]
 [Route("api/v{version:apiVersion}/secured-probe")]
-internal sealed class SecuredProbeController : ControllerBase
+public sealed class SecuredProbeController : ControllerBase
 {
     public const string AdminOnlyPolicy = "probe:admin-only";
 

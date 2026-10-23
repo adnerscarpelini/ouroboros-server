@@ -41,7 +41,7 @@ O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sa
 
 `AddIdentityModule` registra `IPasswordHasher` → `AspNetCorePasswordHasher` e `UserPasswordVerifier` como singletons; os dois não guardam estado por requisição.
 
-O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o módulo já referencia por causa dos [controllers](http-controllers.md). O pacote `Microsoft.Extensions.Identity.Core`, citado na issue, contém a mesma classe; referenciá-lo seria redundante e gera o aviso NU1510, então ele não foi adicionado.
+O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o módulo já referencia (também usado pela autenticação JwtBearer). O pacote `Microsoft.Extensions.Identity.Core`, citado na issue, contém a mesma classe; referenciá-lo seria redundante e gera o aviso NU1510, então ele não foi adicionado.
 
 **Custo:** com 210.000 iterações, cada hash ou verificação consome da ordem de 100 a 500 ms de CPU, conforme a máquina. É intencional (é o que encarece ataques de força bruta) e deve ser considerado em endpoints de login e cadastro.
 
@@ -49,7 +49,7 @@ O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o 
 
 Desde a [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9), o Identity emite e valida os access tokens JWT (HS256), conforme [Autenticação JWT e autorização por políticas](authentication.md):
 
-- `AddIdentityModule` registra as opções `Authentication:Jwt` validadas na subida (`JwtOptions` e `JwtOptionsValidator`), o esquema JwtBearer com a audiência do host e as políticas por capacidade do módulo ([`IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Controllers/IdentityPolicies.cs)).
+- `AddIdentityModule` registra as opções `Authentication:Jwt` validadas na subida (`JwtOptions` e `JwtOptionsValidator`), o esquema JwtBearer com a audiência do host e as políticas por capacidade do módulo (nomes em [`Contracts/IdentityPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityPolicies.cs)).
 - [`AccessTokenIssuer`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AccessTokenIssuer.cs), em `Infrastructure/Security`, emite o access token com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`, o `Role` do `User`), `sid` (`ExternalId` da sessão) e `jti`, válido por 15 minutos.
 - O refresh token, a sessão e o login ficam com a [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12); hoje nenhum endpoint emite tokens.
 

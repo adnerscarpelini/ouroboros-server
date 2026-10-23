@@ -1,7 +1,5 @@
 using System.Net;
 using System.Net.Http.Headers;
-using System.Reflection;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
 
@@ -139,22 +137,6 @@ public sealed class AuthorizationTests(OuroborosApiFactory external, BackofficeA
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 
         Assert.Contains(expectedMessage, exception.Message);
-    }
-
-    // A base de backoffice de cada módulo exige o papel Admin, além da política global do host.
-    [Theory]
-    [MemberData(nameof(ModuleVisibilityTests.ModuleAssemblyNames), MemberType = typeof(ModuleVisibilityTests))]
-    public void Module_admin_base_requires_admin_role(string moduleAssemblyName)
-    {
-        var adminBase = Assembly.Load(moduleAssemblyName).GetType($"{moduleAssemblyName}.Controllers.Admin.AdminControllerBase");
-        if (adminBase is null)
-        {
-            return;
-        }
-
-        var authorize = adminBase.GetCustomAttribute<AuthorizeAttribute>();
-        Assert.NotNull(authorize);
-        Assert.Equal(Admin, authorize.Roles);
     }
 
     private static async Task<HttpResponseMessage> GetAsync<TEntryPoint>(
