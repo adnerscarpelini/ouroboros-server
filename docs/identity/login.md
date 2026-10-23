@@ -101,10 +101,27 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 - **Mesmo custo para e-mail inexistente e conta bloqueada.** Sem usuário ou com a conta bloqueada, a senha real não é verificada: o `UserPasswordVerifier.VerifyWithoutUser` verifica a senha contra um hash fictício, de uma senha aleatória gerado com os parâmetros atuais do hasher. O hash é calculado na criação do verificador (singleton), e não no primeiro uso, para que o primeiro login com e-mail inexistente não demore mais que os outros. Usuário inativo ou de outro papel também passa pela verificação real da senha antes da recusa. Os parâmetros do bloqueio são lidos no início de todo login, com ou sem usuário, pelo mesmo motivo.
 - **Limite por IP antes de tudo.** O limite de requisições roda antes do controller: uma requisição recusada com `429` não chega ao caso de uso, não soma falha no [bloqueio](account-lockout.md) e não custa hash de senha ([Limitar requisições](auth-rate-limiting.md)).
 - **Bloqueio após falhas seguidas.** Cada senha errada soma uma falha no usuário; ao atingir `Identity:Lockout:MaxFailedAttempts` (5), a conta fica bloqueada por `Identity:Lockout:DurationMinutes` (15 minutos). Um login bem-sucedido zera o contador. Detalhes em [Bloquear a conta após falhas consecutivas de senha](account-lockout.md).
-- **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)). Num login recusado, nada é gravado além da falha de senha no contador do bloqueio.
+- **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)), só se o hash armazenado ainda for o verificado ([Transação com o usuário travado](#transação-com-o-usuário-travado)). Num login recusado, nada é gravado além da falha de senha no contador do bloqueio.
 - **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos. Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; desde a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16), apresentar de novo um token revogado encerra só a sessão dele ([reuso](refresh-token-reuse.md)); desde a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17), o [logout](logout.md) encerra só a sessão do token informado; desde a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18), o [logout-all](logout-all.md) encerra todas as sessões do usuário, e um login feito depois dele abre uma sessão nova normalmente.
 - **Só o hash do refresh token.** O banco guarda o SHA-256 do refresh token, nunca o valor entregue ao cliente. Um hash rápido basta porque o token tem 256 bits de entropia, ao contrário de uma senha.
 - **Sem segredos nos logs.** A senha, o access token e o refresh token não aparecem nos logs, em nenhum nível.
+
+### Transação com o usuário travado
+
+Desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a sessão é aberta numa transação que trava a linha do usuário (`IdentityDbContext.LockUserAsync`, `SELECT ... FOR NO KEY UPDATE` em `identity.users`) e relê, sob o lock, o hash da senha, `is_active` e `locked_until`. O login é recusado com o mesmo `401` se:
+
+- o hash armazenado não é mais o que foi verificado (a senha mudou, por exemplo, numa [redefinição de senha](password-reset.md#concluir-a-redefinição));
+- a conta foi desativada; ou
+- a conta ficou bloqueada no intervalo ([Bloquear a conta](account-lockout.md)).
+
+A recusa não soma falha nem grava nada: a transação é desfeita. Se tudo confere, o contador zerado, a sessão, o primeiro refresh token e um eventual rehash são gravados e confirmados na mesma transação.
+
+A verificação da senha, que é cara, continua fora da transação; só a abertura da sessão segura o lock. O motivo é a corrida com a redefinição de senha, que trava o mesmo usuário:
+
+- sem o lock, um login com a senha antiga, verificado antes de a redefinição terminar, abriria uma sessão depois de a redefinição revogar todas as outras, e essa sessão seguiria viva com a senha trocada;
+- e um login que refizesse o hash da senha antiga gravaria esse hash por cima do novo, trazendo a senha antiga de volta.
+
+Com o lock, ou o login confirma primeiro (e a redefinição, que espera por ele, revoga a sessão aberta), ou a redefinição confirma primeiro (e o login, que espera por ela, encontra outro hash e responde `401`). O porquê do `FOR NO KEY UPDATE` e a ordem dos locks do módulo estão em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
 ## Caso de uso exposto
 
@@ -156,7 +173,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - e-mail ou senha ausente responde `400`;
 - os logs, capturados no nível `Trace` pelo [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs), não contêm a senha nem os tokens, num login bem-sucedido e num recusado.
 
-Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar); e os da consulta do próprio usuário (`MeTests`), em [Consultar o próprio usuário](me.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
+Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar); e os da consulta do próprio usuário (`MeTests`), em [Consultar o próprio usuário](me.md#como-verificar); e as corridas entre login e redefinição de senha (`PasswordResetRaceTests`), em [Redefinir a senha](password-reset.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
 
 ## Referências
 
@@ -174,5 +191,6 @@ Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta
 - [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): logout da sessão atual.
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): logout de todas as sessões.
 - [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): consulta do próprio usuário com o access token emitido pelo login.
+- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): abertura da sessão numa transação com o usuário travado, para serializar com a redefinição de senha.
 
 [Voltar à documentação](../README.md)

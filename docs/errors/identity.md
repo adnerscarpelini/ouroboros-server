@@ -20,10 +20,16 @@ Falhas de negócio do módulo Identity, no formato do [catálogo de erros](READM
 - **Quando ocorre**: na conclusão do cadastro (`POST /api/v1/identity/registrations/complete`), quando o token do link está vazio, não existe, expirou, já foi usado, foi invalidado por uma solicitação mais nova ou é de outro tipo, ou quando o e-mail passou a pertencer a outra conta (inclusive por uma conclusão simultânea com o mesmo token, que venceu). A resposta é a mesma em todos os casos, sem `detail`. O token é conferido antes da senha: um token inválido recebe este erro mesmo com uma senha fora da política ([Concluir o cadastro](../identity/registration.md#token-inválido-400)).
 - **Como reagir**: peça ao usuário que solicite o cadastro de novo, para receber um link novo. Não repita a conclusão com o mesmo token. Se o e-mail já tiver conta, nenhum link novo chega; o usuário pode tentar entrar pelo login.
 
+## invalid-password-reset-token
+
+- **Status HTTP**: `400 Bad Request`
+- **Quando ocorre**: na redefinição de senha (`POST /api/v1/identity/password-resets/complete`), quando o token do link está vazio, não existe, expirou, já foi usado, foi invalidado por uma solicitação mais nova, é de outro tipo (por exemplo, de cadastro) ou pertence a um usuário inativo, inclusive quando uma conclusão simultânea com o mesmo token venceu. A resposta é a mesma em todos os casos, sem `detail`. O token é conferido antes da senha: um token inválido recebe este erro mesmo com uma senha fora da política. Nada é gravado: a senha, o bloqueio e as sessões continuam como estavam ([Concluir a redefinição](../identity/password-reset.md#token-inválido-400)).
+- **Como reagir**: peça ao usuário que solicite a redefinição de novo, para receber um link novo. Não repita a conclusão com o mesmo token. Só contas de cliente ativas recebem o link.
+
 ## password-rejected
 
 - **Status HTTP**: `400 Bad Request`
-- **Quando ocorre**: na conclusão do cadastro (`POST /api/v1/identity/registrations/complete`), com um token válido, quando a senha informada (ou ausente, tratada como vazia) não atende à [política de senha](../architecture/password-policy.md): tamanho, lista de senhas comuns, nome do sistema ou parte local do e-mail. O `detail` traz a regra violada. O token não é consumido e continua válido ([Concluir o cadastro](../identity/registration.md#senha-recusada-400)).
+- **Quando ocorre**: na conclusão do cadastro (`POST /api/v1/identity/registrations/complete`) e na redefinição de senha (`POST /api/v1/identity/password-resets/complete`), com um token válido, quando a senha informada (ou ausente, tratada como vazia) não atende à [política de senha](../architecture/password-policy.md): tamanho, lista de senhas comuns, nome do sistema ou parte local do e-mail. Na redefinição, também quando a senha nova é igual à atual (`detail`: `A nova senha não pode ser igual à atual.`). O `detail` traz a regra violada. O token não é consumido e continua válido ([Concluir o cadastro](../identity/registration.md#senha-recusada-400), [Concluir a redefinição](../identity/password-reset.md#senha-recusada-400)).
 - **Como reagir**: mostre o `detail` ao usuário e peça outra senha; repita a conclusão com o mesmo token.
 
 [Voltar ao catálogo de erros](README.md)

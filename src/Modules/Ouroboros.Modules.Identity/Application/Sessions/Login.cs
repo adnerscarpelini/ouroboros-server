@@ -35,6 +35,8 @@ internal sealed class Login(
             return LoginResult.InvalidCredentials;
         }
 
+        // Hash conferido, guardado antes de um eventual rehash, para checar depois que a senha não mudou.
+        var verifiedHash = user.PasswordHash;
         if (!passwordVerifier.Verify(user, password))
         {
             await accountLockout.RegisterFailureAsync(user, lockoutPolicy, now, cancellationToken);
@@ -47,6 +49,22 @@ internal sealed class Login(
             return LoginResult.InvalidCredentials;
         }
 
+        // A sessão é aberta com o usuário travado. Se a senha mudou (por exemplo, numa redefinição), a conta
+        // foi desativada ou bloqueada entre a verificação e agora, o login é recusado: sem isso, um login com
+        // a senha antiga abriria uma sessão depois de a redefinição revogar as outras, ou o rehash gravaria o
+        // hash antigo por cima do novo.
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        await context.LockUserAsync(user.Id, cancellationToken);
+        var current = await context.Users
+            .AsNoTracking()
+            .Where(stored => stored.Id == user.Id)
+            .Select(stored => new { stored.PasswordHash, stored.IsActive, stored.LockedUntil })
+            .SingleAsync(cancellationToken);
+        if (current.PasswordHash != verifiedHash || !current.IsActive || current.LockedUntil > now)
+        {
+            return LoginResult.InvalidCredentials;
+        }
+
         user.ResetFailedLogins();
         var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
         var refreshTokenExpiresAt = now.Add(jwtOptions.Value.RefreshTokenLifetime);
@@ -55,6 +73,7 @@ internal sealed class Login(
 
         // Grava a sessão, o contador zerado e, se a verificação refez o hash da senha, o hash novo.
         await context.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         var accessToken = accessTokenIssuer.Issue(user, session.ExternalId);
         return new LoginResult(new SessionTokens(accessToken.Token, accessToken.ExpiresAt, refreshToken, refreshTokenExpiresAt));

@@ -60,7 +60,8 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 - **Depois do logout-all, tokens revogados são reuso.** Uma renovação com um dos tokens revogados recebe `401` `invalid-refresh-token` e é tratada como [reuso](refresh-token-reuse.md); como a sessão já não tem token ativo, nada mais é revogado.
 - **Sessões travadas em ordem de id.** A operação roda numa transação que começa travando todas as sessões do usuário, em ordem de id (`IdentityDbContext.LockUserSessionsAsync`, `SELECT 1 FROM identity.sessions WHERE user_id = ... ORDER BY id FOR UPDATE`), antes do `UPDATE` dos tokens, como manda a [regra das escritas em `identity.refresh_tokens`](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão):
   - uma renovação em andamento numa das sessões termina antes, e o `UPDATE` seguinte já enxerga o token novo que ela gravou; nenhum token novo fica para trás;
-  - dois logout-all simultâneos do mesmo usuário pegam os locks na mesma ordem e não entram em deadlock; os outros fluxos (renovação, revogação por reuso e logout) travam uma única sessão, então também não formam ciclo com o logout-all.
+  - dois logout-all simultâneos do mesmo usuário pegam os locks na mesma ordem e não entram em deadlock; os outros fluxos (renovação, revogação por reuso e logout) travam uma única sessão, então também não formam ciclo com o logout-all;
+  - desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a [redefinição de senha](password-reset.md#regras-da-redefinição) trava a linha do usuário e depois as mesmas sessões, na mesma ordem de id. O logout-all não trava o usuário, então não espera nada que a redefinição segure antes das sessões, e os dois não formam ciclo ([Ordem dos locks](../architecture/identity.md#ordem-dos-locks)).
 - **Sem limite de requisições por IP.** As rotas não têm política de rate limit, ao contrário dos endpoints anônimos de autenticação ([Limitar requisições](auth-rate-limiting.md)); exigem um access token válido.
 - **Sem logs.** O caso de uso não escreve log.
 
@@ -77,8 +78,8 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 ## Limitações
 
 - **Os access tokens já emitidos continuam válidos.** O logout-all atinge só os refresh tokens. A validação do JWT não consulta o banco, então os access tokens em uso, inclusive o que chamou o logout-all e os de outros dispositivos, valem até expirar, no máximo 15 minutos ([Autenticação](../architecture/authentication.md#emissão-do-access-token)), inclusive na rota `me`, desde que o usuário siga ativo e com o mesmo papel ([Consultar o próprio usuário](me.md#limitações)). Revogá-los ficou fora do escopo da issue. Quem suspeita de invasão deve considerar essa janela.
-- **Login depois do logout-all abre sessão nova.** O logout-all não bloqueia a conta nem impede novos logins: quem tiver a senha entra de novo. Se a senha pode ter vazado, ela precisa ser trocada, o que ainda não existe.
-- **Login simultâneo.** Uma sessão aberta por um login cuja transação ainda não confirmou quando o logout-all revoga os tokens não é alcançada e continua ativa, como um login feito logo depois.
+- **Login depois do logout-all abre sessão nova.** O logout-all não bloqueia a conta nem impede novos logins: quem tiver a senha entra de novo. Se a senha pode ter vazado, ela precisa ser trocada; hoje, só clientes conseguem, pela [redefinição de senha](password-reset.md), que também encerra todas as sessões. Ainda não há troca de senha para um usuário autenticado.
+- **Login simultâneo.** Uma sessão aberta por um login cuja transação ainda não confirmou quando o logout-all revoga os tokens não é alcançada e continua ativa, como um login feito logo depois. O logout-all não trava o usuário, ao contrário da [redefinição de senha](password-reset.md), que espera o login em andamento e revoga a sessão aberta por ele ([Transação com o usuário travado](login.md#transação-com-o-usuário-travado)).
 - **As sessões não mudam de estado.** As linhas de `identity.sessions` continuam lá, sem token ativo; não há coluna de encerramento nem listagem de sessões.
 - **Usuário não é notificado.** Não há aviso por e-mail nem trilha de auditoria persistida.
 
@@ -111,5 +112,6 @@ Na validação da #18, a suíte tinha 277 testes. A consulta do próprio usuári
 
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): encerrar todas as sessões.
 - Depende de [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15) (renovação com rotação do refresh token) e segue a regra de lock da [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16) (reuso), estendida aqui a várias sessões.
+- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): a redefinição de senha passou a usar o mesmo lock das sessões, depois do lock do usuário; a ordem dos locks do módulo está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
 [Voltar à documentação](../README.md)
