@@ -35,7 +35,7 @@ A unicidade do e-mail sem distinção de maiúsculas vem da normalização: `Cli
 | --- | --- | --- |
 | [`IPasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/IPasswordHasher.cs) | `Application/Security` | Porta do módulo: `Hash(password)` e `Verify(passwordHash, providedPassword)`, que retorna `PasswordVerificationOutcome` (`Failed`, `Succeeded`, `SucceededRehashNeeded`). Os tipos do ASP.NET Core Identity não aparecem nela. |
 | [`UserPasswordVerifier`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/UserPasswordVerifier.cs) | `Application/Security` | Verifica a senha de um `User`; em `SucceededRehashNeeded`, gera um hash novo e o atribui com `ChangePasswordHash`. Retorna `true` nos dois casos de sucesso. Não grava: quem chama salva o usuário (o login da #12 fará isso). Em falha, o hash não muda. |
-| [`AspNetCorePasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) | `Infrastructure/Security` | Implementa a porta com `PasswordHasher<User>`, `CompatibilityMode = IdentityV3` e `IterationCount = 210.000`. Traduz `PasswordVerificationResult` para `PasswordVerificationOutcome`. |
+| [`AspNetCorePasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) | `Infrastructure/Security` | Implementa a porta com `PasswordHasher<User>`, `CompatibilityMode = IdentityV3` e `IterationCount = 210.000`. Desde a #11, normaliza a senha em NFKC antes de gerar e de verificar o hash, para que a mesma senha com acento composto ou decomposto confira ([Política de senha](password-policy.md#nfkc-no-hasher)). Traduz `PasswordVerificationResult` para `PasswordVerificationOutcome`. |
 
 O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sal. Por isso o hasher verifica hashes antigos com os parâmetros com que foram gerados e sinaliza o rehash quando as iterações gravadas são menores que as configuradas. Aumentar `IterationCount` no futuro atualiza os hashes aos poucos, a cada login bem-sucedido, sem migração de dados.
 
@@ -44,6 +44,14 @@ O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sa
 O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`, que o módulo já referencia (também usado pela autenticação JwtBearer). O pacote `Microsoft.Extensions.Identity.Core`, citado na issue, contém a mesma classe; referenciá-lo seria redundante e gera o aviso NU1510, então ele não foi adicionado.
 
 **Custo:** com 210.000 iterações, cada hash ou verificação consome da ordem de 100 a 500 ms de CPU, conforme a máquina. É intencional (é o que encarece ataques de força bruta) e deve ser considerado em endpoints de login e cadastro.
+
+## Política de senha
+
+Desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11), toda senha nova passa por [`PasswordPolicy`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/PasswordPolicy.cs), em `Application/Security`, antes do hash: 15 a 128 caracteres contados em code points após NFKC, sem regras de composição, recusada se estiver na lista local de senhas comuns ou se contiver `ouroboros` ou a parte local do e-mail (com 4 ou mais caracteres). Detalhes em [Política de senha](password-policy.md).
+
+## Primeiro administrador
+
+Desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11), o Identity expõe o caso de uso [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs), em `Contracts/Administrators`, implementado por `CreateFirstAdmin` (`internal`, em `Application/Administrators`) e registrado como scoped em `AddIdentityModule`. Ele cria um `User` ativo com o papel `Admin` só enquanto não existir nenhum `Admin`, com o e-mail no domínio do parâmetro `Identity:AdminInvitations:AllowedEmailDomain`, lido do Settings pelo `ISystemParameters`. É usado pelo comando `create-admin` do host de backoffice ([Criar o primeiro administrador](../identity/first-admin.md)). Por ele, o Identity passou a referenciar o projeto do Settings, usando só `Settings.Contracts`.
 
 ## Tokens
 
@@ -83,7 +91,7 @@ Todas as colunas são `not null`. O `IdentityDbContext` expõe `DbSet<User> User
 ## Consequências
 
 - O login (#12) deve usar `UserPasswordVerifier` e salvar o usuário depois da verificação, para persistir um eventual rehash.
-- Novos fluxos de credencial (cadastro, troca de senha) geram o hash por `IPasswordHasher.Hash` e nunca recebem o hash de fora do módulo.
+- Novos fluxos de credencial (cadastro, troca de senha) validam a senha com `PasswordPolicy` e geram o hash por `IPasswordHasher.Hash`; nunca recebem o hash de fora do módulo.
 - O e-mail é guardado em minúsculas; a grafia original digitada pelo usuário não é preservada.
 - Papéis são fixos no enum; mudar para vários papéis por usuário ou papéis dinâmicos exigiria nova decisão e migration.
 
@@ -94,7 +102,7 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`PasswordHashingTests`](../../tests/Ouroboros.IntegrationTests/PasswordHashingTests.cs), sem banco: o número de iterações lido do hash V3 é 210.000; o hash só confere com a senha original; um hash gerado com 100.000 iterações é aceito e refeito com as iterações atuais; uma verificação que falha mantém o hash.
 - [`UserPersistenceTests`](../../tests/Ouroboros.IntegrationTests/UserPersistenceTests.cs), contra o PostgreSQL real (exige Docker, veja [Testes de integração](integration-tests.md)): e-mail gravado normalizado, papel gravado como texto e `is_active` verdadeiro; e-mails que diferem só em maiúsculas violam o índice único; e-mail vazio, em branco ou acima do limite é rejeitado.
 
-Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes), e os do e-mail, em [Envio de e-mail](email.md#testes).
+Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [Autenticação](authentication.md#testes); os do e-mail, em [Envio de e-mail](email.md#testes); os da política de senha e do NFKC no hasher, em [Política de senha](password-policy.md#testes); e os do primeiro administrador, em [Criar o primeiro administrador](../identity/first-admin.md#como-verificar).
 
 ## Referências
 
@@ -107,5 +115,6 @@ Na validação da #8, a suíte tinha 58 testes. Os testes dos tokens estão em [
 - [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): domínio de identidade próprio com o hasher do ASP.NET Core Identity.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): emissão e validação dos access tokens JWT.
 - [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10): envio de e-mails por uma porta com adaptador local.
+- [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): política de senha, NFKC no hasher e caso de uso do primeiro administrador.
 
 [Voltar à arquitetura](README.md)

@@ -1,3 +1,4 @@
+using Ouroboros.Backoffice.Api.CommandLine;
 using Ouroboros.Hosting;
 using Ouroboros.Modules.Accounts;
 using Ouroboros.Modules.Customers;
@@ -17,5 +18,14 @@ builder.Services.AddAccountsModule();
 builder.Services.AddTransactionsModule();
 
 var app = builder.Build();
+
+// Comandos de operação (por exemplo, create-admin) rodam e encerram sem subir o servidor HTTP.
+if (CreateAdminCommand.Matches(args))
+{
+    return await CreateAdminCommand.RunAsync(
+        app.Services, args, Environment.GetEnvironmentVariable, Console.Out, Console.Error, CancellationToken.None);
+}
+
 app.UseOuroborosHost();
 app.Run();
+return 0;

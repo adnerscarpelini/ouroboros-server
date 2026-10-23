@@ -28,7 +28,7 @@ Esta decisão substitui a "API única" registrada na #3. O Ouroboros tem dois ho
 
 O esquema JwtBearer e a validação dos tokens são registrados pelo Identity em `AddIdentityModule`, que os dois hosts chamam ([Autenticação](authentication.md#validação-do-token)).
 
-O [`Program.cs` da API externa](../../src/Ouroboros.Api/Program.cs) fica assim (o do backoffice muda só o público):
+O [`Program.cs` da API externa](../../src/Ouroboros.Api/Program.cs) fica assim (o do backoffice muda o público e, antes de `UseOuroborosHost`, desvia para os [comandos de operação](#comandos-de-operação)):
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
@@ -43,6 +43,19 @@ var app = builder.Build();
 app.UseOuroborosHost();
 app.Run();
 ```
+
+### Comandos de operação
+
+Desde a [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11), o `Ouroboros.Backoffice.Api` também roda comandos de operação, executados por quem opera a aplicação, em `CommandLine/`. Hoje há um, o [`create-admin`](../../src/Ouroboros.Backoffice.Api/CommandLine/CreateAdminCommand.cs), que cria o primeiro administrador ([Criar o primeiro administrador](../identity/first-admin.md)):
+
+```powershell
+dotnet run --project src/Ouroboros.Backoffice.Api -- create-admin --email <e-mail>   # senha em OUROBOROS_ADMIN_PASSWORD
+```
+
+- O `Program.cs` monta a aplicação normalmente (`builder.Build()`, com os módulos e a configuração do host) e, se o primeiro argumento for o nome de um comando, executa-o e retorna o código de saída, sem chamar `UseOuroborosHost` nem `Run`: nenhuma porta é aberta. Sem comando, o host sobe como antes.
+- O comando fica no host porque é uma entrada da aplicação, como um controller: lê argumentos e variáveis de ambiente, chama o caso de uso exposto em `Contracts` do módulo e traduz o resultado em saída e código de saída. A regra fica no módulo.
+- Os comandos ficam só no backoffice, o host interno; a API externa não os aceita.
+- Segredos, como a senha do administrador, vêm de variável de ambiente, nunca de argumento.
 
 ### Configuração
 
@@ -94,6 +107,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests
 - [#32](https://github.com/adnerscarpelini/ouroboros-server/issues/32): separação em dois hosts.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): controllers declarados nos hosts, substituindo a descoberta por público.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): autenticação JWT, audiência por host e política padrão do backoffice (camadas 2 e 3).
+- [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): comandos de operação no backoffice (`create-admin`).
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): login de backoffice só para `Admin` (camada 4, pendente).
 
 [Voltar à arquitetura](README.md)
