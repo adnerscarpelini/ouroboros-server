@@ -21,6 +21,11 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
     public Task LockSessionAsync(long sessionId, CancellationToken cancellationToken) =>
         Database.ExecuteSqlAsync($"SELECT 1 FROM identity.sessions WHERE id = {sessionId} FOR UPDATE", cancellationToken);
 
+    // Trava todas as sessões de um usuário, sempre na ordem do id, para que duas chamadas simultâneas
+    // não se bloqueiem em ordens diferentes.
+    public Task LockUserSessionsAsync(long userId, CancellationToken cancellationToken) =>
+        Database.ExecuteSqlAsync($"SELECT 1 FROM identity.sessions WHERE user_id = {userId} ORDER BY id FOR UPDATE", cancellationToken);
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);

@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-O usuário encerra a sessão do dispositivo atual, por exemplo ao sair de um computador compartilhado. O logout revoga o refresh token informado, e a sessão deixa de renovar o access token. As outras sessões do usuário (outros logins, outros dispositivos) continuam funcionando.
+O usuário encerra a sessão do dispositivo atual, por exemplo ao sair de um computador compartilhado. O logout revoga o refresh token informado, e a sessão deixa de renovar o access token. As outras sessões do usuário (outros logins, outros dispositivos) continuam funcionando; para encerrar todas de uma vez, use o [logout-all](logout-all.md).
 
 Módulo responsável: Identity. A regra fica no caso de uso `ILogout` do módulo; os controllers dos dois hosts só validam o tamanho da entrada, chamam o caso de uso e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
@@ -102,7 +102,7 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 | --- | --- | --- |
 | [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
 | [`Logout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
-| [`IdentityDbContext.LockSessionAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. Antes um método privado da `RefreshSession`, passou ao DbContext na #17 para ser compartilhado pela renovação, pela revogação por reuso e pelo logout. |
+| [`IdentityDbContext.LockSessionAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. Antes um método privado da `RefreshSession`, passou ao DbContext na #17 para ser compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
 | [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Logout`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Logout)]`, ao lado do login e da renovação; reutiliza o DTO `RefreshSessionBody` de `SessionModels.cs`. |
 
 ## Limitações
@@ -110,7 +110,7 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 - **O access token já emitido continua válido.** O logout atinge só o refresh token. A validação do access token não consulta a sessão, então o access token em uso vale até expirar, no máximo 15 minutos ([Autenticação](../architecture/authentication.md#emissão-do-access-token)). Revogá-lo ficou fora do escopo da issue.
 - **Logout com um token já rotacionado não encerra a sessão.** Um token antigo, já trocado numa renovação, está revogado: o logout responde `204` sem mudar nada, e o token atual da sessão continua renovando.
 - **Risco residual: renovação concorrente com o logout.** Se uma renovação com o mesmo token terminar antes do logout (por exemplo, uma renovação automática em segundo plano disparada junto com o clique em "sair"), o logout encontra o token já rotacionado e responde `204` sem encerrar o token novo, que continua válido. O cliente acredita ter saído, mas a sessão segue ativa com o token devolvido pela renovação. A alternativa seria tratar esse caso como reuso e revogar a sessão inteira, o que muda o critério da issue de que nada muda para um token já revogado. O risco está registrado para decisão do responsável pelo produto. Até lá, o cliente deve cancelar ou aguardar renovações em andamento antes de chamar o logout e enviar o refresh token mais recente.
-- **Sem logout de todas as sessões.** Encerrar todas as sessões do usuário fica com a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18).
+- **Só a sessão do token informado.** Encerrar todas as sessões do usuário é outro endpoint, autenticado por access token ([Encerrar todas as sessões](logout-all.md), #18).
 - **A sessão não muda de estado.** A linha de `identity.sessions` continua lá, sem token ativo; não há coluna de encerramento.
 - **Limite por IP, em memória e por instância**, com as mesmas limitações do login ([Limitar requisições](auth-rate-limiting.md#limitações)).
 
@@ -132,7 +132,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 O `400` acima de 256 caracteres e o limite da política `identity-logout` não têm teste próprio: o primeiro vem do `[MaxLength(256)]` do DTO compartilhado com a renovação; o segundo, do mesmo mecanismo testado em [`RateLimitingTests`](auth-rate-limiting.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva também o limite do logout para 100.000.
 
-Na validação da #17, a suíte tinha 270 testes.
+Na validação da #17, a suíte tinha 270 testes; na da #18, 277.
 
 ## Referências
 
@@ -142,6 +142,7 @@ Na validação da #17, a suíte tinha 270 testes.
 ## Origem
 
 - [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17): encerrar a sessão atual.
+- [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): encerrar todas as sessões, em endpoint próprio ([Encerrar todas as sessões](logout-all.md)).
 - Depende de [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15) (renovação com rotação do refresh token) e segue a regra de lock da [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16) (reuso).
 
 [Voltar à documentação](../README.md)
