@@ -6,6 +6,7 @@ using backoffice::Ouroboros.Backoffice.Api;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Ouroboros.ArchitectureTests.Dependencies;
 
 namespace Ouroboros.ArchitectureTests;
 
@@ -16,7 +17,6 @@ namespace Ouroboros.ArchitectureTests;
 public sealed class ControllerRouteTests(OuroborosApiFactory external, BackofficeApiFactory backoffice)
     : IClassFixture<OuroborosApiFactory>, IClassFixture<BackofficeApiFactory>
 {
-    private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
     private const string VersionSegment = "api/v{version:apiVersion}/";
 
     [Fact]
@@ -29,8 +29,8 @@ public sealed class ControllerRouteTests(OuroborosApiFactory external, Backoffic
 
     private static void AssertConvention(IServiceProvider services, Assembly hostAssembly, string routePrefix)
     {
-        var modules = ModuleVisibilityTests.ModuleAssemblyNames
-            .Select(row => row.Data[ModuleAssemblyPrefix.Length..])
+        var modules = SourceTree.Current.Services
+            .Select(project => project.Service!)
             .ToHashSet(StringComparer.Ordinal);
 
         var violations = services.GetRequiredService<IActionDescriptorCollectionProvider>()

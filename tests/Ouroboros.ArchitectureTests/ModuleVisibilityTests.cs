@@ -1,32 +1,20 @@
-using System.Reflection;
-using System.Runtime.CompilerServices;
+using Ouroboros.ArchitectureTests.Dependencies;
 
 namespace Ouroboros.ArchitectureTests;
 
-// O compilador impede Ouroboros.Api de usar tipos internal dos módulos. Estes testes garantem
-// as duas condições de que essa proteção depende: nenhum tipo fora das exceções vira public e
-// nenhum módulo abre seus internals para a Api com InternalsVisibleTo.
+// O compilador impede que outro projeto use tipos internal de um serviço. Estes testes garantem as duas condições de
+// que essa proteção depende: nenhum tipo fora das exceções vira public e nenhum serviço abre seus internals para outro
+// projeto de src com InternalsVisibleTo. Os serviços vêm da árvore de src (SourceTree), então um serviço novo entra
+// nos testes assim que o projeto existir.
 public sealed class ModuleVisibilityTests
 {
-    // Os dois hosts: nenhum deles pode enxergar os tipos internos dos módulos.
-    private static readonly string[] HostAssemblyNames = ["Ouroboros.Api", "Ouroboros.Backoffice.Api"];
-
-    private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
-
-    // Os módulos são descobertos pelas referências dos hosts, então um módulo novo entra nos testes
-    // assim que for registrado em qualquer um deles.
     public static TheoryData<string> ModuleAssemblyNames =>
     [
-        .. HostAssemblyNames
-            .SelectMany(host => Assembly.Load(host).GetReferencedAssemblies())
-            .Select(reference => reference.Name)
-            .OfType<string>()
-            .Where(name => name.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal))
-            .Distinct(),
+        .. SourceTree.Current.Services.Select(project => project.Name),
     ];
 
     [Fact]
-    public void Api_references_modules()
+    public void Services_are_discovered()
     {
         Assert.NotEmpty(ModuleAssemblyNames);
     }
@@ -35,33 +23,34 @@ public sealed class ModuleVisibilityTests
     [MemberData(nameof(ModuleAssemblyNames))]
     public void Module_exposes_only_DependencyInjection_and_Contracts(string moduleAssemblyName)
     {
-        var module = Assembly.Load(moduleAssemblyName);
         var dependencyInjectionType = $"{moduleAssemblyName}.DependencyInjection";
         var contractsNamespace = $"{moduleAssemblyName}.Contracts";
 
-        var unexpectedPublicTypes = module.GetExportedTypes()
-            .Where(type => type.FullName != dependencyInjectionType)
-            .Where(type => type.Namespace != contractsNamespace
-                && type.Namespace?.StartsWith($"{contractsNamespace}.", StringComparison.Ordinal) != true)
+        var unexpectedPublicTypes = Scan(moduleAssemblyName).Types
+            .Where(type => type.IsExported)
+            .Where(type => type.Id.FullName != dependencyInjectionType)
+            .Where(type => type.Id.Namespace != contractsNamespace
+                && !type.Id.Namespace.StartsWith($"{contractsNamespace}.", StringComparison.Ordinal))
             .Where(type => !IsGeneratedMigration(type))
-            .Select(type => type.FullName);
+            .Select(type => type.Id.FullName);
 
         Assert.Empty(unexpectedPublicTypes);
     }
 
     // O dotnet ef gera as migrations como public. Elas só são usadas pelo EF via reflexão e não
-    // expõem nada que outro módulo possa consumir, então são a única exceção à regra.
-    private static bool IsGeneratedMigration(Type type) =>
-        type.BaseType?.FullName == "Microsoft.EntityFrameworkCore.Migrations.Migration";
+    // expõem nada que outro serviço possa consumir, então são a única exceção à regra.
+    private static bool IsGeneratedMigration(DefinedType type) =>
+        type.BaseType == "Microsoft.EntityFrameworkCore.Migrations.Migration";
 
     [Theory]
     [MemberData(nameof(ModuleAssemblyNames))]
-    public void Module_does_not_grant_internals_to_hosts(string moduleAssemblyName)
+    public void Module_does_not_grant_internals_to_other_source_projects(string moduleAssemblyName)
     {
-        var friendAssemblies = Assembly.Load(moduleAssemblyName)
-            .GetCustomAttributes<InternalsVisibleToAttribute>()
-            .Select(attribute => new AssemblyName(attribute.AssemblyName).Name);
+        var sourceProjects = SourceTree.Current.Projects.Projects.Select(project => project.Name);
 
-        Assert.Empty(friendAssemblies.Intersect(HostAssemblyNames));
+        Assert.Empty(Scan(moduleAssemblyName).InternalsVisibleTo.Intersect(sourceProjects));
     }
+
+    private static AssemblyScan Scan(string assemblyName) =>
+        SourceTree.Current.Scans.Single(scan => scan.Name == assemblyName);
 }

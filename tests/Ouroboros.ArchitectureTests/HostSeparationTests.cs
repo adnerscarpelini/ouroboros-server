@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Ouroboros.ArchitectureTests.Dependencies;
 
 namespace Ouroboros.ArchitectureTests;
 
@@ -22,7 +23,7 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
     [MemberData(nameof(ModuleVisibilityTests.ModuleAssemblyNames), MemberType = typeof(ModuleVisibilityTests))]
     public void Modules_do_not_declare_controllers(string moduleAssemblyName)
     {
-        var controllers = Assembly.Load(moduleAssemblyName).GetTypes()
+        var controllers = SourceTree.Current.Load(moduleAssemblyName).GetTypes()
             .Where(type => typeof(ControllerBase).IsAssignableFrom(type))
             .Select(type => type.FullName);
 
