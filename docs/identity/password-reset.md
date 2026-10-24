@@ -24,9 +24,9 @@ As rotas existem só na API externa. Contas de backoffice não são recuperadas 
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([README](../../README.md#banco-de-dados-local)): a tabela dos tokens é a `identity.email_tokens`, criada pela `AddEmailTokens` do [cadastro](registration.md#persistência), e a `AddPasswordResetParameters` (Settings) inclui os parâmetros abaixo. A redefinição não tem migration própria no Identity.
+- O banco local com as migrations do Identity e do Settings aplicadas ([README](../development.md#banco-de-dados-local)): a tabela dos tokens é a `identity.email_tokens`, criada pela `AddEmailTokens` do [cadastro](registration.md#persistência), e a `AddPasswordResetParameters` (Settings) inclui os parâmetros abaixo. A redefinição não tem migration própria no Identity.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
-- Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md#ver-os-e-mails-em-desenvolvimento)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
+- Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
 
 ## Configuração
 
@@ -125,7 +125,7 @@ Parâmetro ausente ou com validade fora de 1 a 1440 faz toda solicitação respo
    Por isso sobra sempre um único token de redefinição pendente por conta, mesmo com solicitações simultâneas. Tokens de cadastro não são afetados: os dois tipos são independentes. A solicitação não espera o lock do usuário mantido por um login ou por uma conclusão em andamento ([Ordem dos locks](../architecture/identity.md#por-que-for-no-key-update)).
 5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo `OpaqueTokens`, o mesmo do cadastro e do refresh token; o banco guarda só o SHA-256 ([Persistência](#persistência)).
 6. **O link vai para o e-mail da conta.** O destinatário é o e-mail gravado no usuário, nunca o texto recebido na requisição.
-7. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md#como-usar-nos-casos-de-uso)).
+7. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md)).
 8. **Falha no envio não muda a resposta.** Se o envio falhar, a falha vai para o log em nível `Error` (`Falha ao enviar o e-mail de redefinição de senha (<tipo da exceção>).`), sem o e-mail, o link, o token nem a mensagem da exceção, e a resposta continua `202`. O token gravado fica pendente; a pessoa pode pedir de novo. Um cancelamento da requisição não é tratado como falha de envio.
 9. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 10. **A senha atual continua valendo.** A solicitação não altera o hash da senha, não bloqueia a conta nem encerra sessões.
@@ -243,7 +243,7 @@ A migration `AddPasswordResetParameters` do Settings inclui os dois parâmetros,
 - **Invalidação por terceiros.** Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP. A senha atual continua valendo.
 - **Access tokens sobrevivem à redefinição.** Os refresh tokens são revogados, mas um access token emitido antes vale até expirar (15 minutos), porque a validação do JWT não consulta a sessão ([Fazer login](login.md#limitações)).
 - **Sem recuperação para administradores** (veja [Contas de backoffice](#contas-de-backoffice)).
-- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md#limitações)).
+- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
 - **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; todo envio falha (com o mesmo `202`) e vai para o log.
 - **Sem aviso de "senha alterada"** por e-mail; ficou fora do escopo da #23.
 - **Sem front-end.** O link aponta para `http://localhost:3000/senha/redefinir`, que não faz parte deste repositório.

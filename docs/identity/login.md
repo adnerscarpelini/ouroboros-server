@@ -17,13 +17,13 @@ As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refr
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../../README.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
-- A chave `Authentication:Jwt:SigningKey` configurada ([README](../../README.md#chave-de-assinatura-dos-tokens)).
+- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../development.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
+- A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
 - Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail, desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21) ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
 
 ## Como usar
 
-Com o backoffice no ar (`http://localhost:5142` no perfil padrão, veja o [README](../../README.md#executar-os-hosts)) e um `Admin` criado:
+Com o backoffice no ar (`http://localhost:5142` no perfil padrão, veja o [README](../development.md#executar-os-hosts)) e um `Admin` criado:
 
 ```http
 POST /api/v1/admin/identity/sessions HTTP/1.1
@@ -79,7 +79,7 @@ Acima de 10 requisições do mesmo IP na mesma janela fixa de 1 minuto, o login 
 | `refreshToken` | Valor opaco: 32 bytes aleatórios em Base64Url (43 caracteres), de uso único na [renovação](refresh-session.md). |
 | `refreshTokenExpiresAt` | Instante de expiração do refresh token: agora + `RefreshTokenLifetime` (7 dias). |
 
-O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-editor.org/rfc/rfc6749#section-5.1), com as expirações como instantes em vez de segundos. Os tempos de vida ficam em `Authentication:Jwt` no `appsettings.json` de cada host ([Configuração](../architecture/authentication.md#configuração)). Os valores do exemplo são fictícios.
+O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-editor.org/rfc/rfc6749#section-5.1), com as expirações como instantes em vez de segundos. Os tempos de vida ficam em `Authentication:Jwt` no `appsettings.json` de cada host ([Configuração](../architecture/authentication.md)). Os valores do exemplo são fictícios.
 
 ### Credenciais inválidas (401)
 

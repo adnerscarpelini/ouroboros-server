@@ -13,13 +13,13 @@ Módulo responsável: Identity. A regra fica no caso de uso `ILogoutAll` do mód
 | API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions/logout-all` | De `Customer`, audiência `ouroboros-api` |
 | Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions/logout-all` | De `Admin`, audiência `ouroboros-backoffice` |
 
-Ao contrário do login, da renovação e do logout, as duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md#política-padrão-dos-hosts)). O usuário é o do claim `sub` do token. Não há corpo.
+Ao contrário do login, da renovação e do logout, as duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md)). O usuário é o do claim `sub` do token. Não há corpo.
 
 A rota do backoffice vai além da issue, que pedia só a da API externa, para que o `Admin` também possa encerrar todas as suas sessões.
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas ([README](../../README.md#banco-de-dados-local)). O logout-all não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
+- O banco local com as migrations do Identity aplicadas ([README](../development.md#banco-de-dados-local)). O logout-all não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
 - Um access token válido, obtido no [login](login.md) ou na última [renovação](refresh-session.md), da audiência do host chamado.
 
 ## Como usar

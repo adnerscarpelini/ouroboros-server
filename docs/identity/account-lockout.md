@@ -60,7 +60,7 @@ Os parâmetros são lidos no início de todo login, antes de buscar o usuário. 
 
 ## Pré-requisitos
 
-As migrations dos dois módulos aplicadas ([README](../../README.md#banco-de-dados-local)):
+As migrations dos dois módulos aplicadas ([README](../development.md#banco-de-dados-local)):
 
 - `AddAccountLockout`, do Identity: as colunas do contador e do bloqueio em `identity.users`.
 - `AddLockoutParameters`, do Settings: os dois parâmetros, cada um com a sua linha de histórico de inclusão (revisão 0, sem autor).

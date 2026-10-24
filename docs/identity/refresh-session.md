@@ -19,8 +19,8 @@ A issue pedia só a rota da API externa. A rota do backoffice e a checagem de ca
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas, inclusive a `AddRefreshTokenRevocation`, que cria a coluna `revoked_at` ([README](../../README.md#banco-de-dados-local)). O login também grava essa coluna ao criar o primeiro refresh token da sessão.
-- A chave `Authentication:Jwt:SigningKey` configurada ([README](../../README.md#chave-de-assinatura-dos-tokens)).
+- O banco local com as migrations do Identity aplicadas, inclusive a `AddRefreshTokenRevocation`, que cria a coluna `revoked_at` ([README](../development.md#banco-de-dados-local)). O login também grava essa coluna ao criar o primeiro refresh token da sessão.
+- A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
 - A política `identity-refresh` configurada em `Identity:RateLimiting:Policies` nos dois hosts; sem ela, o host não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
 - Um refresh token ativo, obtido no login do mesmo host ([Fazer login com e-mail e senha](login.md)).
 

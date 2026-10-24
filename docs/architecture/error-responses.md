@@ -11,15 +11,13 @@ Os primeiros endpoints precisam de um formato único de erro. Validações, falh
   - Erros genéricos (validação, rota inexistente, erro inesperado) usam o `type` padrão do ASP.NET Core.
   - Falhas de negócio usam um URI estável por erro, que aponta para o [catálogo de erros](../errors/README.md).
 - Toda resposta de erro traz a extensão `traceId`, que liga a resposta aos logs da requisição.
-- As falhas de negócio são do módulo, mas a tradução para HTTP fica no controller do host: ele recebe o resultado do caso de uso exposto em `Contracts` e o converte em status HTTP e `type` do catálogo do módulo ([Controllers HTTP nos hosts](http-controllers.md)).
+- As falhas de negócio são do módulo, mas a tradução para HTTP fica no controller da API proprietária: ele recebe o resultado do caso de uso exposto em `Contracts` e o converte em status HTTP e `type` do catálogo do módulo ([Controllers HTTP nas APIs dos serviços](http-controllers.md)).
 
-Os dois hosts ([Hosts](hosts.md)) recebem a mesma configuração de [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), em `Ouroboros.Hosting`: `AddOuroborosHost` e `UseOuroborosHost` configuram:
+Cada API de serviço configura o tratamento HTTP de erros, com mecanismos técnicos comuns quando úteis:
 
 - `AddProblemDetails`, com `CustomizeProblemDetails` preenchendo `traceId` com `Activity.Current?.Id` ou, sem `Activity`, com `HttpContext.TraceIdentifier`;
 - `app.UseExceptionHandler()`, que converte exceções não tratadas em ProblemDetails;
-- `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo.
-
-Desde a #14, o `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
+- `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo. o `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
 
 ## Formatos
 
@@ -63,7 +61,7 @@ Uma regra conferida pelo caso de uso também pode virar `400` de validação: na
 
 ### Falha de negócio
 
-O controller do host traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
+O controller da API proprietária traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
 
 ```csharp
 return Problem(
@@ -72,21 +70,21 @@ return Problem(
     statusCode: StatusCodes.Status409Conflict);
 ```
 
-O exemplo é ilustrativo, e o código acima não está no catálogo. A primeira falha de negócio real é a [`invalid-credentials`](../errors/identity.md#invalid-credentials) do login (#12), traduzida pelos `SessionsController` dos dois hosts ([Fazer login com e-mail e senha](../identity/login.md)).
+O exemplo é ilustrativo, e o código acima não está no catálogo. A primeira falha de negócio real é a [`invalid-credentials`](../errors/identity.md#invalid-credentials) do login (#12), traduzida pelos `SessionsController` das APIs ([Fazer login com e-mail e senha](../identity/login.md)).
 
-Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a conclusão do cadastro traduz dois resultados em `400`: [`invalid-registration-token`](../errors/identity.md#invalid-registration-token), sem `detail` e com a mesma resposta para todos os motivos, e [`password-rejected`](../errors/identity.md#password-rejected), a primeira falha de negócio com `detail`, que traz a regra da política de senha violada ([Concluir o cadastro](../identity/registration.md#concluir-o-cadastro)). Os dois se distinguem do `400` de validação pelo `type` e pela ausência de `errors`: o de validação só aparece quando o token ou a senha excedem o tamanho máximo do DTO.
+a conclusão do cadastro traduz dois resultados em `400`: [`invalid-registration-token`](../errors/identity.md#invalid-registration-token), sem `detail` e com a mesma resposta para todos os motivos, e [`password-rejected`](../errors/identity.md#password-rejected), a primeira falha de negócio com `detail`, que traz a regra da política de senha violada ([Concluir o cadastro](../identity/registration.md#concluir-o-cadastro)). Os dois se distinguem do `400` de validação pelo `type` e pela ausência de `errors`: o de validação só aparece quando o token ou a senha excedem o tamanho máximo do DTO.
 
-Desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a conclusão da redefinição de senha segue o mesmo padrão: [`invalid-password-reset-token`](../errors/identity.md#invalid-password-reset-token), sem `detail` e igual para todos os motivos, e o mesmo [`password-rejected`](../errors/identity.md#password-rejected), cujo `detail` traz a regra da política violada ou `A nova senha não pode ser igual à atual.` ([Concluir a redefinição](../identity/password-reset.md#concluir-a-redefinição)). O sucesso é `204`, sem corpo.
+a conclusão da redefinição de senha segue o mesmo padrão: [`invalid-password-reset-token`](../errors/identity.md#invalid-password-reset-token), sem `detail` e igual para todos os motivos, e o mesmo [`password-rejected`](../errors/identity.md#password-rejected), cujo `detail` traz a regra da política violada ou `A nova senha não pode ser igual à atual.` ([Concluir a redefinição](../identity/password-reset.md#concluir-a-redefinição)). O sucesso é `204`, sem corpo.
 
 ### Respostas sem corpo (401, 403, 404, 405, 415)
 
 Token ausente ou inválido (`401`), falta de papel ou política (`403`), rota ou versão inexistente (`404`), método não permitido (`405`) e media type não suportado (`415`) passam pelo `UseStatusCodePages` e respondem em ProblemDetails, com `traceId`, para clientes que aceitam JSON. Com `Accept: text/html`, o comportamento padrão do ASP.NET Core devolve `text/plain`.
 
-A [política padrão de autorização](authentication.md#política-padrão-dos-hosts) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, as de solicitação e de conclusão do cadastro e da redefinição de senha são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
+A [política padrão de autorização](authentication.md) nega por padrão e vale também para requisições sem rota correspondente: sem token, até uma rota ou versão inexistente responde `401`, e não `404` (só as rotas de login, de renovação do access token e de logout e, na API externa, as de solicitação e de conclusão do cadastro e da redefinição de senha são anônimas); o `404` só aparece para requisições autenticadas (no backoffice, de um `Admin`). O `401` não explica por que o token foi recusado.
 
 ### Limite de requisições (429)
 
-Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), os endpoints anônimos de autenticação têm limite de requisições por IP. Acima do limite, o `OnRejected` do rate limiter, registrado pelo Identity, responde `429` pelo `IProblemDetailsService`, com o `traceId` da mesma configuração, o header `Retry-After` em segundos e um log `Warning` com o caminho e o IP:
+os endpoints anônimos de autenticação têm limite de requisições por IP. Acima do limite, o `OnRejected` do rate limiter, registrado pelo Identity, responde `429` pelo `IProblemDetailsService`, com o `traceId` da mesma configuração, o header `Retry-After` em segundos e um log `Warning` com o caminho e o IP:
 
 ```json
 {

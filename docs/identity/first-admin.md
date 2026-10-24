@@ -8,7 +8,7 @@ Módulo responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Ap
 
 ## Pré-requisitos
 
-- O banco local configurado, com a connection string `ConnectionStrings:Ouroboros` nos user-secrets ([README](../../README.md#banco-de-dados-local)).
+- O banco local configurado, com a connection string `ConnectionStrings:Ouroboros` nos user-secrets ([README](../development.md#banco-de-dados-local)).
 - As migrations do Identity e do Settings aplicadas. A do Settings traz o parâmetro `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`), que define o domínio aceito para o e-mail do administrador ([Parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves)).
 
 ## Como usar

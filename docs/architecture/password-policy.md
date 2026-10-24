@@ -2,7 +2,7 @@
 
 ## Contexto
 
-O primeiro fluxo com senha escolhida por uma pessoa é a [criação do primeiro administrador](../identity/first-admin.md) (#11); cadastro, redefinição, troca de senha e conclusão de convite precisam da mesma regra. Desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21), a [conclusão do cadastro de cliente](../identity/registration.md#concluir-o-cadastro) é o segundo fluxo a usá-la, e, desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a [redefinição de senha](../identity/password-reset.md#concluir-a-redefinição) é o terceiro. Políticas tradicionais exigem maiúsculas, números e símbolos e limitam o tamanho, o que leva a senhas curtas e previsíveis (`Senha@2026`). O NIST SP 800-63B-4 e a OWASP recomendam o contrário: senhas longas, sem regras de composição, verificadas contra listas de senhas conhecidas.
+O primeiro fluxo com senha escolhida por uma pessoa é a [criação do primeiro administrador](../identity/first-admin.md) (#11); cadastro, redefinição, troca de senha e conclusão de convite precisam da mesma regra. a [conclusão do cadastro de cliente](../identity/registration.md#concluir-o-cadastro) é o segundo fluxo a usá-la, e, a [redefinição de senha](../identity/password-reset.md#concluir-a-redefinição) é o terceiro. Políticas tradicionais exigem maiúsculas, números e símbolos e limitam o tamanho, o que leva a senhas curtas e previsíveis (`Senha@2026`). O NIST SP 800-63B-4 e a OWASP recomendam o contrário: senhas longas, sem regras de composição, verificadas contra listas de senhas conhecidas.
 
 ## Decisão
 
