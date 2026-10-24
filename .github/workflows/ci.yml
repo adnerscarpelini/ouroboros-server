@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# O token só lê o repositório: a CI não publica nada.
+permissions:
+  contents: read
+
+# Uma nova execução no mesmo PR cancela a anterior; na main, todas completam.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  # Compila a solution inteira e roda os testes que não precisam de Docker. O nome do job é o
+  # check que o ruleset da main pode exigir; não o renomeie sem atualizar o ruleset.
+  build-and-architecture:
+    name: Build e testes de arquitetura
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # A versão do SDK vem de global.json.
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Todo projeto de teste da solution precisa rodar em um dos dois jobs: um projeto novo fora
+      # desta lista passaria despercebido.
+      - name: Conferir que todos os projetos de teste estão cobertos
+        run: |
+          covered="tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj tests/Ouroboros.IntegrationTests/Ouroboros.IntegrationTests.csproj"
+          status=0
+          for project in $(git ls-files 'tests/*.csproj'); do
+            case " $covered " in
+              *" $project "*) ;;
+              *) echo "::error file=$project::Projeto de teste fora dos jobs de CI. Inclua-o em .github/workflows/ci.yml."; status=1 ;;
+            esac
+          done
+          exit $status
+
+      - run: dotnet restore Ouroboros.slnx
+
+      - run: dotnet build Ouroboros.slnx --configuration Release --no-restore
+
+      - name: Testes de arquitetura
+        run: >
+          dotnet test --project tests/Ouroboros.ArchitectureTests
+          --configuration Release --no-build
+          --report-xunit-trx --results-directory ${{ runner.temp }}/test-results
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-arquitetura
+          path: ${{ runner.temp }}/test-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # PostgreSQL real em container (Testcontainers, imagem postgres:18-alpine). O runner já traz
+  # o Docker; nenhum banco, .env, user-secret ou segredo é necessário.
+  integration:
+    name: Testes de integração
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - run: dotnet restore tests/Ouroboros.IntegrationTests
+
+      - run: dotnet build tests/Ouroboros.IntegrationTests --configuration Release --no-restore
+
+      - name: Testes de integração
+        run: >
+          dotnet test --project tests/Ouroboros.IntegrationTests
+          --configuration Release --no-build
+          --report-xunit-trx --results-directory ${{ runner.temp }}/test-results
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-integracao
+          path: ${{ runner.temp }}/test-results
+          retention-days: 7
+          if-no-files-found: ignore

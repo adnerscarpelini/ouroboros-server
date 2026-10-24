@@ -6,7 +6,7 @@ Cada proprietário é testado contra PostgreSQL real com Testcontainers, banco i
 
 ## Como executar
 
-Comandos disponíveis no [guia de desenvolvimento](../development.md#testes). CI Linux: #80.
+Comandos disponíveis no [guia de desenvolvimento](../development.md#testes). A [CI Linux](../development.md#integração-contínua) executa a mesma suíte contra PostgreSQL em container.
 
 ## Como escrever um teste
 
