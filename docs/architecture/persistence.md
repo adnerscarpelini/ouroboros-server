@@ -20,7 +20,7 @@ Não usar JOIN, FDW, dblink ou credenciais alheias para contornar a fronteira. C
 
 Histórico pertence ao serviço. Aplicar migrations explicitamente por comando, script ou bundle, sem execução automática na subida da API. Classes geradas podem ser públicas para descoberta do EF; não são contratos de integração.
 
-Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento e transferência: #81 e #82.
+Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento de bancos e roles: #92. Parâmetros: #81. Transferência do banco de Identity: #82. Destino do banco original: #97.
 
 ## Transações e recuperação
 
