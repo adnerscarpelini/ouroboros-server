@@ -22,6 +22,6 @@ Aceitação durável não significa entrega única. Falha após envio e antes de
 
 ## Testes
 
-Cobrir rollback, falha pós-commit, broker indisponível, duplicatas, concorrência, recuperação, expiração e sanitização. Entregas: #72, #79 e #85–#87.
+Cobrir rollback, falha pós-commit, broker indisponível, duplicatas, concorrência, recuperação, expiração e sanitização. Entregas: #72, #79, #93 (broker e contrato) e #85–#87.
 
 [Voltar à arquitetura](README.md)
