@@ -1,4 +1,5 @@
 using System.Reflection;
+using Ouroboros.ArchitectureTests.Dependencies;
 
 namespace Ouroboros.ArchitectureTests;
 
@@ -11,7 +12,7 @@ public sealed class IdentifierExposureTests
     {
         var contractsNamespace = $"{moduleAssemblyName}.Contracts";
 
-        var violations = Assembly.Load(moduleAssemblyName).GetTypes()
+        var violations = SourceTree.Current.Load(moduleAssemblyName).GetTypes()
             .Where(type => IsInNamespace(type, contractsNamespace) || type.Name.EndsWith("Response", StringComparison.Ordinal))
             .SelectMany(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(property => IsLong(property.PropertyType) && property.Name.EndsWith("Id", StringComparison.Ordinal))

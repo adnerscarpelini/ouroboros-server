@@ -33,7 +33,7 @@ As premissas substituídas não autorizam novas violações. A #69 altera docume
 
 ## Inventário de dependências a isolar
 
-Este inventário descreve o código disponível, sem conceder exceções por namespace. Caminhos relativos a `src/Modules/`; cada tipo deve ter dependências nominais verificadas pela #70 até sua remoção. A [matriz normativa](architecture/layer-dependencies.md) define o destino.
+Este inventário descreve o código disponível, sem conceder exceções por namespace. Caminhos relativos a `src/Modules/`; cada dependência listada abaixo consta nominalmente na [lista de transição](../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs) da #70 até sua remoção. A [matriz normativa](architecture/layer-dependencies.md) define o destino.
 
 | Tipos e localização | Dependência atual a remover | Entrega |
 | --- | --- | --- |
@@ -48,7 +48,9 @@ Este inventário descreve o código disponível, sem conceder exceções por nam
 | Identity/Infrastructure/Email: PickupDirectoryEmailSender, UnconfiguredEmailSender; DependencyInjection | Transporte/configuração de e-mail locais em Identity | #72, #85–#87 |
 | Ouroboros.Api, Ouroboros.Backoffice.Api e Ouroboros.Hosting | Composição agregada e proteção HTTP acopladas aos hosts | #95, #96 |
 
-BuildingBlocks não referencia módulos/hosts; Domain usa sua base técnica. Os testes atuais verificam parte dessas fronteiras, descoberta, rotas e schemas por DbContext. Não comprovam a matriz completa, proibição de dependências em corpos de método, isolamento por credencial/banco, mensageria confiável ou implantação independente; essas verificações pertencem às entregas indicadas.
+Os testes de arquitetura verificam, para todo projeto de `src`, as dependências de camada (Domain, Contracts e Application), inclusive em corpos de métodos, ciclos entre projetos e serviços, `ProjectReference` (incluindo BuildingBlocks sem referência a projetos de `src`, entre serviços e a executáveis) e visibilidade (Contracts e DependencyInjection como fronteira pública). Também cobrem descoberta, rotas e schemas por DbContext. A lista de transição só diminui, nas issues que nela constam; nova violação ou exceção obsoleta falha a suíte ([regras e limitações](architecture/layer-dependencies.md#verificação)).
+
+Não são verificados isolamento por credencial ou banco, mensageria confiável, implantação independente, regras de API e worker em nível de tipo nem `typeof(...)` em argumentos de atributo; essas garantias pertencem às entregas indicadas.
 
 ## Preservação e próximos passos
 

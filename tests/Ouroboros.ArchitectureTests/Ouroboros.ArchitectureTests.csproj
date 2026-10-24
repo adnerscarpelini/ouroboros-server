@@ -11,8 +11,23 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/Ouroboros.Api/Ouroboros.Api.csproj" />
+    <ProjectReference Include="../../src/Ouroboros.Api/Ouroboros.Api.csproj" OutputItemType="ArchitectureAssembly" />
     <!-- Alias porque o .NET 10 gera um Program público em cada host web; sem ele, Program seria ambíguo. -->
-    <ProjectReference Include="../../src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" Aliases="backoffice" />
+    <ProjectReference Include="../../src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" Aliases="backoffice" OutputItemType="ArchitectureAssembly" />
   </ItemGroup>
+  <!--
+    As regras de dependência analisam todo projeto de src, inclusive serviços e executáveis novos. O curinga
+    garante que cada um seja compilado antes dos testes, sem referenciá-lo (ReferenceOutputAssembly=false).
+    Os dois hosts atuais acima já são referenciados e ficam fora do curinga.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../../src/**/*.csproj"
+                      Exclude="../../src/Ouroboros.Api/Ouroboros.Api.csproj;../../src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="ArchitectureAssembly" />
+  </ItemGroup>
+  <!-- Lista, ao lado dos testes, o assembly compilado de cada projeto de src (OutputItemType acima). -->
+  <Target Name="WriteArchitectureAssemblyManifest" AfterTargets="CopyFilesToOutputDirectory">
+    <WriteLinesToFile File="$(OutDir)architecture-assemblies.txt" Lines="@(ArchitectureAssembly->'%(FullPath)')" Overwrite="true" />
+  </Target>
 </Project>

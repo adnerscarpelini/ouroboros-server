@@ -14,6 +14,6 @@ BuildingBlocks guarda mecanismos técnicos realmente reutilizados, como identifi
 
 ## Verificação
 
-Testes inspecionam dependências e usos de tipos. Mudanças compartilhadas executam testes dos consumidores afetados. Compartilhar fonte não obriga publicar todos os serviços juntos.
+Testes inspecionam dependências e usos de tipos ([regras](layer-dependencies.md#verificação)): BuildingBlocks não referencia projeto algum de `src`, e a base de Domain segue a regra de Domain. Mudanças compartilhadas executam testes dos consumidores afetados. Compartilhar fonte não obriga publicar todos os serviços juntos.
 
 [Voltar à arquitetura](README.md)
