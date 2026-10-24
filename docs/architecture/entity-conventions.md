@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Antes da primeira entidade (o `User`, na [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8)), era preciso definir o tipo da chave, o identificador exposto fora do serviço, como as datas de criação e alteração são preenchidas e como tabelas e colunas são nomeadas no PostgreSQL. Sem uma convenção, cada entidade resolveria isso de um jeito, e a chave sequencial do banco acabaria em rotas e respostas, revelando volume de dados e permitindo enumerar registros.
+Entidades seguem uma convenção única para chave interna, identificador público, datas e nomes no PostgreSQL. A chave sequencial fica dentro do serviço; rotas e respostas usam o identificador público.
 
 ## Decisão
 
@@ -36,7 +36,7 @@ Os namespaces são `Ouroboros.BuildingBlocks.Domain` (só `Entity`, sem dependê
 1. Crie a entidade em `Domain/`, `internal`, herdando `Entity` (`using Ouroboros.BuildingBlocks.Domain;`; o módulo referencia `Ouroboros.BuildingBlocks`). Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
 2. Crie a configuração em `Infrastructure/Persistence/Configurations/`, `internal sealed`, herdando `EntityConfiguration<TEntity>` e mapeando só o que é próprio da entidade em `ConfigureEntity`. Não renomeie colunas à mão: o `SnakeCaseNaming` cuida disso.
 3. Garanta que a configuração seja aplicada no `OnModelCreating` do DbContext antes de `SnakeCaseNaming.Apply(modelBuilder)`. O DbContext do proprietário chama `modelBuilder.ApplyConfigurationsFromAssembly(...)`, que encontra toda `IEntityTypeConfiguration<T>` do assembly do serviço; basta criar a classe. Um DbContext que aplique configurações uma a uma (`ApplyConfiguration(new ...())`) precisa listá-la.
-4. Gere a migration, conforme [Persistência](persistence.md).
+4. Gere a migration do proprietário com os comandos do [guia de desenvolvimento](../development.md#banco-de-dados-local).
 5. Na resposta HTTP, use um DTO cujo nome termine em `Response` e exponha o `ExternalId` como `id`, sem o `Id` interno. Rotas e buscas recebem o `ExternalId`.
 
 O exemplo real é o `User` do Identity ([#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8)): a entidade [`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs), a configuração [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e a migration `AddUsers`, descritas em [Domínio de identidade próprio e hash de senha](identity.md). Resumidamente:
@@ -55,7 +55,7 @@ internal sealed class UserConfiguration : EntityConfiguration<User>
 }
 ```
 
-O `User` ainda não tem resposta HTTP; quando tiver, o DTO seguirá o passo 5, por exemplo `UserResponse(Guid Id, string Email)`, com o `ExternalId` no `Id`.
+A [consulta do próprio usuário](../identity/me.md) aplica o passo 5: `MeResponse(Guid Id, string Email, string Role)` expõe o `ExternalId` no campo `id`, sem a chave interna.
 
 ## Alternativas descartadas
 
@@ -65,7 +65,7 @@ O `User` ainda não tem resposta HTTP; quando tiver, o DTO seguirá o passo 5, p
 
 ## Consequências
 
-- Todo DbContext de módulo com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md).
+- Todo DbContext do proprietário com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md).
 - Mapear uma entidade exige herdar `EntityConfiguration<TEntity>`; uma configuração que não herde dela fica sem o índice único e os tipos de coluna da convenção.
 - O teste que protege a exposição do `Id` depende de nomes. Ele falha se uma propriedade `long` ou `long?` com nome terminado em `Id` aparecer num tipo de `Contracts` ou num tipo cujo nome termine em `Response`. Não detecta campos, propriedades terminadas em `ID` ou `Key`, nem DTOs com outro sufixo; por isso, DTOs de resposta devem terminar em `Response`.
 - Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, os módulos concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca aos hosts (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
@@ -82,12 +82,10 @@ Em [`tests/Ouroboros.IntegrationTests`](../../tests/Ouroboros.IntegrationTests/O
 - [`IdentityPersistenceWiringTests`](../../tests/Ouroboros.IntegrationTests/IdentityPersistenceWiringTests.cs): o `IdentityDbContext` real usa o interceptor, o histórico de migrations mantém as colunas `MigrationId` e `ProductVersion`, e o modelo real está em snake_case.
 - [`SnakeCaseNamingTests`](../../tests/Ouroboros.IntegrationTests/SnakeCaseNamingTests.cs): conversão de nomes (inclusive siglas) e um modelo com owned types e relacionamentos.
 
-Na validação da #6, a suíte tinha 49 testes.
-
-## Origem
+## Issues relacionadas
 
 - [#6](https://github.com/adnerscarpelini/ouroboros-server/issues/6): identificadores e datas das entidades.
-- [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): primeira entidade real (`User`) e aplicação das configurações por `ApplyConfigurationsFromAssembly`.
+- [#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8): entidade `User` e aplicação das configurações por `ApplyConfigurationsFromAssembly`.
 - [#33](https://github.com/adnerscarpelini/ouroboros-server/issues/33): extração dos tipos para `Ouroboros.BuildingBlocks`.
 
 [Voltar à arquitetura](README.md)

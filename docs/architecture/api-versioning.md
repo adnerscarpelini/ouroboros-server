@@ -20,10 +20,10 @@ Cada API de serviço versiona seus contratos HTTP para que mudanças incompatív
 
 ## Como declarar versões
 
-Cada controller, na API do serviço (`Controllers/<Module>/`, conforme [Controllers HTTP nas APIs dos serviços](http-controllers.md)), declara as versões que atende:
+Exemplo de organização aprovada: cada controller, na API do serviço (`Controllers/<Module>/`, conforme [Controllers HTTP nas APIs dos serviços](http-controllers.md)), declara as versões que atende:
 
 ```csharp
-namespace Ouroboros.Api.Controllers.Identity;
+namespace Ouroboros.Identity.Api.Controllers.Identity;
 
 [ApiController]
 [ApiVersion(1)]
@@ -37,14 +37,14 @@ public sealed class SessionsController : ControllerBase
 
 - Uma action que existe só em algumas versões do controller usa `[MapToApiVersion(n)]`.
 - Para descontinuar uma versão, marque-a com `[ApiVersion(n, Deprecated = true)]` e declare a nova versão. A versão descontinuada continua respondendo normalmente até ser removida.
-- `[ApiVersionNeutral]` não é aceito nos controllers dos hosts: o teste de rotas exige `[ApiVersion]`.
+- `[ApiVersionNeutral]` não é aceito nos controllers das APIs: o teste de rotas exige `[ApiVersion]`.
 
-O exemplo acima resume o login da #12, que declara só a versão 1 (veja [Controllers HTTP nas APIs dos serviços](http-controllers.md)).
+O exemplo acima ilustra a declaração da versão 1 para o login (veja [Controllers HTTP nas APIs dos serviços](http-controllers.md)).
 
 ## Comportamento
 
 - As respostas trazem o header `api-supported-versions` (por exemplo `1.0`) e, se houver versões descontinuadas, `api-deprecated-versions`.
-- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem executar a action. o corpo é um ProblemDetails com `traceId` (veja [Respostas de erro com ProblemDetails](error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Sem token, essas requisições respondem `401` antes, pela [política padrão de autorização](authentication.md).
+- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem executar a action. O corpo é um ProblemDetails com `traceId` (veja [Respostas de erro com ProblemDetails](error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Sem token, essas requisições respondem `401` antes, pela [política padrão de autorização](authentication.md).
 - `v1.0` e `V1` são aceitos como sinônimos de `v1`.
 - A query string `api-version` é ignorada; só o segmento da URL define a versão.
 
@@ -62,10 +62,10 @@ Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): `v1` responde com `api-supported-versions`; versão não declarada e URL sem versão não executam a action; versão descontinuada responde e informa `api-deprecated-versions`. Usa os controllers de teste de [`ProbeControllers.cs`](../../tests/Ouroboros.ArchitectureTests/ProbeControllers.cs).
 - [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): exige, em cada API, o segmento de versão no prefixo das rotas e `[ApiVersion]` em todo controller (veja [Testes de arquitetura](http-controllers.md#testes-de-arquitetura)).
 
-## Origem
+## Issues relacionadas
 
 - [#26](https://github.com/adnerscarpelini/ouroboros-server/issues/26): decisão e implementação.
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): `404` de versão inexistente em ProblemDetails.
-- [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): `[ApiVersion]` declarado nos controllers dos hosts.
+- [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): `[ApiVersion]` declarado nos controllers das APIs.
 
 [Voltar à arquitetura](README.md)

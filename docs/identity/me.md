@@ -15,11 +15,11 @@ Módulo responsável: Identity. A consulta fica no caso de uso `IGetCurrentUser`
 
 As duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md)). O usuário é o do claim `sub` do token. Não há parâmetros nem corpo.
 
-A rota do backoffice vai além da issue, que pedia só a da API externa, para que o `Admin` também consulte os próprios dados.
+A rota do backoffice permite que o `Admin` consulte os próprios dados.
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas ([README](../development.md#banco-de-dados-local)). A consulta não cria migration.
+- O banco local com as migrations do Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)). A consulta não cria migration.
 - Um access token válido, obtido no [login](login.md) ou na última [renovação](refresh-session.md), da audiência do host chamado.
 
 ## Como usar
@@ -32,11 +32,7 @@ Host: localhost:5141
 Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.exemplo.assinatura
 ```
 
-```powershell
-# PowerShell
-$headers = @{ Authorization = 'Bearer <access token atual>' }
-Invoke-RestMethod -Uri http://localhost:5141/api/v1/identity/me -Headers $headers
-```
+Exemplo executável no [guia de desenvolvimento](../development.md#consultar-o-próprio-usuário).
 
 No backoffice (`http://localhost:5142`), o pedido é o mesmo, na rota `/api/v1/admin/identity/me`, com o access token de um `Admin`. Os valores dos exemplos são fictícios.
 
@@ -88,13 +84,11 @@ Nos casos com token válido, é o controller que responde `401` e acrescenta `WW
 
 - **Sessão encerrada não invalida o access token.** Os access tokens não têm estado e a consulta não verifica a sessão (`sid`): depois de um [logout](logout.md) ou de um [logout-all](logout-all.md), o access token já emitido continua aceito na rota `me` até expirar, no máximo 15 minutos, desde que o usuário siga ativo e com o mesmo papel ([Autenticação](../architecture/authentication.md#emissão-do-access-token)).
 - **Só as rotas `me` conferem o banco.** A recusa de usuário inativo ou rebaixado vale para esta consulta; os demais endpoints autenticados, como o logout-all, confiam no token até ele expirar.
-- **Sem consulta de outros usuários nem alteração de dados.** Ficaram fora do escopo da issue.
+- **Sem consulta de outros usuários nem alteração de dados.** A consulta é restrita aos dados do usuário autenticado.
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`MeTests`](../../tests/Ouroboros.IntegrationTests/MeTests.cs), contra o PostgreSQL real, com tokens emitidos pelo login de cada host:
 
@@ -107,14 +101,12 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo host é coberta em [Autenticação](../architecture/authentication.md#testes).
 
-Na validação da #19, a suíte tinha 284 testes.
-
 ## Referências
 
 - [RFC 9110, seção 11.6.1: WWW-Authenticate](https://www.rfc-editor.org/rfc/rfc9110.html#section-11.6.1)
 - [OWASP API Security Top 10, API3:2023 Broken Object Property Level Authorization](https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/)
 
-## Origem
+## Issues relacionadas
 
 - [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): consultar o próprio usuário.
 - Depende de [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12) (login, que emite o access token).

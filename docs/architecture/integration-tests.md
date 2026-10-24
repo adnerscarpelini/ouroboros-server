@@ -6,7 +6,7 @@ Cada proprietário é testado contra PostgreSQL real com Testcontainers, banco i
 
 ## Como executar
 
-Comandos disponíveis no [guia de desenvolvimento](../development.md). CI Linux: #80. Não declarar comandos antes de existirem.
+Comandos disponíveis no [guia de desenvolvimento](../development.md#testes). CI Linux: #80.
 
 ## Como escrever um teste
 
@@ -24,6 +24,6 @@ Testes locais usam adaptadores controlados; testes de contrato verificam HTTP/me
 - Atualização de Notifications sem implantar Identity.
 - Correlação sem segredos.
 
-Não referenciar implementação de outro serviço para simular contrato. Adaptar testes dos hosts antes da remoção na #82.
+Não referenciar implementação de outro serviço para simular contrato. Fixtures, adaptadores de teste e cenários disponíveis estão no [guia de desenvolvimento](../development.md#fixtures-e-adaptadores-de-teste).
 
 [Voltar à arquitetura](README.md)

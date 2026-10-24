@@ -24,7 +24,7 @@ As rotas existem só na API externa. Contas de backoffice não são recuperadas 
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([README](../development.md#banco-de-dados-local)): a tabela dos tokens é a `identity.email_tokens`, criada pela `AddEmailTokens` do [cadastro](registration.md#persistência), e a `AddPasswordResetParameters` (Settings) inclui os parâmetros abaixo. A redefinição não tem migration própria no Identity.
+- O banco local com as migrations do Identity e do Settings aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é a `identity.email_tokens`, criada pela `AddEmailTokens` do [cadastro](registration.md#persistência), e a `AddPasswordResetParameters` (Settings) inclui os parâmetros abaixo. A redefinição não tem migration própria no Identity.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
 - Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
 
@@ -43,29 +43,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-Com a API externa no ar em `Development` (`http://localhost:5141` no perfil padrão) e uma conta de cliente criada. Ainda não há front-end; o token é copiado do link do e-mail.
-
-```powershell
-# 1. Solicitar a redefinição
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets `
-  -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-
-# 2. Ler o token no .eml mais recente (o link termina em ?token=<token>)
-$eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-$token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-
-# 3. Concluir a redefinição com a senha nova
-$body = @{ token = $token; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets/complete `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-
-# 4. Entrar com a senha nova
-$login = @{ email = 'cliente@example.com'; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
-```
-
-O passo 2 roda na raiz do repositório, como no [fluxo do cadastro](registration.md#fluxo-completo-em-desenvolvimento). Depois do passo 3, a senha antiga recebe `401` no login, e os refresh tokens emitidos antes deixam de renovar.
+O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com leitura do token no .eml e conclusão pela API.
 
 ## Solicitar a redefinição
 
@@ -209,7 +187,7 @@ Uma falha ao gravar responde `500` ([Respostas de erro](../architecture/error-re
 
 ### Contas de backoffice
 
-A issue #22 pede o link para qualquer conta existente e ativa. A implementação restringe ao papel `Customer`: contas de backoffice não são recuperadas pela API pública, coerente com o login da API externa, que também aceita só `Customer` ([Fazer login com e-mail e senha](login.md)). É uma decisão de segurança além da issue e **precisa de confirmação do responsável pelo produto**. Hoje não há recuperação de senha para administradores. A conclusão não confere o papel, porque só a solicitação gera tokens de redefinição.
+A API pública solicita recuperação somente para contas `Customer` ativas. Contas de backoffice não são recuperadas pela API pública, coerente com o login da API externa, que também aceita só `Customer` ([Fazer login com e-mail e senha](login.md)). A conclusão não confere o papel, porque só a solicitação gera tokens de redefinição. Disponibilidade da recuperação administrativa: [estado de implementação](../implementation-status.md).
 
 ## Casos de uso expostos
 
@@ -245,14 +223,12 @@ A migration `AddPasswordResetParameters` do Settings inclui os dois parâmetros,
 - **Sem recuperação para administradores** (veja [Contas de backoffice](#contas-de-backoffice)).
 - **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
 - **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; todo envio falha (com o mesmo `202`) e vai para o log.
-- **Sem aviso de "senha alterada"** por e-mail; ficou fora do escopo da #23.
+- **Sem aviso de "senha alterada"** por e-mail.
 - **Sem front-end.** O link aponta para `http://localhost:3000/senha/redefinir`, que não faz parte deste repositório.
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`PasswordResetRequestTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetRequestTests.cs), contra o PostgreSQL real, com o `IEmailSender` substituído pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) e um `FakeTimeProvider`:
 
@@ -285,13 +261,11 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 Os limites de `identity-password-reset` e `identity-password-reset-completion` são elevados para 100.000 na [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), como os demais ([Testes de integração](../architecture/integration-tests.md)). Não há teste de `429` próprio da conclusão; o mecanismo é o mesmo das outras políticas ([Limitar requisições](auth-rate-limiting.md#como-verificar)).
 
-Na validação da #22, a suíte tinha 332 testes; na da #23, 353.
-
 ## Referências
 
 - [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
 
-## Origem
+## Issues relacionadas
 
 - [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitar redefinição de senha.
 - [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): redefinir a senha com o token.
