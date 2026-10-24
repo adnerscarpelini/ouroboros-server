@@ -30,9 +30,9 @@ Resultado: com renovações simultâneas, a vencedora recebe `200` com um par no
 ## Atomicidade e serialização por sessão
 
 - **Transação própria para a revogação.** A revogação da sessão roda numa transação separada, com commit, aberta depois do rollback da tentativa de renovação. O rollback da renovação não desfaz a revogação.
-- **Lock da sessão.** A renovação, a revogação e, desde a #17, o [logout](logout.md) começam travando a linha da sessão (`SELECT 1 FROM identity.sessions WHERE id = ... FOR UPDATE`, em `IdentityDbContext.LockSessionAsync`), dentro da transação, antes de mexer nos tokens. Assim, operações sobre a mesma sessão são serializadas; sessões diferentes não se bloqueiam. Desde a #18, o [logout-all](logout-all.md) trava de uma vez todas as sessões do usuário, em ordem de id (`SELECT 1 FROM identity.sessions WHERE user_id = ... ORDER BY id FOR UPDATE`, em `IdentityDbContext.LockUserSessionsAsync`), e por isso também espera as operações em andamento em qualquer uma delas. Desde a #23, a [redefinição de senha](password-reset.md#regras-da-redefinição) também trava todas as sessões do usuário com o `LockUserSessionsAsync`, depois de travar a linha do usuário.
-- **Por que o lock é necessário.** Em READ COMMITTED, o nível padrão do PostgreSQL, o `UPDATE` da revogação só enxerga linhas confirmadas. Sem o lock, uma revogação que rodasse enquanto uma renovação da mesma sessão ainda não tinha confirmado não veria o token novo inserido por ela, e esse token sobreviveria ativo. Com o lock, a revogação espera o commit da renovação e o `UPDATE` seguinte já vê o token novo. O defeito foi encontrado e corrigido durante a validação da #16.
-- **Sem deadlock.** Todos os fluxos pegam os locks na mesma ordem: primeiro a sessão, depois os tokens. Renovação, revogação e logout seguram o lock de uma única sessão; o logout-all, o único que trava várias, sempre as trava em ordem de id, então dois logout-all simultâneos do mesmo usuário não se bloqueiam em ordens diferentes, e nenhum outro fluxo segura uma sessão enquanto espera outra. Desde a #23, o lock do usuário (`LockUserAsync`, usado pelo [login](login.md#transação-com-o-usuário-travado) e pela redefinição de senha) vem sempre antes de qualquer sessão; renovação, revogação por reuso, logout e logout-all só travam sessões e nunca pedem o lock do usuário, então também não formam ciclo com ele. A ordem completa está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
+- **Lock da sessão.** A renovação, a revogação e o [logout](logout.md) começam travando a linha da sessão (`SELECT 1 FROM identity.sessions WHERE id = ... FOR UPDATE`, em `IdentityDbContext.LockSessionAsync`), dentro da transação, antes de mexer nos tokens. Assim, operações sobre a mesma sessão são serializadas; sessões diferentes não se bloqueiam. O [logout-all](logout-all.md) trava de uma vez todas as sessões do usuário, em ordem de id (`SELECT 1 FROM identity.sessions WHERE user_id = ... ORDER BY id FOR UPDATE`, em `IdentityDbContext.LockUserSessionsAsync`), e por isso também espera as operações em andamento em qualquer uma delas. A [redefinição de senha](password-reset.md#regras-da-redefinição) também trava todas as sessões do usuário com o `LockUserSessionsAsync`, depois de travar a linha do usuário.
+- **Por que o lock é necessário.** Em READ COMMITTED, o nível padrão do PostgreSQL, o `UPDATE` da revogação só enxerga linhas confirmadas. Sem o lock, uma revogação que rodasse enquanto uma renovação da mesma sessão ainda não tinha confirmado não veria o token novo inserido por ela, e esse token sobreviveria ativo. Com o lock, a revogação espera o commit da renovação e o `UPDATE` seguinte já vê o token novo.
+- **Sem deadlock.** Todos os fluxos pegam os locks na mesma ordem: primeiro a sessão, depois os tokens. Renovação, revogação e logout seguram o lock de uma única sessão; o logout-all e a redefinição de senha travam várias sessões em ordem de id, então dois logout-all simultâneos do mesmo usuário não se bloqueiam em ordens diferentes, e nenhum outro fluxo segura uma sessão enquanto espera outra. O lock do usuário (`LockUserAsync`, usado pelo [login](login.md#transação-com-o-usuário-travado) e pela redefinição de senha) vem sempre antes de qualquer sessão; renovação, revogação por reuso, logout e logout-all só travam sessões e nunca pedem o lock do usuário, então também não formam ciclo com ele. A ordem completa está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
 > **Regra para novas escritas em `identity.refresh_tokens`:** todo código que revogar ou inserir refresh tokens de uma sessão deve, na mesma transação, travar a linha da sessão antes, na mesma ordem (sessão, depois tokens). O lock de uma sessão é o método `LockSessionAsync` do [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), usado pela renovação, pela revogação por reuso e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)). Quem mexer em várias sessões na mesma transação deve travá-las todas antes, sempre em ordem de id, com o `LockUserSessionsAsync`, como o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)); nunca trave uma segunda sessão depois de já segurar o lock de outra fora dessa ordem. Quem também precisar do lock do usuário deve pegá-lo antes das sessões, como a [redefinição de senha](password-reset.md) ([#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23)).
 
@@ -57,13 +57,11 @@ O cliente não consegue distinguir o reuso das outras causas do `401` e não pre
 - **O access token já emitido continua válido.** A revogação atinge só os refresh tokens. A validação do access token não consulta a sessão, então um access token emitido antes (inclusive o da vencedora de uma corrida) vale até expirar, no máximo 15 minutos ([Autenticação](../architecture/authentication.md#emissão-do-access-token)).
 - **Sem tolerância a renovações concorrentes do cliente legítimo.** Um cliente que dispare duas renovações com o mesmo token (por exemplo, duas abas ou duas threads sem coordenação) perde a sessão. A escolha foi deliberada, para não abrir uma janela em que um token vazado ainda seja aceito.
 - **Usuário não é notificado.** Não há aviso por e-mail nem trilha de auditoria persistida; o evento fica só no log da aplicação (fora do escopo da issue).
-- **Logout não detecta reuso.** Desde a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17), um token encerrado pelo [logout](logout.md) e apresentado depois na renovação é tratado como reuso. O inverso não vale: um token já revogado apresentado ao logout recebe `204` sem revogar a sessão, então um logout com um token já rotacionado não encerra o token atual ([Limitações do logout](logout.md#limitações)).
+- **Logout não detecta reuso.** Um token encerrado pelo [logout](logout.md) e apresentado depois na renovação é tratado como reuso. O inverso não vale: um token já revogado apresentado ao logout recebe `204` sem revogar a sessão, então um logout com um token já rotacionado não encerra o token atual ([Limitações do logout](logout.md#limitações)).
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`RefreshTokenReuseTests`](../../tests/Ouroboros.IntegrationTests/RefreshTokenReuseTests.cs), contra o PostgreSQL real, pela API externa:
 
@@ -78,15 +76,13 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 
 Os testes da renovação em si continuam em [`RefreshSessionTests`](../../tests/Ouroboros.IntegrationTests/RefreshSessionTests.cs) ([Renovar o access token](refresh-session.md#como-verificar)).
 
-Na validação da #16, a suíte tinha 260 testes; na da #17, 270; na da #18, 277.
-
 ## Referências
 
 - [RFC 9700, seção 4.14: proteção de refresh tokens](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14)
 - [PostgreSQL: Explicit Locking, row-level locks](https://www.postgresql.org/docs/current/explicit-locking.html#LOCKING-ROWS)
 - [PostgreSQL: Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)
 
-## Origem
+## Issues relacionadas
 
 - [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16): revogar a sessão ao detectar reuso de refresh token.
 - Depende de [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): renovação com rotação do refresh token.

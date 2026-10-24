@@ -14,7 +14,7 @@ Com os valores iniciais dos parâmetros (5 falhas, 15 minutos):
 - **Conta bloqueada recebe o mesmo `401`.** Durante o bloqueio, o login responde o mesmo [`invalid-credentials`](../errors/identity.md#invalid-credentials) de uma senha errada, também com a senha correta; nenhuma sessão é aberta. A resposta não indica que a conta está bloqueada.
 - **A senha real não é verificada durante o bloqueio.** A verificação roda contra o hash fictício do `UserPasswordVerifier.VerifyWithoutUser`, a mesma usada para e-mail inexistente, para que o custo da resposta seja o mesmo e a senha real não possa ser testada. Tentativas durante o bloqueio não somam falhas (veja [Limitações](#limitações)).
 - **O bloqueio expira sozinho.** A partir do instante gravado em `locked_until`, a senha correta volta a funcionar; o login bem-sucedido limpa `locked_until`.
-- **A redefinição de senha remove o bloqueio.** Desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), concluir a [redefinição de senha](password-reset.md#concluir-a-redefinição) zera o contador e limpa `locked_until` na mesma transação que troca a senha: quem provou controlar o e-mail entra com a senha nova na hora, sem esperar o fim do bloqueio. Um bloqueio atingido enquanto a redefinição calcula o hash da senha nova também é removido por ela.
+- **A redefinição de senha remove o bloqueio.** Concluir a [redefinição de senha](password-reset.md#concluir-a-redefinição) zera o contador e limpa `locked_until` na mesma transação que troca a senha: quem provou controlar o e-mail entra com a senha nova na hora, sem esperar o fim do bloqueio. Um bloqueio atingido enquanto a redefinição calcula o hash da senha nova também é removido por ela.
 - **Login bem-sucedido zera o contador.** Quatro falhas seguidas de um acerto voltam o contador a zero; a próxima falha conta como a primeira.
 
 ### O que conta como falha
@@ -60,7 +60,7 @@ Os parâmetros são lidos no início de todo login, antes de buscar o usuário. 
 
 ## Pré-requisitos
 
-As migrations dos dois módulos aplicadas ([README](../development.md#banco-de-dados-local)):
+As migrations dos dois módulos aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)):
 
 - `AddAccountLockout`, do Identity: as colunas do contador e do bloqueio em `identity.users`.
 - `AddLockoutParameters`, do Settings: os dois parâmetros, cada um com a sua linha de histórico de inclusão (revisão 0, sem autor).
@@ -80,16 +80,14 @@ No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao inst
 
 ## Limitações
 
-- **Falhas concorrentes ao bloqueio.** Uma requisição que leu o usuário antes de ele ser bloqueado e erra a senha depois ainda soma a falha, mesmo com a conta já bloqueada. Só acontece com tentativas simultâneas; o efeito é o contador começar acima de zero quando o bloqueio vence. Foi aceito.
+- **Falhas concorrentes ao bloqueio.** Uma requisição que leu o usuário antes de ele ser bloqueado e erra a senha depois ainda soma a falha, mesmo com a conta já bloqueada. Só acontece com tentativas simultâneas; o efeito é o contador começar acima de zero quando o bloqueio vence. Esse comportamento é uma limitação conhecida.
 - **Bloqueio provocado por terceiros.** Quem conhece o e-mail pode bloquear a conta por 15 minutos errando a senha, em qualquer um dos dois hosts. É o custo conhecido do bloqueio por conta; bloqueio progressivo, CAPTCHA e notificação ao dono da conta ficaram fora do escopo.
 - **O bloqueio protege uma conta, não o servidor.** Tentativas contra várias contas são contidas pelo limite de requisições por IP, da [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) ([Limitar requisições de autenticação por IP](auth-rate-limiting.md)). Uma requisição recusada com `429` não chega ao login e não soma falha no contador. Um atacante com muitos IPs ainda pode distribuir tentativas contra várias contas.
 - **Não há desbloqueio manual.** O bloqueio termina pelo tempo ou, para clientes, pela [redefinição de senha](password-reset.md). Como não há recuperação de senha para administradores, uma conta `Admin` bloqueada só é liberada pelo tempo.
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`AccountLockoutTests`](../../tests/Ouroboros.IntegrationTests/AccountLockoutTests.cs), contra o PostgreSQL real, na API externa, com relógio falso (`FakeTimeProvider`) e hasher de poucas iterações:
 
@@ -106,15 +104,13 @@ A remoção do bloqueio pela redefinição é verificada pelos [`PasswordResetCo
 
 O [`SystemParametersTests`](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) confere que todo parâmetro semeado tem histórico de inclusão e respeita as próprias regras de tipo e padrão ([Parâmetros do sistema](../architecture/system-parameters.md#testes)).
 
-Na validação da #13, a suíte tinha 225 testes.
-
 ## Referências
 
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [Configure ASP.NET Core Identity: lockout (Microsoft Learn)](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-configuration)
 - [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html)
 
-## Origem
+## Issues relacionadas
 
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): bloquear a conta após falhas consecutivas de senha.
 - [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): a redefinição de senha remove o bloqueio; o login recusa a abertura de sessão se a conta foi bloqueada depois da verificação da senha.

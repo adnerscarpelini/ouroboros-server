@@ -2,7 +2,7 @@
 
 ## Serviços e propriedade
 
-O Ouroboros utiliza microsserviços em monorepo para estudar sistemas bancários distribuídos. Domain, Application e Infrastructure organizam cada proprietário.
+A arquitetura aprovada do Ouroboros é de microsserviços em monorepo para estudar sistemas bancários distribuídos. Domain, Application e Infrastructure organizam cada proprietário.
 
 | Serviço | Responsabilidade |
 | --- | --- |
@@ -15,7 +15,7 @@ Não separar saldo e lançamentos por conveniência de pastas. Ledger e suas reg
 
 ## Organização e execução
 
-Serviços ficam em src/Services. Cada serviço HTTP possui sua API; Notifications pode ser worker sem API de negócio. Bibliotecas técnicas não compartilham entidades ou regras nem obrigam implantação conjunta.
+Serviços ficam em src/Services. Cada serviço HTTP possui sua API; Notifications pode ser worker sem API de negócio. Bibliotecas técnicas não compartilham entidades ou regras nem obrigam implantação conjunta. O [plano de entregas](migration-plan.md) define dependências, segurança, locks e critérios de transferência.
 
 APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa. Gateways são posteriores, sem bloquear as primeiras entregas. Não conterão DbContexts ou regras de negócio; cada serviço continuará autorizando chamadas.
 
@@ -29,7 +29,7 @@ O container único é o PostgreSQL; APIs, workers e broker executam separadament
 
 ## Comunicação e segurança
 
-HTTP para respostas imediatas, com timeout e tratamento de indisponibilidade. RabbitMQ para mensagens versionadas, com outbox na origem, confirmação de publicação, deduplicação persistente e retries limitados no consumidor. Estado e intenção são atômicos localmente; transporte não participa da transação.
+HTTP para respostas imediatas, com timeout e tratamento de indisponibilidade. RabbitMQ para mensagens versionadas, com outbox na origem, confirmação de publicação, deduplicação persistente e retries limitados no consumidor. Estado e intenção são atômicos localmente; transporte não participa da transação. A #79 detalha contrato e política; #85–#87 implementam o fluxo.
 
 Não prometer exactly-once no provedor de e-mail. Links de uso único exigem proteção, retenção e tratamento de expiração/obsolescência, sem segredos em logs.
 

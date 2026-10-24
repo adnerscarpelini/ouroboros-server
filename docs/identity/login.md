@@ -13,13 +13,13 @@ Módulo responsável: Identity. A regra fica no caso de uso `ILogin` do módulo;
 | API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions` | `Customer` | `ouroboros-api` |
 | Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions` | `Admin` | `ouroboros-backoffice` |
 
-As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refresh-session.md), e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. Desde a #14, as duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada host, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito pelo host em que o login foi feito ([Autenticação](../architecture/authentication.md#validação-do-token)).
+As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refresh-session.md), e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. As duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada host, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito pelo host em que o login foi feito ([Autenticação](../architecture/authentication.md#validação-do-token)).
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([README](../development.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
+- O banco local com as migrations do Identity e do Settings aplicadas, inclusive a `AddSessions`, a `AddRefreshTokenRevocation` (o login grava a coluna `revoked_at` do refresh token) e as do bloqueio de conta, `AddAccountLockout` e `AddLockoutParameters` ([Desenvolvimento](../development.md#banco-de-dados-local)). Sem os parâmetros do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
-- Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail, desde a [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21) ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
+- Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
 
 ## Como usar
 
@@ -36,11 +36,7 @@ Content-Type: application/json
 }
 ```
 
-```powershell
-# PowerShell
-$body = @{ email = 'admin@example.com'; password = '<senha>' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5142/api/v1/admin/identity/sessions -ContentType 'application/json' -Body $body
-```
+Exemplo executável no [guia de desenvolvimento](../development.md#fazer-login).
 
 Na API externa (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions`, com um `Customer`.
 
@@ -102,13 +98,13 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 - **Limite por IP antes de tudo.** O limite de requisições roda antes do controller: uma requisição recusada com `429` não chega ao caso de uso, não soma falha no [bloqueio](account-lockout.md) e não custa hash de senha ([Limitar requisições](auth-rate-limiting.md)).
 - **Bloqueio após falhas seguidas.** Cada senha errada soma uma falha no usuário; ao atingir `Identity:Lockout:MaxFailedAttempts` (5), a conta fica bloqueada por `Identity:Lockout:DurationMinutes` (15 minutos). Um login bem-sucedido zera o contador. Detalhes em [Bloquear a conta após falhas consecutivas de senha](account-lockout.md).
 - **Rehash salvo no login.** Se o hash da senha usa parâmetros mais fracos que os atuais, o verificador o refaz e o login bem-sucedido o grava junto com a sessão ([Hash e rehash](../architecture/identity.md#hash-e-rehash)), só se o hash armazenado ainda for o verificado ([Transação com o usuário travado](#transação-com-o-usuário-travado)). Num login recusado, nada é gravado além da falha de senha no contador do bloqueio.
-- **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos. Desde a [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15), o refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; desde a [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16), apresentar de novo um token revogado encerra só a sessão dele ([reuso](refresh-token-reuse.md)); desde a [#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17), o [logout](logout.md) encerra só a sessão do token informado; desde a [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18), o [logout-all](logout-all.md) encerra todas as sessões do usuário, e um login feito depois dele abre uma sessão nova normalmente.
+- **Uma sessão nova por login.** Cada login bem-sucedido abre uma sessão com o seu primeiro refresh token, sem encerrar as sessões anteriores do usuário; os tokens de logins anteriores continuam válidos. O refresh token é trocado por um par novo na [renovação](refresh-session.md), que o revoga; apresentar de novo um token revogado encerra só a sessão dele ([reuso](refresh-token-reuse.md)); o [logout](logout.md) encerra só a sessão do token informado; o [logout-all](logout-all.md) encerra todas as sessões do usuário, e um login feito depois dele abre uma sessão nova normalmente.
 - **Só o hash do refresh token.** O banco guarda o SHA-256 do refresh token, nunca o valor entregue ao cliente. Um hash rápido basta porque o token tem 256 bits de entropia, ao contrário de uma senha.
 - **Sem segredos nos logs.** A senha, o access token e o refresh token não aparecem nos logs, em nenhum nível.
 
 ### Transação com o usuário travado
 
-Desde a [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23), a sessão é aberta numa transação que trava a linha do usuário (`IdentityDbContext.LockUserAsync`, `SELECT ... FOR NO KEY UPDATE` em `identity.users`) e relê, sob o lock, o hash da senha, `is_active` e `locked_until`. O login é recusado com o mesmo `401` se:
+A sessão é aberta numa transação que trava a linha do usuário (`IdentityDbContext.LockUserAsync`, `SELECT ... FOR NO KEY UPDATE` em `identity.users`) e relê, sob o lock, o hash da senha, `is_active` e `locked_until`. O login é recusado com o mesmo `401` se:
 
 - o hash armazenado não é mais o que foi verificado (a senha mudou, por exemplo, numa [redefinição de senha](password-reset.md#concluir-a-redefinição));
 - a conta foi desativada; ou
@@ -150,15 +146,13 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [reno
 ## Limitações
 
 - **Sessões sem expiração por inatividade.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram. O [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) encerra a sessão atual, e o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), todas. A validação do access token não consulta a sessão: um token emitido vale até expirar, mesmo depois do logout ou do logout-all, inclusive na [rota `me`](me.md) ([#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19)), que confere no banco só se o usuário segue ativo e com o papel do canal.
-- **Limite por IP, em memória e por instância.** Desde a [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14), o login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo do hash (da ordem de 100 a 500 ms de CPU por tentativa, veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
+- **Limite por IP, em memória e por instância.** O login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo de CPU do hash (veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
 - **Tempo de resposta não medido.** Os testes verificam que o e-mail inexistente executa uma verificação de hash, mas não medem a diferença de tempo entre as respostas.
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`LoginTests`](../../tests/Ouroboros.IntegrationTests/LoginTests.cs), contra o PostgreSQL real, nos dois hosts (o do backoffice sobe pela [`BackofficeIntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/BackofficeIntegrationApiFactory.cs), com a mesma configuração da `IntegrationApiFactory`):
 
@@ -173,7 +167,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
 - e-mail ou senha ausente responde `400`;
 - os logs, capturados no nível `Trace` pelo [`ListLoggerProvider`](../../tests/Ouroboros.IntegrationTests/ListLoggerProvider.cs), não contêm a senha nem os tokens, num login bem-sucedido e num recusado.
 
-Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar); e os da consulta do próprio usuário (`MeTests`), em [Consultar o próprio usuário](me.md#como-verificar); e as corridas entre login e redefinição de senha (`PasswordResetRaceTests`), em [Redefinir a senha](password-reset.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
+Os testes do bloqueio de conta (`AccountLockoutTests`) estão em [Bloquear a conta](account-lockout.md#como-verificar); os do limite de requisições (`RateLimitingTests`), em [Limitar requisições](auth-rate-limiting.md#como-verificar); os da renovação (`RefreshSessionTests`), em [Renovar o access token](refresh-session.md#como-verificar); os do logout (`LogoutTests`), em [Encerrar a sessão atual](logout.md#como-verificar); os do logout-all (`LogoutAllTests`), em [Encerrar todas as sessões](logout-all.md#como-verificar); e os da consulta do próprio usuário (`MeTests`), em [Consultar o próprio usuário](me.md#como-verificar); e as corridas entre login e redefinição de senha (`PasswordResetRaceTests`), em [Redefinir a senha](password-reset.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a `IntegrationApiFactory` eleva o limite do login para que os `LoginTests` não o atinjam.
 
 ## Referências
 
@@ -181,7 +175,7 @@ Na validação da #12, a suíte tinha 216 testes. Os testes do bloqueio de conta
 - [RFC 9700: Best Current Practice for OAuth 2.0 Security](https://www.rfc-editor.org/rfc/rfc9700.html)
 - [RFC 6749, seção 5.1: resposta de token](https://www.rfc-editor.org/rfc/rfc6749#section-5.1)
 
-## Origem
+## Issues relacionadas
 
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): fazer login com e-mail e senha.
 - [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13): bloqueio da conta após falhas consecutivas de senha.

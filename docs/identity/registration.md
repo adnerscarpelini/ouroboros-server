@@ -24,7 +24,7 @@ As rotas existem só na API externa: o backoffice não tem cadastro, porque admi
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([README](../development.md#banco-de-dados-local)): a `AddEmailTokens` (Identity) cria a tabela dos tokens, e a `AddRegistrationParameters` (Settings) inclui os parâmetros abaixo. A conclusão não tem migration própria.
+- O banco local com as migrations do Identity e do Settings aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a `AddEmailTokens` (Identity) cria a tabela dos tokens, e a `AddRegistrationParameters` (Settings) inclui os parâmetros abaixo. A conclusão não tem migration própria.
 - Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202` (veja [Regras da solicitação](#regras-da-solicitação)).
 
 ## Configuração
@@ -42,29 +42,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-Com a API externa no ar em `Development` (`http://localhost:5141` no perfil padrão). Ainda não há front-end; o token é copiado do link do e-mail.
-
-```powershell
-# 1. Solicitar o cadastro
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations `
-  -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-
-# 2. Ler o token no .eml mais recente (o link termina em ?token=<token>)
-$eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-$token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-
-# 3. Concluir o cadastro com a senha
-$body = @{ token = $token; password = 'uma frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations/complete `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-
-# 4. Entrar
-$login = @{ email = 'cliente@example.com'; password = 'uma frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
-```
-
-O passo 2 roda na raiz do repositório. O `.eml` sai com `Content-Transfer-Encoding: 8bit`, então o link aparece legível no arquivo. O token é Base64Url e vai sem escape no link. O passo 4 devolve o access token e o refresh token ([Fazer login com e-mail e senha](login.md#como-usar)).
+O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com leitura do token no .eml e conclusão pela API.
 
 ## Solicitar o cadastro
 
@@ -138,7 +116,7 @@ Acima de 5 solicitações por minuto do mesmo IP, a resposta é `429` com `Retry
 
 ### Regra estrita de e-mail
 
-Desde a #20, os e-mails de conta passam por [`EmailAddresses.IsValid`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) (`Domain/Users`), a mesma regra do tipo `Email` dos [parâmetros do sistema](../architecture/system-parameters.md#regras-de-validação). Sobre o e-mail já normalizado, exige:
+Os e-mails de conta passam por [`EmailAddresses.IsValid`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) (`Domain/Users`), a mesma regra do tipo `Email` dos [parâmetros do sistema](../architecture/system-parameters.md#regras-de-validação). Sobre o e-mail já normalizado, exige:
 
 - no máximo 254 caracteres;
 - endereço interpretado igual à própria entrada, sem nome de exibição (`Ana <ana@example.com>` é recusado);
@@ -147,7 +125,7 @@ Desde a #20, os e-mails de conta passam por [`EmailAddresses.IsValid`](../../src
 
 A regra vale na solicitação do cadastro, no [`create-admin`](first-admin.md#regras) e em `User.Create`, que lança `ArgumentException` para um e-mail fora dela. A conclusão não recebe e-mail: usa o gravado no token, que já passou pela regra.
 
-O motivo é um defeito encontrado no QA: o `MailAddress` do .NET, usado antes, aceita aspas, espaços, nome de exibição, comentários e ponto final e reescreve o endereço (por exemplo, `vic tim@example.com` vira `tim@example.com`). Com ele, o link poderia ir para outra caixa, e um endereço equivalente ao de uma conta existente (`"vitima"@example.com`, `vitima@example.com.`) escaparia da verificação de e-mail já usado.
+A validação impede redirecionar links ou contornar a unicidade: o `MailAddress` do .NET isoladamente aceita aspas, espaços, nome de exibição, comentários e ponto final e reescreve o endereço (por exemplo, `vic tim@example.com` vira `tim@example.com`). Com ele, o link poderia ir para outra caixa, e um endereço equivalente ao de uma conta existente (`"vitima"@example.com`, `vitima@example.com.`) escaparia da verificação de e-mail já usado.
 
 Consequência: e-mails com caracteres fora do ASCII (endereços internacionalizados) são recusados.
 
@@ -255,7 +233,7 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 ## Limitações
 
 - **Diferença de tempo na solicitação.** A resposta é a mesma, mas um e-mail livre custa mais (transação, gravação e envio) que um ocupado; medindo o tempo de resposta, ainda é possível inferir se um e-mail tem conta. É uma limitação conhecida, registrada na #20; o limite por IP só reduz a escala da sondagem.
-- **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado; ficou fora do escopo.
+- **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado.
 - **Sem reenvio.** Uma nova solicitação cumpre esse papel e invalida o link anterior. Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP.
 - **E-mail que ganhou conta depois da solicitação.** A conclusão responde token inválido e, como a transação é desfeita, o token continua pendente até expirar, mas nunca mais conclui. Uma nova solicitação para esse e-mail não gera token, porque ele já tem conta.
 - **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
@@ -266,9 +244,7 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 Os testes rodam contra o PostgreSQL real e substituem o `IEmailSender` pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs), que guarda as mensagens (e pode simular falha) para ler o token do link, porque o adaptador `.eml` só existe em `Development`.
 
@@ -295,14 +271,12 @@ Os testes rodam contra o PostgreSQL real e substituem o `IEmailSender` pelo [`Ca
 
 A política `identity-registration-completion` não tem teste próprio de `429`; usa o mesmo mecanismo das demais. Os limites de `identity-registration` e `identity-registration-completion` são elevados para 100.000 na [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), como os demais ([Testes de integração](../architecture/integration-tests.md)).
 
-Na validação da #20, a suíte tinha 305 testes; na da #21, 319.
-
 ## Referências
 
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
 
-## Origem
+## Issues relacionadas
 
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): solicitar cadastro de cliente por e-mail.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): concluir o cadastro de cliente definindo a senha.

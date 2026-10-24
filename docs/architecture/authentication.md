@@ -2,7 +2,7 @@
 
 ## Emissão do access token
 
-Identity possui credenciais, sessões e emissão. A arquitetura usa assinatura assimétrica: chave privada exclusiva no emissor, chaves públicas identificadas nos consumidores. Rotação define janela e retirada de chaves sem implantação conjunta. Disponibilidade: #84 e [estado de implementação](../implementation-status.md).
+Identity possui credenciais, sessões e emissão. A arquitetura usa assinatura assimétrica: chave privada exclusiva no emissor, chaves públicas identificadas nos consumidores. Rotação define janela e retirada de chaves sem implantação conjunta. A #84 define e testa a janela de compatibilidade e o encerramento da aceitação de HS256. Disponibilidade no [estado de implementação](../implementation-status.md).
 
 ## Validação do token
 
@@ -17,6 +17,8 @@ Negar por padrão; anonimato é explícito. Cada operação exige capacidade e p
 ### Políticas por capacidade
 
 Preservar políticas das funcionalidades. Identificar usuário por ExternalId e sessão por sid. Revalidar estado autoritativo quando exigido. Rate limiting considera réplicas e headers somente de proxies confiáveis.
+
+Access tokens carregam `sub`, `role`, `sid`, `jti`, `iat`, `nbf` e `exp`. O claim público é o ExternalId, nunca a chave sequencial do banco. Papéis de usuário são Customer ou Admin; políticas são nomeadas por capacidade no proprietário. Falha de autenticação responde 401 genérico com `WWW-Authenticate: Bearer`; falta de permissão responde 403. Ambos usam [ProblemDetails](error-responses.md), sem explicar conteúdo ou motivo de recusa de token. A autorização não revela rotas a chamadas sem autenticação.
 
 ## Sessões e revogação
 

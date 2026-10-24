@@ -60,7 +60,7 @@ Cada política fica em `Identity:RateLimiting:Policies:<nome>`, no `appsettings.
 | `PermitLimit` | Requisições aceitas por IP dentro de uma janela; inteiro positivo. | `10` | `30` | `30` | `5` | `10` | `5` | `10` |
 | `Window` | Duração da janela, no formato `hh:mm:ss` (ou `d.hh:mm:ss`); positiva. | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) | `00:01:00` (1 minuto) |
 
-A política do logout não foi pedida pela issue (#17); foi acrescentada para que todo endpoint anônimo de autenticação tenha limite por IP, com o mesmo valor da renovação. A do cadastro (#20) é a mais restrita porque cada solicitação aceita pode gerar um token, uma gravação e um e-mail. A da conclusão do cadastro (#21) aceita 10 por minuto, o mesmo valor do login; como no login, cada conclusão com token válido e senha aceita pela política calcula um hash de senha. A da solicitação de redefinição de senha (#22) tem o mesmo valor da solicitação de cadastro, pelo mesmo motivo. A da conclusão da redefinição (#23) tem o mesmo valor da conclusão do cadastro: cada conclusão com token válido e senha aceita pela política verifica a senha atual e calcula um hash.
+A política do logout aplica limite por IP, assim como os demais endpoints anônimos de autenticação, com o mesmo valor da renovação. A do cadastro (#20) é a mais restrita porque cada solicitação aceita pode gerar um token, uma gravação e um e-mail. A da conclusão do cadastro (#21) aceita 10 por minuto, o mesmo valor do login; como no login, cada conclusão com token válido e senha aceita pela política calcula um hash de senha. A da solicitação de redefinição de senha (#22) tem o mesmo valor da solicitação de cadastro, pelo mesmo motivo. A da conclusão da redefinição (#23) tem o mesmo valor da conclusão do cadastro: cada conclusão com token válido e senha aceita pela política verifica a senha atual e calcula um hash.
 
 Como qualquer configuração do ASP.NET Core, os valores podem ser sobrescritos por outras fontes, como variáveis de ambiente. Alterar um valor exige reiniciar o host: as políticas são montadas uma vez, na subida.
 
@@ -80,7 +80,7 @@ Os limites do [bloqueio de conta](account-lockout.md#configuração) ficam nos [
 
 ## Como adicionar a política de um novo endpoint
 
-Para um endpoint anônimo de autenticação, como foi feito na renovação (#15), no logout (#17), na solicitação de cadastro (#20), na conclusão do cadastro (#21) e na solicitação (#22) e na conclusão (#23) da redefinição de senha:
+Para um endpoint anônimo de autenticação, seguir o mesmo procedimento usado na renovação, no logout, no cadastro e na redefinição de senha:
 
 1. Crie a constante do nome em [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs), em `Contracts`, seguindo o padrão `identity-<endpoint>`.
 2. Inclua a constante em `AuthRateLimitOptions.RequiredPolicies`, para que a falta de configuração impeça a subida.
@@ -119,9 +119,7 @@ Como o `AddRateLimiter` vem do Identity e o `UseRateLimiter` está na configura�
 
 ## Como verificar
 
-```powershell
-dotnet test --project tests/Ouroboros.IntegrationTests   # exige Docker
-```
+Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
 [`RateLimitingTests`](../../tests/Ouroboros.IntegrationTests/RateLimitingTests.cs), contra o PostgreSQL real, com limites próprios e janela de 1 hora. O IP de cada requisição é simulado pelo header `X-Test-Client-IP`, aplicado por um startup filter que existe só nesses testes (a aplicação não lê esse header):
 
@@ -139,15 +137,13 @@ A política `identity-logout` não tem teste próprio de `429`; usa o mesmo meca
 
 No `TestServer`, todas as requisições chegam sem IP e dividiriam o mesmo contador. Por isso, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva os limites do login, da renovação, do logout, da solicitação e da conclusão do cadastro e da solicitação de redefinição de senha para 100.000, para não interferir nos demais testes ([Testes de integração](../architecture/integration-tests.md)).
 
-Na validação da #14, a suíte tinha 237 testes; na da #15, 252; na da #17, 270; na da #20, 305; na da #21, 319; na da #22, 332; na da #23, 353.
-
 ## Referências
 
 - [Rate limiting middleware in ASP.NET Core (Microsoft Learn)](https://learn.microsoft.com/en-us/aspnet/core/performance/rate-limit)
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [RFC 6585, seção 4: 429 Too Many Requests](https://www.rfc-editor.org/rfc/rfc6585#section-4)
 
-## Origem
+## Issues relacionadas
 
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): limitar requisições de autenticação por IP.
 - [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15): política `identity-refresh` da renovação do access token.

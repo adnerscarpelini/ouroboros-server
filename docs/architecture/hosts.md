@@ -2,7 +2,7 @@
 
 ## Responsabilidade dos executáveis
 
-Cada serviço HTTP possui API própria. Identity hospeda endpoints de clientes e administradores e delega aos casos de uso locais. Notifications é worker; saúde operacional não obriga criar API de negócio.
+Cada serviço HTTP possui API própria. Identity hospeda endpoints de clientes e administradores e delega aos casos de uso locais. Notifications pode executar como worker; saúde operacional não obriga criar API de negócio.
 
 Executáveis compõem apenas seu proprietário, sem carregar outros serviços como bibliotecas ou acessar seus bancos.
 
@@ -10,11 +10,11 @@ Executáveis compõem apenas seu proprietário, sem carregar outros serviços co
 
 Separar rotas, políticas e audiências. Autorizar no serviço, inclusive acesso direto. Administração exige restrição de rede além do papel Admin.
 
-A #82 preserva isolamento administrativo antes de remover os hosts existentes. Usar bindings/listeners e controles de rede apropriados; não expor administração publicamente por conveniência.
+Usar bindings/listeners e controles de rede apropriados; não expor administração publicamente por conveniência. O isolamento deve ser verificado sem gateway.
 
 ## Comandos de operação
 
-create-admin pertence a Identity. Senha fica fora de argumentos e logs. Transferir comando, configurações e códigos de saída antes de remover projetos que os hospedam.
+create-admin pertence a Identity. Senha fica fora de argumentos e logs. Preservar unicidade concorrente do primeiro Admin, validação de domínio e códigos de saída. Execução: [desenvolvimento](../development.md#criar-o-primeiro-administrador).
 
 ## Configuração comum
 

@@ -39,6 +39,12 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
+### Fixtures e adaptadores de teste
+
+O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API e remove somente seu banco ao terminar.
+
+[IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) e [BackofficeIntegrationApiFactory](../tests/Ouroboros.IntegrationTests/BackofficeIntegrationApiFactory.cs) iniciam os hosts em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
+
 ## Banco de dados local
 
 Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela, falham ao subir com `OptionsValidationException` e uma mensagem que cita a chave. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
@@ -133,6 +139,18 @@ Os dois hosts exigem a chave `Authentication:Jwt:SigningKey`, que assina e valid
 
 Fora de desenvolvimento, a chave vem da variável de ambiente `Authentication__Jwt__SigningKey`, com o mesmo valor nos dois hosts. Trocar a chave invalida os tokens já emitidos. Emissor, audiência de cada host e tempos de vida ficam no `appsettings.json` de cada host; detalhes em [Autenticação JWT e autorização por políticas](architecture/authentication.md).
 
+Os valores de `Authentication:Jwt` disponíveis são:
+
+| Chave | Valor no checkout |
+| --- | --- |
+| Issuer | `ouroboros` nos dois hosts |
+| Audience | `ouroboros-api` na API externa, `ouroboros-backoffice` no backoffice |
+| AccessTokenLifetime | `00:15:00` |
+| RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
+| SigningKey | Externa ao Git, pelo menos 32 bytes UTF-8; Base64 é usado como texto, sem decodificação |
+
+Emissor/audiência ausentes e durações não positivas também impedem a subida. O checkout valida HS256 com tolerância de relógio de 30 segundos e sem consulta à sessão a cada chamada; rotação assimétrica é uma entrega da #84, conforme o [estado de implementação](implementation-status.md).
+
 ## Executar os hosts
 
 Com o banco e a chave de assinatura configurados, em dois terminais na raiz do repositório:
@@ -156,6 +174,14 @@ Todo endpoint exige um access token válido da audiência do host (`Authorizatio
 Não há servidor de e-mail. No ambiente `Development`, os dois hosts gravam cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
 
 A configuração fica na seção `Identity:Email` dos `appsettings.Development.json`. O adaptador local só é aceito em `Development`: em outro ambiente, o host não sobe. Sem provedor configurado (o padrão fora de `Development`), o host sobe, mas qualquer envio falha com erro explícito. Detalhes em [Envio de e-mail por porta com adaptador local](architecture/email.md).
+
+| Chave em Identity:Email | Configuração disponível |
+| --- | --- |
+| Provider | `PickupDirectory` em Development; `None` por padrão |
+| PickupDirectory | `../../.local/emails`, resolvido a partir do content root do host; obrigatório para PickupDirectory |
+| From | `nao-responda@ouroboros.local` por padrão |
+
+Cada arquivo usa nome com instante/UUID, texto UTF-8 sem BOM, quebras CRLF, cabeçalhos MIME e assunto não ASCII codificado. O link é segredo: não copie seu conteúdo para logs ou issues. A solicitação responde 202 mesmo se o envio após commit falhar, preservando proteção contra enumeração; o checkout não recupera automaticamente a intenção perdida entre commit e envio.
 
 ## Cadastrar um cliente e entrar
 
@@ -196,3 +222,83 @@ Clientes se cadastram sozinhos pela API externa, em duas etapas: informam o e-ma
    ```
 
 Detalhes, regras e erros em [Cadastrar cliente por e-mail](identity/registration.md) e [Fazer login com e-mail e senha](identity/login.md). Para trocar a senha esquecida pelo mesmo caminho (solicitar o link, copiar o token do `.eml` e concluir com a senha nova), veja o [fluxo completo da redefinição de senha](identity/password-reset.md#fluxo-completo-em-desenvolvimento).
+
+## Redefinir a senha em desenvolvimento
+
+Com a API externa no ar em `Development` (`http://localhost:5141` no perfil padrão) e uma conta de cliente criada. Ainda não há front-end; o token é copiado do link do e-mail.
+
+```powershell
+# 1. Solicitar a redefinição
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets `
+  -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
+
+# 2. Ler o token no .eml mais recente (o link termina em ?token=<token>)
+$eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
+$token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
+
+# 3. Concluir a redefinição com a senha nova
+$body = @{ token = $token; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets/complete `
+  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
+
+# 4. Entrar com a senha nova
+$login = @{ email = 'cliente@example.com'; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
+  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
+```
+
+O passo 2 roda na raiz do repositório, como no [fluxo do cadastro](#cadastrar-um-cliente-e-entrar). Depois do passo 3, a senha antiga recebe `401` no login, e os refresh tokens emitidos antes deixam de renovar.
+
+## Exemplos HTTP por funcionalidade
+
+Execute os hosts conforme este guia. Nos exemplos autenticados, substitua `<accessToken>` pelo token do login e `<refreshToken>` pelo refresh token vigente do mesmo público. Senhas e tokens dos exemplos são marcadores; não publique valores reais.
+
+### Fazer login
+
+Contrato e pré-requisitos: [Fazer login](identity/login.md#como-usar).
+
+```powershell
+# PowerShell
+$body = @{ email = 'admin@example.com'; password = '<senha>' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:5142/api/v1/admin/identity/sessions -ContentType 'application/json' -Body $body
+```
+
+### Encerrar todas as sessões
+
+Contrato e pré-requisitos: [Encerrar todas as sessões](identity/logout-all.md#como-usar).
+
+```powershell
+# PowerShell
+$headers = @{ Authorization = 'Bearer <access token atual>' }
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions/logout-all -Headers $headers
+```
+
+### Encerrar a sessão
+
+Contrato e pré-requisitos: [Encerrar a sessão](identity/logout.md#como-usar).
+
+```powershell
+# PowerShell
+$body = @{ refreshToken = '<refresh token atual>' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions/logout -ContentType 'application/json' -Body $body
+```
+
+### Consultar o próprio usuário
+
+Contrato e pré-requisitos: [Consultar o próprio usuário](identity/me.md#como-usar).
+
+```powershell
+# PowerShell
+$headers = @{ Authorization = 'Bearer <access token atual>' }
+Invoke-RestMethod -Uri http://localhost:5141/api/v1/identity/me -Headers $headers
+```
+
+### Renovar a sessão
+
+Contrato e pré-requisitos: [Renovar a sessão](identity/refresh-session.md#como-usar).
+
+```powershell
+# PowerShell
+$body = @{ refreshToken = '<refresh token do login>' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:5142/api/v1/admin/identity/sessions/refresh -ContentType 'application/json' -Body $body
+```

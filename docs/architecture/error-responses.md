@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Os primeiros endpoints precisam de um formato único de erro. Validações, falhas de negócio e erros inesperados devem ser previsíveis para quem consome a API, sem expor detalhes internos como mensagens de exceção ou stack traces.
+Os endpoints usam um formato único de erro. Validações, falhas de negócio e erros inesperados devem ser previsíveis para quem consome a API, sem expor detalhes internos como mensagens de exceção ou stack traces.
 
 ## Decisão
 
@@ -17,13 +17,13 @@ Cada API de serviço configura o tratamento HTTP de erros, com mecanismos técni
 
 - `AddProblemDetails`, com `CustomizeProblemDetails` preenchendo `traceId` com `Activity.Current?.Id` ou, sem `Activity`, com `HttpContext.TraceIdentifier`;
 - `app.UseExceptionHandler()`, que converte exceções não tratadas em ProblemDetails;
-- `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo. o `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
+- `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo. O `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
 
 ## Formatos
 
 ### Erro inesperado (500)
 
-Uma exceção não tratada responde `500` com título genérico, sem mensagem, tipo de exceção ou stack trace. A exceção completa vai para o log, com o mesmo trace da resposta.
+Uma exceção não tratada responde `500` com título genérico, sem mensagem, tipo de exceção ou stack trace. O diagnóstico segue o pipeline de [observabilidade sanitizada](microservices.md#operação-e-qualidade), com o mesmo trace da resposta e sem segredos ou dados pessoais.
 
 ```json
 {
@@ -64,17 +64,18 @@ Uma regra conferida pelo caso de uso também pode virar `400` de validação: na
 O controller da API proprietária traduz o resultado do caso de uso com `Problem(...)`, informando o `type` documentado no catálogo do módulo:
 
 ```csharp
+Response.Headers["WWW-Authenticate"] = "Bearer";
 return Problem(
-    type: "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#email-already-registered",
-    title: "E-mail já cadastrado.",
-    statusCode: StatusCodes.Status409Conflict);
+    type: "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#invalid-credentials",
+    title: "E-mail ou senha inválidos.",
+    statusCode: StatusCodes.Status401Unauthorized);
 ```
 
-O exemplo é ilustrativo, e o código acima não está no catálogo. A primeira falha de negócio real é a [`invalid-credentials`](../errors/identity.md#invalid-credentials) do login (#12), traduzida pelos `SessionsController` das APIs ([Fazer login com e-mail e senha](../identity/login.md)).
+O exemplo usa a falha [`invalid-credentials`](../errors/identity.md#invalid-credentials) do login, traduzida pelo controller da API proprietária ([Fazer login com e-mail e senha](../identity/login.md)).
 
-a conclusão do cadastro traduz dois resultados em `400`: [`invalid-registration-token`](../errors/identity.md#invalid-registration-token), sem `detail` e com a mesma resposta para todos os motivos, e [`password-rejected`](../errors/identity.md#password-rejected), a primeira falha de negócio com `detail`, que traz a regra da política de senha violada ([Concluir o cadastro](../identity/registration.md#concluir-o-cadastro)). Os dois se distinguem do `400` de validação pelo `type` e pela ausência de `errors`: o de validação só aparece quando o token ou a senha excedem o tamanho máximo do DTO.
+A conclusão do cadastro traduz dois resultados em `400`: [`invalid-registration-token`](../errors/identity.md#invalid-registration-token), sem `detail` e com a mesma resposta para todos os motivos, e [`password-rejected`](../errors/identity.md#password-rejected), com `detail`, que traz a regra da política de senha violada ([Concluir o cadastro](../identity/registration.md#concluir-o-cadastro)). Os dois se distinguem do `400` de validação pelo `type` e pela ausência de `errors`: o de validação só aparece quando o token ou a senha excedem o tamanho máximo do DTO.
 
-a conclusão da redefinição de senha segue o mesmo padrão: [`invalid-password-reset-token`](../errors/identity.md#invalid-password-reset-token), sem `detail` e igual para todos os motivos, e o mesmo [`password-rejected`](../errors/identity.md#password-rejected), cujo `detail` traz a regra da política violada ou `A nova senha não pode ser igual à atual.` ([Concluir a redefinição](../identity/password-reset.md#concluir-a-redefinição)). O sucesso é `204`, sem corpo.
+A conclusão da redefinição de senha segue o mesmo padrão: [`invalid-password-reset-token`](../errors/identity.md#invalid-password-reset-token), sem `detail` e igual para todos os motivos, e o mesmo [`password-rejected`](../errors/identity.md#password-rejected), cujo `detail` traz a regra da política violada ou `A nova senha não pode ser igual à atual.` ([Concluir a redefinição](../identity/password-reset.md#concluir-a-redefinição)). O sucesso é `204`, sem corpo.
 
 ### Respostas sem corpo (401, 403, 404, 405, 415)
 
@@ -84,7 +85,7 @@ A [política padrão de autorização](authentication.md) nega por padrão e val
 
 ### Limite de requisições (429)
 
-os endpoints anônimos de autenticação têm limite de requisições por IP. Acima do limite, o `OnRejected` do rate limiter, registrado pelo Identity, responde `429` pelo `IProblemDetailsService`, com o `traceId` da mesma configuração, o header `Retry-After` em segundos e um log `Warning` com o caminho e o IP:
+Os endpoints anônimos de autenticação têm limite de requisições por IP. Acima do limite, o `OnRejected` do rate limiter, registrado pelo Identity, responde `429` pelo `IProblemDetailsService`, com o `traceId` da mesma configuração, o header `Retry-After` em segundos e um log `Warning` com o caminho e o IP:
 
 ```json
 {
@@ -115,7 +116,7 @@ A formatação dos logs com os scopes visíveis no console fica com a [#28](http
 
 ## Comportamento em Development
 
-O handler explícito trata a exceção antes da página de exceção do desenvolvedor. Por isso, também em `Development` a resposta de um erro inesperado é o ProblemDetails genérico; o stack trace aparece apenas no log. A decisão é consciente: o contrato é o mesmo em todos os ambientes e nenhum detalhe interno vaza por configuração de ambiente.
+O handler explícito trata a exceção antes da página de exceção do desenvolvedor. Por isso, também em `Development` a resposta de um erro inesperado é o ProblemDetails genérico; o diagnóstico interno recebe o tratamento sanitizado do pipeline de observabilidade. A decisão é consciente: o contrato é o mesmo em todos os ambientes e nenhum detalhe interno vaza por configuração de ambiente.
 
 ## Alternativas descartadas
 
@@ -130,18 +131,14 @@ O handler explícito trata a exceção antes da página de exceção do desenvol
 - `409` com o `type` documentado e `traceId`;
 - `404` de versão inexistente em ProblemDetails, com `traceId`.
 
-Na raiz do repositório:
+O comando para executar esses testes está no [guia de desenvolvimento](../development.md#testes).
 
-```powershell
-dotnet test --project tests/Ouroboros.ArchitectureTests
-```
-
-## Origem
+## Issues relacionadas
 
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): decisão e implementação.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers dos hosts.
-- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): primeira falha de negócio do catálogo, `invalid-credentials`.
+- [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): falha de negócio do login, `invalid-credentials`.
 - [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14): `429` do limite de requisições por IP, com `Retry-After`.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): falhas `invalid-registration-token` e `password-rejected` da conclusão do cadastro, a segunda com `detail`.
 - [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitação de redefinição de senha com `400` de validação para e-mail inválido e `202` igual para os demais casos, sem falha de negócio própria.
