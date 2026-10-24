@@ -24,8 +24,8 @@ As rotas existem só na API externa: o backoffice não tem cadastro, porque admi
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([README](../../README.md#banco-de-dados-local)): a `AddEmailTokens` (Identity) cria a tabela dos tokens, e a `AddRegistrationParameters` (Settings) inclui os parâmetros abaixo. A conclusão não tem migration própria.
-- Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md#ver-os-e-mails-em-desenvolvimento)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202` (veja [Regras da solicitação](#regras-da-solicitação)).
+- O banco local com as migrations do Identity e do Settings aplicadas ([README](../development.md#banco-de-dados-local)): a `AddEmailTokens` (Identity) cria a tabela dos tokens, e a `AddRegistrationParameters` (Settings) inclui os parâmetros abaixo. A conclusão não tem migration própria.
+- Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202` (veja [Regras da solicitação](#regras-da-solicitação)).
 
 ## Configuração
 
@@ -131,7 +131,7 @@ Acima de 5 solicitações por minuto do mesmo IP, a resposta é `429` com `Retry
 
    Por isso sobra sempre um único token pendente por e-mail, mesmo com solicitações simultâneas, e o link de uma solicitação anterior deixa de valer na conclusão.
 5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo mesmo `OpaqueTokens` do refresh token; o banco guarda só o SHA-256 (veja [Persistência](#persistência)).
-6. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md#como-usar-nos-casos-de-uso)).
+6. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md)).
 7. **Falha no envio não muda a resposta.** Se o envio falhar, a falha vai para o log em nível `Error` (`Falha ao enviar o e-mail de cadastro (<tipo da exceção>).`), sem o e-mail, o link, o token nem a mensagem da exceção, e a resposta continua `202`. O token gravado fica pendente; para receber um link, a pessoa faz nova solicitação. Um cancelamento da requisição não é tratado como falha de envio.
 8. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 9. **Nenhum usuário é criado.** A conta só nasce na [conclusão](#concluir-o-cadastro).
@@ -258,7 +258,7 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 - **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado; ficou fora do escopo.
 - **Sem reenvio.** Uma nova solicitação cumpre esse papel e invalida o link anterior. Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP.
 - **E-mail que ganhou conta depois da solicitação.** A conclusão responde token inválido e, como a transação é desfeita, o token continua pendente até expirar, mas nunca mais conclui. Uma nova solicitação para esse e-mail não gera token, porque ele já tem conta.
-- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md#limitações)).
+- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
 - **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; sem provedor, todo envio falha (com o mesmo `202`) e vai para o log, e ninguém consegue concluir um cadastro nesses ambientes.
 - **Log `fail` do EF Core na corrida pelo e-mail.** A violação de unicidade tratada como token inválido ainda gera um log de nível `Error` (`fail`) do EF Core ao salvar, sem dado sensível. Na operação, esse log isolado na conclusão do cadastro é uma corrida esperada, não uma falha do sistema.
 - **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório; em desenvolvimento, o token é copiado do `.eml` ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).

@@ -2,7 +2,7 @@
 
 ## Contexto
 
-A API ainda não tem endpoints nem clientes. Incluir um prefixo de versão depois do primeiro cliente mudaria todas as rotas de uma vez; com o versionamento desde já, uma mudança incompatível vira uma nova versão sem quebrar quem usa a anterior.
+Cada API de serviço versiona seus contratos HTTP para que mudanças incompatíveis não quebrem consumidores existentes.
 
 ## Decisão
 
@@ -10,17 +10,17 @@ A API ainda não tem endpoints nem clientes. Incluir um prefixo de versão depoi
 
   | Público | Rota |
   | --- | --- |
-  | Cliente e anônimos (`Ouroboros.Api`) | `api/v{version:apiVersion}/<module>/...` |
-  | Backoffice (`Ouroboros.Backoffice.Api`) | `api/v{version:apiVersion}/admin/<module>/...` |
+  | Cliente e anônimos | `api/v{version:apiVersion}/<module>/...` |
+  | Administrativo | `api/v{version:apiVersion}/admin/<module>/...` |
 
 - Só a versão maior é exposta (`/api/v1/...`), como no [AIP-185](https://google.aip.dev/185) do Google. Mudanças compatíveis não mudam a versão.
 - Não há versão padrão implícita: toda requisição informa a versão na URL. O Asp.Versioning não permite versão padrão quando a versão está no caminho.
-- `AddOuroborosHost`, em [`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs), configura nos dois [hosts](hosts.md) `AddApiVersioning` com `UrlSegmentApiVersionReader` e `ReportApiVersions = true`, seguido de `.AddMvc()`.
-- `[ApiVersion]` e `[MapToApiVersion]` são declarados nos controllers dos hosts. Os atributos vêm do `Asp.Versioning.Mvc`, referenciado por `Ouroboros.Hosting` e herdado pelos dois hosts; os módulos não referenciam pacotes de versionamento (até a #47, referenciavam `Asp.Versioning.Abstractions`).
+- A API do serviço configura AddApiVersioning com UrlSegmentApiVersionReader, ReportApiVersions e AddMvc.
+- [ApiVersion] e [MapToApiVersion] pertencem aos controllers da API proprietária, usando Asp.Versioning.Mvc.
 
 ## Como declarar versões
 
-Cada controller, no projeto do host (`Controllers/<Module>/`, conforme [Controllers HTTP nos hosts](http-controllers.md)), declara as versões que atende:
+Cada controller, na API do serviço (`Controllers/<Module>/`, conforme [Controllers HTTP nas APIs dos serviços](http-controllers.md)), declara as versões que atende:
 
 ```csharp
 namespace Ouroboros.Api.Controllers.Identity;
@@ -39,12 +39,12 @@ public sealed class SessionsController : ControllerBase
 - Para descontinuar uma versão, marque-a com `[ApiVersion(n, Deprecated = true)]` e declare a nova versão. A versão descontinuada continua respondendo normalmente até ser removida.
 - `[ApiVersionNeutral]` não é aceito nos controllers dos hosts: o teste de rotas exige `[ApiVersion]`.
 
-O exemplo acima resume o login da #12, que declara só a versão 1 (veja [Controllers HTTP nos hosts](http-controllers.md#estado-atual)).
+O exemplo acima resume o login da #12, que declara só a versão 1 (veja [Controllers HTTP nas APIs dos serviços](http-controllers.md)).
 
 ## Comportamento
 
 - As respostas trazem o header `api-supported-versions` (por exemplo `1.0`) e, se houver versões descontinuadas, `api-deprecated-versions`.
-- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem executar a action. Desde a [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4), o corpo é um ProblemDetails com `traceId` (veja [Respostas de erro com ProblemDetails](error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Sem token, essas requisições respondem `401` antes, pela [política padrão de autorização](authentication.md#política-padrão-dos-hosts).
+- Versão não declarada (`/api/v9/...`), versão inválida (`/api/vX/...`) ou URL sem segmento de versão respondem `404` sem executar a action. o corpo é um ProblemDetails com `traceId` (veja [Respostas de erro com ProblemDetails](error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Sem token, essas requisições respondem `401` antes, pela [política padrão de autorização](authentication.md).
 - `v1.0` e `V1` são aceitos como sinônimos de `v1`.
 - A query string `api-version` é ignorada; só o segmento da URL define a versão.
 
@@ -60,7 +60,7 @@ Ficam fora do escopo a documentação OpenAPI por versão e a política de prazo
 Em [`tests/Ouroboros.ArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj):
 
 - [`ApiVersioningTests`](../../tests/Ouroboros.ArchitectureTests/ApiVersioningTests.cs): `v1` responde com `api-supported-versions`; versão não declarada e URL sem versão não executam a action; versão descontinuada responde e informa `api-deprecated-versions`. Usa os controllers de teste de [`ProbeControllers.cs`](../../tests/Ouroboros.ArchitectureTests/ProbeControllers.cs).
-- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): exige, em cada host, o segmento de versão no prefixo das rotas e `[ApiVersion]` em todo controller (veja [Testes de arquitetura](http-controllers.md#testes-de-arquitetura)).
+- [`ControllerRouteTests`](../../tests/Ouroboros.ArchitectureTests/ControllerRouteTests.cs): exige, em cada API, o segmento de versão no prefixo das rotas e `[ApiVersion]` em todo controller (veja [Testes de arquitetura](http-controllers.md#testes-de-arquitetura)).
 
 ## Origem
 

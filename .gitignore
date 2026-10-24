@@ -434,3 +434,6 @@ TestResults/
 
 # Configuração local do Claude Code (skills, settings e notas pessoais)
 .claude/
+
+# Configuração local do Codex
+.codex/

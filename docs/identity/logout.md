@@ -24,7 +24,7 @@ Ao contrário do [login](login.md) e da [renovação](refresh-session.md), o log
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas ([README](../../README.md#banco-de-dados-local)). O logout não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
+- O banco local com as migrations do Identity aplicadas ([README](../development.md#banco-de-dados-local)). O logout não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
 - A política `identity-logout` configurada em `Identity:RateLimiting:Policies` nos dois hosts; sem ela, o host não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
 - Um refresh token, obtido no [login](login.md) ou na última [renovação](refresh-session.md).
 

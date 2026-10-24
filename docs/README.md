@@ -1,25 +1,10 @@
 # Documentação do Ouroboros
 
-Documentação das funcionalidades e notas gerais do projeto.
-
-## Organização
-
-- [Arquitetura](architecture/README.md): notas gerais e decisões do projeto.
-- [Estrutura dos módulos](architecture/module-structure.md): estrutura atual e padrão para novos módulos.
-- [Hosts da API externa e do backoffice](architecture/hosts.md): API externa e backoffice em hosts distintos, cada um com os controllers do seu público no próprio projeto.
-- [Controllers HTTP nos hosts](architecture/http-controllers.md): controllers declarados nos hosts, casos de uso expostos em `Contracts` dos módulos e como criar um endpoint.
-- [Versionamento da API HTTP](architecture/api-versioning.md): versão na URL (`/api/v1/...`) e como declarar ou descontinuar versões.
-- [Respostas de erro com ProblemDetails](architecture/error-responses.md): formato único de erro (RFC 9457) com `traceId`, validação, falhas de negócio, limite de requisições e erros inesperados.
-- [Catálogo de erros](errors/README.md): `type` estável de cada falha de negócio, uma página por módulo.
-- [Persistência com PostgreSQL e EF Core](architecture/persistence.md): um banco com schema, DbContext e histórico de migrations por módulo, connection string e migrations por comando.
-- [Identificadores, datas e nomes das entidades](architecture/entity-conventions.md): chave interna `long`, `ExternalId` UUIDv7 exposto, datas de auditoria e snake_case.
-- [Código compartilhado entre módulos (BuildingBlocks)](architecture/building-blocks.md): base `Entity` e tipos de persistência comuns em `Ouroboros.BuildingBlocks`, sem dependência de módulos nem hosts.
-- [Testes de integração com PostgreSQL](architecture/integration-tests.md): PostgreSQL em container, banco modelo migrado e um banco clonado por teste.
-- [Domínio de identidade próprio e hash de senha](architecture/identity.md): entidade `User` própria, só o `PasswordHasher<T>` do ASP.NET Core Identity com 210.000 iterações e rehash na verificação; ordem dos locks do módulo (usuário com `FOR NO KEY UPDATE`, depois sessões em ordem de id).
-- [Autenticação JWT e autorização por políticas](architecture/authentication.md): JWT HS256 com audiência por host, chave de assinatura fora do Git, endpoints que exigem token, salvo `[AllowAnonymous]`, e access token não revogável até expirar.
-- [Envio de e-mail por porta com adaptador local](architecture/email.md): porta de envio no Identity, `.eml` em `.local/emails` em desenvolvimento e falha explícita sem provedor.
-- [Parâmetros do sistema com histórico de alterações](architecture/system-parameters.md): módulo Settings, leitura por `ISystemParameters` sem cache, validação por tipo e padrão e histórico espelho na mesma transação.
-- [Política de senha](architecture/password-policy.md): NIST SP 800-63B-4, 15 a 128 code points após NFKC, sem regras de composição, lista local de senhas comuns e NFKC também no hasher; usada pelo `create-admin` e pela conclusão do cadastro de cliente.
+- [Arquitetura de microsserviços](architecture/README.md).
+- [Estrutura dos serviços](architecture/module-structure.md).
+- [Estado de implementação](implementation-status.md).
+- [Executar o checkout atual](development.md).
+- [Catálogo de erros](errors/README.md).
 
 As funcionalidades ficam em `<module-name>/<feature-name>.md`:
 

@@ -13,13 +13,13 @@ Módulo responsável: Identity. A consulta fica no caso de uso `IGetCurrentUser`
 | API externa (`Ouroboros.Api`) | `GET /api/v1/identity/me` | De `Customer`, audiência `ouroboros-api` |
 | Backoffice (`Ouroboros.Backoffice.Api`) | `GET /api/v1/admin/identity/me` | De `Admin`, audiência `ouroboros-backoffice` |
 
-As duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md#política-padrão-dos-hosts)). O usuário é o do claim `sub` do token. Não há parâmetros nem corpo.
+As duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md)). O usuário é o do claim `sub` do token. Não há parâmetros nem corpo.
 
 A rota do backoffice vai além da issue, que pedia só a da API externa, para que o `Admin` também consulte os próprios dados.
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity aplicadas ([README](../../README.md#banco-de-dados-local)). A consulta não cria migration.
+- O banco local com as migrations do Identity aplicadas ([README](../development.md#banco-de-dados-local)). A consulta não cria migration.
 - Um access token válido, obtido no [login](login.md) ou na última [renovação](refresh-session.md), da audiência do host chamado.
 
 ## Como usar
