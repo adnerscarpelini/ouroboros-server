@@ -39,6 +39,17 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
+### Integração contínua
+
+O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pull request para a `main` e a cada push nela, com a versão do SDK de `global.json`. Não usa banco, `.env`, user-secrets nem segredos; o token do workflow só lê o repositório. Uma nova execução no mesmo PR cancela a anterior.
+
+| Check (nome do job) | O que executa | Equivale localmente a |
+| --- | --- | --- |
+| Build e testes de arquitetura | Restore e build da solution em Release, mais os testes de arquitetura | `dotnet build Ouroboros.slnx -c Release` e `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` |
+| Testes de integração | Testes de integração com PostgreSQL em container (Testcontainers) | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
+
+Falha de build, de teste ou de job reprova o check. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
+
 ### Fixtures e adaptadores de teste
 
 O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API e remove somente seu banco ao terminar.
