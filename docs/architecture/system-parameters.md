@@ -60,4 +60,6 @@ Verificar atomicidade, revisão, acesso administrativo, leitura posterior e avis
 
 Referências de cenários: [SystemParametersTests](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) cobre leitura, sementes, histórico, rollback e concorrência; [ParameterRulesTests](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs) cobre tipos, padrão, revisão e alteração sem diferença. Cobertura disponível e funcionalidades pendentes: [estado de implementação](../implementation-status.md).
 
+Contratos internos e unidade de trabalho da persistência: [portas de leitura e escrita de parâmetros](../settings/parameter-ports.md).
+
 [Voltar à arquitetura](README.md)

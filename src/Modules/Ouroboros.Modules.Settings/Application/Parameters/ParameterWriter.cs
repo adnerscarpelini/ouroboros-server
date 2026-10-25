@@ -1,13 +1,9 @@
-using Microsoft.EntityFrameworkCore;
-using Ouroboros.Modules.Settings.Contracts;
 using Ouroboros.Modules.Settings.Domain.Parameters;
-using Ouroboros.Modules.Settings.Infrastructure.Persistence;
 
 namespace Ouroboros.Modules.Settings.Application.Parameters;
 
-// Grava parâmetros e o histórico de alterações na mesma transação (um único SaveChanges). Base para a
-// alteração pelo backoffice (#34).
-internal sealed class ParameterWriter(SettingsDbContext context, TimeProvider timeProvider)
+// A porta confirma cada alteração junto com seu histórico. Base para o backoffice (#34).
+internal sealed class ParameterWriter(IParameterPersistence persistence, TimeProvider timeProvider)
 {
     public async Task CreateAsync(
         string key,
@@ -21,22 +17,14 @@ internal sealed class ParameterWriter(SettingsDbContext context, TimeProvider ti
     {
         var (parameter, history) = Parameter.Create(
             key, value, description, dataType, validationPattern, isSensitive, createdBy, timeProvider.GetUtcNow());
-        context.Parameters.Add(parameter);
-        context.ParameterHistory.Add(history);
-        await context.SaveChangesAsync(cancellationToken);
+        await persistence.CreateAsync(parameter, history, cancellationToken);
     }
 
-    public async Task ChangeAsync(
+    public Task ChangeAsync(
         string key,
         string? value,
         string? description,
         Guid changedBy,
         CancellationToken cancellationToken)
-    {
-        var parameter = await context.Parameters.SingleOrDefaultAsync(candidate => candidate.Key == key, cancellationToken)
-            ?? throw new ParameterNotFoundException(key);
-
-        context.ParameterHistory.Add(parameter.Change(value, description, changedBy, timeProvider.GetUtcNow()));
-        await context.SaveChangesAsync(cancellationToken);
-    }
+        => persistence.ChangeAsync(key, value, description, changedBy, timeProvider.GetUtcNow(), cancellationToken);
 }

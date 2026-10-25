@@ -19,18 +19,12 @@ internal static class KnownViolations
 
     private const string IdentityApplication = "Ouroboros.Modules.Identity.Application.";
     private const string IdentityInfrastructure = "Ouroboros.Modules.Identity.Infrastructure.";
-    private const string SettingsApplication = "Ouroboros.Modules.Settings.Application.";
-    private const string SettingsInfrastructure = "Ouroboros.Modules.Settings.Infrastructure.";
 
     private const string EntityFramework = "[assembly] Microsoft.EntityFrameworkCore";
     private const string EntityFrameworkRelational = "[assembly] Microsoft.EntityFrameworkCore.Relational";
 
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
-        // #73: portas de parâmetros em Settings.
-        .. Group("#73", ApplicationLayer, SettingsApplication + "Parameters.ParameterWriter", SettingsInfrastructure + "Persistence.SettingsDbContext", EntityFramework),
-        .. Group("#73", ApplicationLayer, SettingsApplication + "Parameters.SystemParameters", SettingsInfrastructure + "Persistence.SettingsDbContext", EntityFramework),
-
         // #74: persistência de sessões e locks por portas.
         .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.AccountLockout", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
         .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.Login", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
