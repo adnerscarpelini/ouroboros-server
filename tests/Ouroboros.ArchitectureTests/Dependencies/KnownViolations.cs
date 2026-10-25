@@ -25,10 +25,6 @@ internal static class KnownViolations
 
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
-        // #75: persistência de cadastro.
-        .. Group("#75", ApplicationLayer, IdentityApplication + "Registrations.CompleteRegistration", IdentityInfrastructure + "Persistence.IdentityDbContext", IdentityInfrastructure + "Persistence.PersistenceErrors", EntityFramework),
-        .. Group("#75", ApplicationLayer, IdentityApplication + "Registrations.RequestRegistration", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
-
         // #76: persistência de redefinição de senha.
         .. Group("#76", ApplicationLayer, IdentityApplication + "PasswordResets.CompletePasswordReset", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
         .. Group("#76", ApplicationLayer, IdentityApplication + "PasswordResets.RequestPasswordReset", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),

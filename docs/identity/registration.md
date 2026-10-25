@@ -186,13 +186,13 @@ Acima de 10 conclusões por minuto do mesmo IP, a resposta é `429` com `Retry-A
 1. **Token procurado pelo hash.** O caso de uso calcula o SHA-256 do token recebido e procura um token com finalidade `Registration`, sem `used_at` nem `revoked_at` e com `expires_at` posterior ao instante atual. Sem ele, [token inválido](#token-inválido-400). Um token vale até o fim da validade, exclusive.
 2. **Senha validada contra o e-mail do token.** A senha passa pela mesma `PasswordPolicy` do [primeiro administrador](first-admin.md#regras), com o e-mail gravado no token como contexto. Recusada, a resposta é [senha recusada](#senha-recusada-400), nada é gravado e o token continua pendente.
 3. **Hash fora da transação.** O hash da senha (`IPasswordHasher.Hash`, 210.000 iterações) é calculado antes de abrir a transação, para não segurar a transação durante o trabalho mais caro ([Domínio de identidade](../architecture/identity.md#hash-e-rehash)).
-4. **Consumo condicional na mesma transação da conta.** Numa transação:
+4. **Consumo condicional na mesma transação da conta.** O caso de uso cria o `User` com `User.Create(email, hash, Customer)`: ativo, com exatamente um papel, `Customer`. A porta de persistência executa numa transação:
    - um `UPDATE` condicional preenche `used_at` (e `updated_at`) só se o token ainda está sem `used_at`, sem `revoked_at` e não expirado. Se nenhuma linha muda (uma conclusão simultânea venceu, ou uma solicitação mais nova revogou o token no intervalo), [token inválido](#token-inválido-400);
-   - o caso de uso confere se o e-mail já tem conta, de qualquer papel. Se tem (uma conta criada depois da solicitação), [token inválido](#token-inválido-400);
-   - o `User` é criado com `User.Create(email, hash, Customer)`: ativo, com exatamente um papel, `Customer`.
+   - confere se o e-mail já tem conta, de qualquer papel. Se tem (uma conta criada depois da solicitação), [token inválido](#token-inválido-400);
+   - grava o usuário criado pelo caso de uso.
 
    Só com tudo gravado a transação é confirmada. Nas saídas de token inválido de dentro da transação, ela é desfeita, então nada fica gravado, nem o consumo do token.
-5. **Corrida pelo e-mail.** Se outra criação de usuário com o mesmo e-mail vencer entre a verificação e a gravação, o índice único de `identity.users.email` recusa a inserção. A violação de unicidade (`23505`), reconhecida por `PersistenceErrors.IsUniqueViolation`, também vira [token inválido](#token-inválido-400), sem nada gravado.
+5. **Corrida pelo e-mail.** Se outra criação de usuário com o mesmo e-mail vencer entre a verificação e a gravação, o índice único de `identity.users.email` recusa a inserção. A violação de unicidade (`23505`), reconhecida em Infrastructure por `PersistenceErrors.IsUniqueViolation`, faz a porta devolver conflito, traduzido pelo caso de uso em [token inválido](#token-inválido-400), sem nada gravado. O consumo do token perdedor também é desfeito.
 6. **Falha ao gravar desfaz tudo.** Qualquer outra falha ao gravar desfaz a transação e responde `500`; o token continua pendente e pode ser usado de novo.
 7. **Sem login automático.** Nenhuma sessão nem token de acesso é emitido. O cliente entra pelo login da API externa, que aceita só `Customer` ([Fazer login com e-mail e senha](login.md)).
 8. **O token não aparece em logs nem na resposta.** Como na solicitação.
@@ -209,12 +209,19 @@ Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao
 | [`RequestRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/RequestRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da solicitação, registrada como scoped em `AddIdentityModule`. Declara as chaves dos dois parâmetros. |
 | [`ICompleteRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Registrations/ICompleteRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(CompleteRegistrationRequest(Token, Password))`, que devolve `CompleteRegistrationResult(Outcome, Message)`. `CompleteRegistrationOutcome`: `Completed`, `InvalidToken` ou `PasswordRejected` (com a regra violada em `Message`). |
 | [`CompleteRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/CompleteRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
-| [`PersistenceErrors`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/PersistenceErrors.cs) | `Infrastructure/Persistence` (`internal`) | `IsUniqueViolation(DbUpdateException)`: reconhece a violação de unicidade do PostgreSQL (`PostgresErrorCodes.UniqueViolation`), para que `Application` não dependa do Npgsql. |
+| [`IRegistrationStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/IRegistrationStore.cs) | `Application/Registrations` (`internal`) | Porta scoped de consulta de e-mail/token, substituição atômica de token pendente e conclusão atômica com a conta. Não expõe EF, SQL ou transação do provedor. |
+| [`RegistrationStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/RegistrationStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped sobre `IdentityDbContext`; mantém EF, SQL, advisory lock, transações e reconhecimento de unicidade por `PersistenceErrors` fora dos casos de uso. |
 | [`EmailAddresses`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) | `Domain/Users` (`internal`) | Regra estrita de e-mail das contas. |
 | [`OpaqueTokens`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera tokens opacos de 32 bytes em Base64Url e calcula o SHA-256; usado pelo cadastro, pela [redefinição de senha](password-reset.md) e pelas sessões. Era o `RefreshTokens`, renomeado na #20. |
 | [`RegistrationsController`](../../src/Ouroboros.Api/Controllers/Identity/RegistrationsController.cs) | `Controllers/Identity` da API externa | Action `Create` (solicitação), com `[EnableRateLimiting(IdentityRateLimitPolicies.Registration)]`, e action `Complete` (`[HttpPost("complete")]`), com `[EnableRateLimiting(IdentityRateLimitPolicies.RegistrationCompletion)]`; as duas com `[AllowAnonymous]`. Declara no mesmo arquivo o `RegistrationRequestBody` (só `Email`), o `CompleteRegistrationBody` (`Token` e `Password`) e o `AcceptedResponse(Message)`. As constantes do `type` e do `title` dos dois erros ficam em `IdentityErrors`, no `SessionModels.cs`. |
 
 ## Persistência
+
+Desde a [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75), `RequestRegistration` e `CompleteRegistration` coordenam a persistência pela porta interna `IRegistrationStore`, registrada com o adaptador `RegistrationStore` em `AddIdentityModule`. A solicitação mantém normalização, regras, geração do token e composição/envio na Application; a conclusão mantém a política de senha, o hash e a criação do usuário. Nenhum dos dois casos de uso conhece DbContext, EF, SQL ou erros PostgreSQL.
+
+Cada operação de escrita da porta preserva a unidade de trabalho inteira. `ReplacePendingTokenAsync` confirma advisory lock por e-mail, revogação dos pendentes e inserção do novo token juntos. `CompleteAsync` confirma consumo condicional e inserção do usuário juntos; devolve `false` para consumo perdido ou conflito de e-mail, com rollback por descarte sem commit. Outras falhas propagam e também desfazem a transação. O hash da senha é calculado antes de chamar a escrita; senha recusada não chega a ela.
+
+O transporte continua pela porta local `IEmailSender`, chamada somente após o retorno confirmado de `ReplacePendingTokenAsync`, sem locks mantidos durante envio. Não há outbox nesta entrega; a [política da #79](../architecture/reliable-delivery.md) será integrada pela #85. Parâmetros continuam lidos de Settings até a transferência de propriedade da #81.
 
 A migration `AddEmailTokens` cria a tabela `identity.email_tokens`, da entidade [`EmailToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/EmailTokens/EmailToken.cs) (`Domain/EmailTokens`), mapeada por [`EmailTokenConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/EmailTokenConfiguration.cs). É genérica: guarda os tokens de uso único enviados por e-mail, hoje os de cadastro e os da [redefinição de senha](password-reset.md#persistência) ([#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22)). Os dois tipos são independentes: uma solicitação de um tipo só revoga os pendentes do mesmo tipo. Além de `id`, `external_id`, `created_at` e `updated_at` das [convenções das entidades](../architecture/entity-conventions.md):
 
@@ -271,6 +278,14 @@ Os testes rodam contra o PostgreSQL real e substituem o `IEmailSender` pelo [`Ca
 
 A política `identity-registration-completion` não tem teste próprio de `429`; usa o mesmo mecanismo das demais. Os limites de `identity-registration` e `identity-registration-completion` são elevados para 100.000 na [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), como os demais ([Testes de integração](../architecture/integration-tests.md)).
 
+[`RegistrationPersistenceTests`](../../tests/Ouroboros.IntegrationTests/RegistrationPersistenceTests.cs) exercita a porta real resolvida pela DI contra PostgreSQL:
+
+- falha injetada por trigger na inserção de um token substituto mantém o token anterior pendente e desfaz a inserção;
+- falha injetada por trigger na criação da conta desfaz o consumo; removido o trigger, o mesmo token conclui em novo escopo;
+- duas conclusões com tokens distintos para o mesmo e-mail criam uma conta e consomem somente o token vencedor; o perdedor permanece sem `used_at`.
+
+Os testes de arquitetura verificam a retirada das exceções de persistência da #75 da lista de transição; a dependência de parâmetros de Settings permanece atribuída à #81.
+
 ## Referências
 
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
@@ -280,6 +295,7 @@ A política `identity-registration-completion` não tem teste próprio de `429`;
 
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): solicitar cadastro de cliente por e-mail.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): concluir o cadastro de cliente definindo a senha.
+- [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75): persistência por porta interna, com locks e unidades de trabalho locais preservados.
 - Depende de [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10) (envio de e-mail), [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11) (política de senha) e [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) (limite de requisições por IP).
 
 [Voltar à documentação](../README.md)
