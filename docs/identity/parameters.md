@@ -1,36 +1,30 @@
 # Parâmetros locais de Identity
 
-Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. Esta entrega não troca banco ou credencial; provisionamento pertence à #92 e transferência do banco à #82.
+Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. A migração de propriedade acontece dentro do banco em uso; o [provisionamento de bancos e roles](../development.md#provisionar-bancos-e-roles-por-serviço) é da [#92](https://github.com/adnerscarpelini/ouroboros-server/issues/92) e a [transferência do banco inteiro de Identity](../development.md#transferir-o-banco-de-identity), da [#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82); os parâmetros e o histórico seguem junto com o restante do schema `identity` nessa transferência.
 
 ## Leitura e escrita
 
-O contrato [`Identity.Contracts.ISystemParameters`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/ISystemParameters.cs) recebe chave e cancelamento e devolve valor textual. `SystemParameters` usa a porta interna `IParameterReader`; `ParameterReader` consulta `identity.parameters` sem cache e sem rastreamento. Chave em branco é recusada, ausência gera `ParameterNotFoundException` e não há fallback para Settings ou valor padrão silencioso. Login, cadastro, recuperação e primeiro administrador leem localmente pelo contrato do proprietário.
+O contrato [`Identity.Contracts.ISystemParameters`](../../src/Services/Identity/Ouroboros.Identity/Contracts/ISystemParameters.cs) recebe chave e cancelamento e devolve valor textual. `SystemParameters` usa a porta interna `IParameterReader`; `ParameterReader` consulta `identity.parameters` sem cache e sem rastreamento. Chave em branco é recusada, ausência gera `ParameterNotFoundException` e não há fallback para o schema `settings` nem valor padrão silencioso. Login, cadastro, recuperação e primeiro administrador leem localmente pelo contrato do proprietário.
 
 `ParameterWriter` usa `IParameterPersistence`; `ParameterPersistence` aplica as [regras de tipo, padrão e sensibilidade](../architecture/system-parameters.md), grava parâmetro e histórico num único `SaveChangesAsync` e preserva autor, instante e revisão. Os tipos de domínio e os adaptadores estão no próprio Identity; registros são scoped em `AddIdentityModule`. EF, SQL e tradução de concorrência/unicidade permanecem em Infrastructure. Revisão é token de concorrência; a combinação chave/revisão do histórico é única, e conflito desfaz a operação inteira.
 
-O contexto é o mesmo que poderá gravar a intenção de aviso da #34; esta entrega não implementa endpoints administrativos nem outbox. As [portas introduzidas na #73](../settings/parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
+O contexto é o mesmo que poderá gravar a intenção de aviso da #34; esta entrega não implementa endpoints administrativos nem outbox. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
 
 ## Migração e preservação
 
-A migration [`20261025142848_OwnIdentityParameters`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Migrations/20261025142848_OwnIdentityParameters.cs) cria as duas tabelas em `identity`, com PKs, índices únicos e colunas equivalentes. Na existência das duas tabelas legadas, obtém `SHARE` locks sobre elas, valida o histórico da revisão corrente, copia todos os campos e compara as linhas completas nos dois sentidos com `EXCEPT ALL` sobre JSONB. Preserva ids internos, identificadores públicos, valores, descrições, tipos, padrões, sensibilidade, revisões, autores e instantes, inclusive todo o histórico. Reposiciona as sequências acima dos ids copiados.
+A migration [`20261025142848_OwnIdentityParameters`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations/20261025142848_OwnIdentityParameters.cs) cria as duas tabelas em `identity`, com PKs, índices únicos e colunas equivalentes. Na existência das duas tabelas legadas, obtém `SHARE` locks sobre elas, valida o histórico da revisão corrente, copia todos os campos e compara as linhas completas nos dois sentidos com `EXCEPT ALL` sobre JSONB. Preserva ids internos, identificadores públicos, valores, descrições, tipos, padrões, sensibilidade, revisões, autores e instantes, inclusive todo o histórico. Reposiciona as sequências acima dos ids copiados.
 
-Cópia e validação pertencem à transação da migration. Origem incompleta, histórico corrente inconsistente ou divergência da cópia abortam a migration, inclusive a criação das tabelas de destino; o histórico de migrations não registra essa aplicação. A origem não é alterada. A versão nova não deve ser ativada nesse caso: seu leitor não acessa Settings como alternativa.
+Cópia e validação pertencem à transação da migration. Origem incompleta, histórico corrente inconsistente ou divergência da cópia abortam a migration, inclusive a criação das tabelas de destino; o histórico de migrations não registra essa aplicação. A origem não é alterada. A versão nova não deve ser ativada nesse caso: seu leitor não acessa o schema `settings` como alternativa.
 
-Sem nenhuma das duas tabelas de origem, a instalação limpa cria os oito parâmetros iniciais e seus históricos de revisão 0, usando `uuidv7()` do PostgreSQL 18. Esse caminho não exige executar migrations de Settings. Não use instalação limpa para contornar uma origem existente incompleta ou inválida.
+Sem nenhuma das duas tabelas de origem, a instalação limpa cria os oito parâmetros iniciais e seus históricos de revisão 0, usando `uuidv7()` do PostgreSQL 18. Esse caminho não exige o schema `settings`. Não use instalação limpa para contornar uma origem existente incompleta ou inválida.
 
-Depois do corte, o schema `settings` fica preservado e sem novas escritas. `AddSettingsModule` conserva somente o contexto legado para migrations/inspeção; não registra leitores ou escritores em runtime. O projeto será retirado pela #96 e o destino dos dados antigos será decidido na #97.
+O schema `settings` fica retido no banco original, sem novas escritas. Nenhum projeto o referencia nem registra leitores ou escritores dele em runtime: o projeto Settings foi retirado pela [#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96), que não exclui dados, e o destino dos dados antigos será decidido na #97.
 
 ## Upgrade de banco existente
 
 O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam o Compose local (`localhost:5432`, banco e usuário `ouroboros`); ajuste os nomes ao ambiente. Exigem clientes PostgreSQL 18 (`pg_dump`, `createdb`, `pg_restore`, `psql`) no PATH, autenticação protegida por prompt ou arquivo de senha com acesso restrito e espaço para backup/restauração. Não coloque senha na linha de comando nem no Git.
 
-1. Pare os dois hosts, `create-admin`, comandos de migration concorrentes e qualquer outro escritor. Mantenha a janela sem escrita até validar o corte; o lock da cópia não substitui essa janela. Confira o histórico de migrations legado. Se faltarem migrations antigas de Settings, aplique-as **antes** de migrar Identity, ainda nessa janela:
-
-   ```powershell
-   dotnet tool restore
-   dotnet ef database update --project src/Modules/Ouroboros.Modules.Settings --startup-project src/Ouroboros.Api --context SettingsDbContext
-   if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o legado; não prosseguir.' }
-   ```
+1. Pare a API de Identity, `create-admin`, comandos de migration concorrentes e qualquer outro escritor. Mantenha a janela sem escrita até validar o corte; o lock da cópia não substitui essa janela. Confira o histórico de migrations legado (`settings."__EFMigrationsHistory"`): o schema `settings` deve ter as quatro migrations antigas (`InitialCreate`, `AddLockoutParameters`, `AddRegistrationParameters` e `AddPasswordResetParameters`). O projeto Settings não existe mais, e este checkout não as aplica. Um ambiente que nunca as aplicou, sem as tabelas, usa a instalação limpa; um ambiente com o schema `settings` incompleto aplica as migrations restantes a partir do histórico do Git anterior à #96, que ainda contém o projeto, **antes** de migrar Identity e ainda nessa janela. A API de Identity não carrega nem aplica migrations de Settings.
 
 2. Faça backup completo em formato custom e restaure-o em um banco novo e isolado. O nome com instante deve ser exclusivo; `createdb` deve falhar se já existir. Não reutilize nem sobrescreva banco preexistente:
 
@@ -70,24 +64,28 @@ O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam
 4. Aplique a migration de Identity com a connection string atual e a aplicação nova ainda parada:
 
    ```powershell
-   dotnet ef database update --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
+   dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
    if ($LASTEXITCODE -ne 0) { throw 'Migração de Identity falhou; não ativar a versão nova.' }
    ```
 
-   Em êxito, repita o snapshot da etapa 3 para `identity.parameters`/`identity.parameter_history` e compare com `$sourceSnapshot`; confira também que `settings` permanece equivalente e que `OwnIdentityParameters` consta do histórico de Identity. Não execute migrations de Settings depois do corte.
+   Em êxito, repita o snapshot da etapa 3 para `identity.parameters`/`identity.parameter_history` e compare com `$sourceSnapshot`; confira também que `settings` permanece equivalente e que `OwnIdentityParameters` consta do histórico de Identity. Não aplique migrations de Settings depois do corte.
 
 5. Somente após sucesso e equivalência, ative a versão nova e confira leitura local, login e os fluxos afetados. Preserve backup e banco de restauração para recuperação; não apague origem, schema ou volume como parte do procedimento. A suíte abaixo valida a migração em bancos isolados, sem migrar o banco do usuário.
 
 Se qualquer validação falhar, mantenha a versão anterior e a origem preservada, investigue a causa e repita o ensaio com backup conferido. Não habilite o leitor novo sobre migration incompleta.
 
+### Relação com a transferência do banco
+
+Este upgrade acontece no banco original e precede a [transferência do banco de Identity](../development.md#transferir-o-banco-de-identity): a transferência exige que as migrations de Identity, inclusive `OwnIdentityParameters`, já estejam aplicadas na origem, e leva `identity.parameters`, `identity.parameter_history` e o histórico de migrations para `ouroboros_identity`. A validação da transferência compara valores, revisões e histórico completo entre origem e destino. Depois da troca da connection string, o schema `settings` legado continua no banco original, que permanece intacto e somente leitura; seu destino é decisão da #97. As migrations do banco próprio rodam só com a role de migration, e a de runtime é recusada.
+
 ## Rollback
 
 O `Down` da migration recusa reversão automática com `NotSupportedException`, evitando excluir dados após novas escritas. Antes de novas escritas, a versão anterior pode continuar usando o legado preservado, depois de confirmar sua equivalência e a configuração da versão anterior. Não executar esse retorno enquanto a versão nova ainda escreve.
 
-Depois de novas escritas em Identity, voltar somente a imagem perde alterações de parâmetros. Pare escritores, faça novos backups recuperáveis de ambos os schemas e reconcilie valores, descrições, ids públicos, revisões, autores, instantes e todas as linhas de histórico novas com o destino de retorno. Resolva colisões de revisão explicitamente, valide equivalência e somente então reative a versão anterior. O procedimento não automatiza essa reconciliação nem autoriza apagar tabelas, bancos ou volumes.
+Depois de novas escritas em Identity, voltar somente a imagem perde alterações de parâmetros. Pare escritores, faça novos backups recuperáveis de ambos os schemas e reconcilie valores, descrições, ids públicos, revisões, autores, instantes e todas as linhas de histórico novas com o destino de retorno. Resolva colisões de revisão explicitamente, valide equivalência e somente então reative a versão anterior. O procedimento não automatiza essa reconciliação nem autoriza apagar tabelas, bancos ou volumes. Para o retorno depois da transferência do banco de Identity, o `rollback` e o `reconcile` preservam e aplicam na origem as linhas novas ou alteradas de `identity.parameters` e `identity.parameter_history`, entre as demais; veja [Voltar ao banco original](../development.md#voltar-ao-banco-original).
 
 ## Como verificar
 
-Com Docker e o SDK do [guia de desenvolvimento](../development.md#testes), execute os testes de integração. [`IdentityParameterMigrationTests`](../../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs) usa PostgreSQL 18 real para verificar backup `pg_dump` custom restaurado por `pg_restore` antes da cópia, preservação de todos os campos/histórico, origem intacta, sequências utilizáveis, abortamento por histórico inconsistente, ausência de fallback e sementes sem schema legado. [`SystemParametersTests`](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) cobre leitura, histórico, rollback e conflito de revisão; [`ParameterRulesTests`](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs) preserva as validações do domínio. A suíte de arquitetura verifica a retirada da dependência de Identity para Settings.
+Com Docker e o SDK do [guia de desenvolvimento](../development.md#testes), execute os testes de integração. [`IdentityParameterMigrationTests`](../../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs) usa PostgreSQL 18 real e reproduz o schema legado `settings` pelo SQL versionado [`settings-legacy-schema.sql`](../../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql) para verificar backup `pg_dump` custom restaurado por `pg_restore` antes da cópia, preservação de todos os campos/histórico, origem intacta, sequências utilizáveis, abortamento por histórico inconsistente, ausência de fallback e sementes sem schema legado. [`SystemParametersTests`](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) cobre leitura, histórico, rollback e conflito de revisão; [`ParameterRulesTests`](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs) preserva as validações do domínio. A suíte de arquitetura não admite exceções de dependência (a lista de transição está vazia) e falha em `ProjectReference` para projeto inexistente.
 
 [Voltar à documentação](../README.md)

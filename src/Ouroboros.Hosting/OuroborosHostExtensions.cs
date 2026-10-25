@@ -6,17 +6,15 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Ouroboros.Hosting;
 
-// Configuração HTTP comum aos dois hosts. Cada host continua registrando seus módulos no próprio
-// Program.cs, então a composição de cada um fica visível ali.
+// Mecanismos técnicos HTTP comuns às APIs dos serviços: controllers, versionamento por URL, erros em
+// ProblemDetails, política de autorização padrão e ordem do pipeline. Não conhece serviços, bancos, papéis
+// nem regras de negócio: cada API registra o próprio serviço e define suas políticas por endpoint.
 public static class OuroborosHostExtensions
 {
-    // Papel fixo de administrador, o mesmo emitido no claim role dos tokens.
-    public const string AdminRole = "Admin";
-
-    public static WebApplicationBuilder AddOuroborosHost(this WebApplicationBuilder builder, HostAudience audience)
+    public static WebApplicationBuilder AddOuroborosHost(this WebApplicationBuilder builder)
     {
-        // Os controllers são públicos e ficam no próprio projeto de cada host, organizados por módulo;
-        // a descoberta padrão do ASP.NET Core encontra só os do host.
+        // Os controllers são públicos e ficam no projeto da API do serviço; a descoberta padrão do
+        // ASP.NET Core encontra só os dessa API.
         builder.Services.AddControllers();
 
         // A versão maior vem sempre na URL (api/v{version:apiVersion}/...) e não há versão implícita.
@@ -27,16 +25,14 @@ public static class OuroborosHostExtensions
         }).AddMvc();
 
         // Todo erro sai em application/problem+json (RFC 9457) com o trace id W3C da requisição, o
-        // mesmo dos logs. Falhas de negócio definem o próprio type nos controllers dos hosts.
+        // mesmo dos logs. Falhas de negócio definem o próprio type nos controllers da API.
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
             context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
 
-        // Nega por padrão: um endpoint só é anônimo se declarar [AllowAnonymous]. No backoffice, além
-        // de autenticado, o usuário precisa ter o papel Admin em todo endpoint, mesmo que o controller
-        // não declare nenhuma política.
-        builder.Services.AddAuthorization(options => options.FallbackPolicy = audience == HostAudience.Backoffice
-            ? new AuthorizationPolicyBuilder().RequireAuthenticatedUser().RequireRole(AdminRole).Build()
-            : new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        // Nega por padrão: um endpoint só é anônimo se declarar [AllowAnonymous]. Exigências além de estar
+        // autenticado (papéis, políticas) pertencem à API do serviço.
+        builder.Services.AddAuthorization(options => options.FallbackPolicy =
+            new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
 
         return builder;
     }
@@ -46,7 +42,7 @@ public static class OuroborosHostExtensions
         app.UseExceptionHandler();
         app.UseStatusCodePages();
 
-        // Antes da autenticação, para recusar o excesso sem validar token. As políticas vêm dos módulos
+        // Antes da autenticação, para recusar o excesso sem validar token. As políticas vêm do serviço
         // e são aplicadas por endpoint com [EnableRateLimiting].
         app.UseRateLimiter();
         app.UseAuthentication();

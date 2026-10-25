@@ -131,8 +131,37 @@ public sealed class AuthorizationTests(OuroborosApiFactory external, BackofficeA
     public void Host_fails_to_start_without_valid_signing_key(string? signingKey, string expectedMessage)
     {
         using var factory = new OuroborosApiFactory(
-            TestHostFactory<Program>.FakeConnectionString,
+            OuroborosApiFactory.FakeConnectionString,
             new Dictionary<string, string?> { ["Authentication:Jwt:SigningKey"] = signingKey });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(expectedMessage, exception.Message);
+    }
+
+    [Theory]
+    [InlineData(null, "AdminAudience' não foi configurada")]
+    [InlineData("", "AdminAudience' não foi configurada")]
+    [InlineData("ouroboros-api", "deve ser diferente")]
+    public void Host_fails_to_start_without_a_distinct_admin_audience(string? adminAudience, string expectedMessage)
+    {
+        using var factory = new OuroborosApiFactory(
+            OuroborosApiFactory.FakeConnectionString,
+            new Dictionary<string, string?> { ["Authentication:Jwt:AdminAudience"] = adminAudience });
+
+        var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains(expectedMessage, exception.Message);
+    }
+
+    [Theory]
+    [InlineData("KnownProxies:0", "garbage", "KnownProxies' contém um IP inválido")]
+    [InlineData("KnownNetworks:0", "10.0.0.0", "KnownNetworks' contém uma rede inválida")]
+    public void Host_fails_to_start_with_invalid_forwarded_headers_configuration(string key, string value, string expectedMessage)
+    {
+        using var factory = new OuroborosApiFactory(
+            OuroborosApiFactory.FakeConnectionString,
+            new Dictionary<string, string?> { [$"Identity:ForwardedHeaders:{key}"] = value });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 

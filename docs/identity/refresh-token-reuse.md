@@ -4,7 +4,7 @@
 
 Com a [rotação do refresh token](refresh-session.md), cada renovação revoga o token recebido. Um token já revogado só pode estar com quem guardou uma cópia dele: o atacante, ou o cliente legítimo depois de o atacante ter renovado primeiro. Como não dá para saber qual dos dois apresentou o token, a sessão inteira é encerrada: todos os refresh tokens dela deixam de valer, e os dois lados precisam fazer login de novo.
 
-Módulo responsável: Identity. A detecção fica no mesmo caso de uso da renovação, [`RefreshSession`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/RefreshSession.cs); não há rota nova nem mudança no contrato HTTP.
+Serviço responsável: Identity. A detecção fica no mesmo caso de uso da renovação, [`RefreshSession`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/RefreshSession.cs); não há rota nova nem mudança no contrato HTTP.
 
 ## Comportamento
 
@@ -12,7 +12,7 @@ Módulo responsável: Identity. A detecção fica no mesmo caso de uso da renova
 - **Mesma resposta.** O cliente recebe o mesmo `401` [`invalid-refresh-token`](../errors/identity.md#invalid-refresh-token) de um token inexistente ([Token inválido](refresh-session.md#token-inválido-401)). A resposta não indica que houve reuso.
 - **Só a sessão do token.** As outras sessões do mesmo usuário (outros logins, outros dispositivos) continuam funcionando.
 - **Token só expirado não é reuso.** Um token expirado e nunca revogado recebe `401` sem revogar nada. Um token revogado é tratado como reuso mesmo que também esteja expirado.
-- **Antes das checagens do dono.** O reuso é verificado logo depois de encontrar o token, antes de conferir se o dono está ativo e se é do papel do host. Um token revogado apresentado no host errado ou por um usuário inativo também encerra a sessão.
+- **Antes das checagens do dono.** O reuso é verificado logo depois de encontrar o token, antes de conferir se o dono está ativo e se é do papel do canal. Um token revogado apresentado no listener errado ou por um usuário inativo também encerra a sessão.
 - **Sem janela de tolerância.** Não há intervalo em que o token anterior ainda seja aceito depois da rotação. O cliente deve serializar as renovações: uma por vez, sempre com o refresh token devolvido pela última.
 - **A sessão não muda de estado.** A linha de `identity.sessions` continua lá, sem tokens ativos; os tokens ficam em `identity.refresh_tokens` com `revoked_at` preenchido. Não há coluna nova nem migration.
 
@@ -36,7 +36,7 @@ Resultado: com renovações simultâneas, a vencedora recebe `200` com um par no
 - **Por que o lock é necessário.** Em READ COMMITTED, o nível padrão do PostgreSQL, o `UPDATE` da revogação só enxerga linhas confirmadas. Sem o lock, uma revogação que rodasse enquanto uma renovação da mesma sessão ainda não tinha confirmado não veria o token novo inserido por ela, e esse token sobreviveria ativo. Com o lock, a revogação espera o commit da renovação e o `UPDATE` seguinte já vê o token novo.
 - **Sem deadlock.** Todos os fluxos pegam os locks na mesma ordem: primeiro a sessão, depois os tokens. Renovação, revogação e logout seguram o lock de uma única sessão; o logout-all e a redefinição de senha travam várias sessões em ordem de id, então dois logout-all simultâneos do mesmo usuário não se bloqueiam em ordens diferentes, e nenhum outro fluxo segura uma sessão enquanto espera outra. O lock do usuário (`LockUserAsync`, usado pelo [login](login.md#transação-com-o-usuário-travado) e pela redefinição de senha) vem sempre antes de qualquer sessão; renovação, revogação por reuso, logout e logout-all só travam sessões e nunca pedem o lock do usuário, então também não formam ciclo com ele. A ordem completa está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
-> **Regra para novas escritas em `identity.refresh_tokens`:** todo código que revogar ou inserir refresh tokens de uma sessão deve, na mesma transação, travar a linha da sessão antes, na mesma ordem (sessão, depois tokens). O lock de uma sessão é o método `LockSessionAsync` do [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), usado pela renovação, pela revogação por reuso e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)). Quem mexer em várias sessões na mesma transação deve travá-las todas antes, sempre em ordem de id, com o `LockUserSessionsAsync`, como o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)); nunca trave uma segunda sessão depois de já segurar o lock de outra fora dessa ordem. Quem também precisar do lock do usuário deve pegá-lo antes das sessões, como a [redefinição de senha](password-reset.md) ([#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23)).
+> **Regra para novas escritas em `identity.refresh_tokens`:** todo código que revogar ou inserir refresh tokens de uma sessão deve, na mesma transação, travar a linha da sessão antes, na mesma ordem (sessão, depois tokens). O lock de uma sessão é o método `LockSessionAsync` do [`IdentityDbContext`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs), usado pela renovação, pela revogação por reuso e pelo [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)). Quem mexer em várias sessões na mesma transação deve travá-las todas antes, sempre em ordem de id, com o `LockUserSessionsAsync`, como o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)); nunca trave uma segunda sessão depois de já segurar o lock de outra fora dessa ordem. Quem também precisar do lock do usuário deve pegá-lo antes das sessões, como a [redefinição de senha](password-reset.md) ([#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23)).
 
 ## Log
 
@@ -65,7 +65,7 @@ O cliente não consegue distinguir o reuso das outras causas do `401` e não pre
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`RefreshTokenReuseTests`](../../tests/Ouroboros.IntegrationTests/RefreshTokenReuseTests.cs), contra o PostgreSQL real, pela API externa:
+[`RefreshTokenReuseTests`](../../tests/Ouroboros.IntegrationTests/RefreshTokenReuseTests.cs), contra o PostgreSQL real, pelo listener público da API de Identity:
 
 - um token já rotacionado, apresentado de novo, recebe `401` `invalid-refresh-token`, e o sucessor também deixa de renovar; não sobra token ativo;
 - com duas sessões do mesmo usuário, o reuso na primeira não afeta a segunda, que continua renovando com o mesmo `sid`;

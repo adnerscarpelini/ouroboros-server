@@ -2,7 +2,7 @@
 
 ## Organização
 
-O Ouroboros usa microsserviços em monorepo. Cada serviço possui executável, configuração, testes e implantação próprios. Estrutura de referência:
+O Ouroboros usa microsserviços em monorepo. Cada serviço possui executável, configuração, testes e implantação próprios. Todo serviço fica em `src/Services/<Serviço>/`; não há `src/Modules`, pasta de módulos de uma aplicação única. Estrutura de referência:
 
 ```text
 src/
@@ -17,9 +17,22 @@ src/
 tests/
 ```
 
-A biblioteca própria organiza Domain, Application, Infrastructure e contratos. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
+A biblioteca própria organiza Domain, Application, Infrastructure e contratos como pastas, com assembly e namespace raiz `Ouroboros.<Serviço>`. Identity segue esse formato em `src/Services/Identity/Ouroboros.Identity`. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
 
-Customers e a fronteira financeira serão implementados conforme funcionalidades. Não criar serviços vazios para reproduzir pastas. Parâmetros pertencem ao proprietário, sem serviço Settings central obrigatório.
+## Projetos existentes
+
+| Projeto | Papel |
+| --- | --- |
+| `src/Services/Identity/Ouroboros.Identity` | Biblioteca do serviço Identity (Domain, Application, Infrastructure e Contracts como pastas), com os parâmetros de segurança no mesmo `IdentityDbContext` |
+| `src/Services/Identity/Ouroboros.Identity.Api` | API de Identity: controllers externos e administrativos, listeners, políticas, rate limiting, configuração e o comando `create-admin` ([APIs e workers](hosts.md)) |
+| `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
+| `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
+
+Não há executável agregador que componha vários serviços, nem projeto Settings: os parâmetros pertencem ao serviço que aplica a regra, e Identity é a proprietária dos seus. Accounts, Customers e Transactions não existem como projetos.
+
+## Criação de novos serviços
+
+Accounts, Customers e Transactions só serão criados como serviços, em `src/Services/<Serviço>`, quando houver funcionalidade e fronteira financeira aprovadas, cada um com API ou worker, banco, credencial, connection string e migrations próprios. A fronteira financeira não se infere de nomes de pasta: contas, saldo e lançamentos que exigem atomicidade pertencem à mesma fronteira, definida na análise de negócio. Não criar serviços ou projetos vazios para reproduzir pastas. Todo projeto novo de `src` precisa constar em `Ouroboros.slnx` e é analisado pelas regras de [dependências](layer-dependencies.md#descoberta) sem editar os testes.
 
 ## Visibilidade dos tipos
 

@@ -14,7 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Ouroboros.Modules.Identity.Infrastructure.RateLimiting;
+using Ouroboros.Identity.Infrastructure.RateLimiting;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -158,7 +158,7 @@ public sealed class RateLimitingTests(PostgresFixture postgres) : IntegrationTes
         Assert.Contains("Identity:RateLimiting:Policies:identity-login", result.FailureMessage);
     }
 
-    private WebApplicationFactory<Program> CreateApi(int loginLimit) => Api.WithWebHostBuilder(builder => Configure(builder, loginLimit));
+    private ApiFactory CreateApi(int loginLimit) => Api.WithWebHostBuilder(builder => Configure(builder, loginLimit));
 
     private void Configure(IWebHostBuilder builder, int loginLimit)
     {

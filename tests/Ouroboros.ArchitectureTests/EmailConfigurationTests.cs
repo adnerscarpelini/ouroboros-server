@@ -7,7 +7,7 @@ public sealed class EmailConfigurationTests
     public void Host_fails_to_start_with_local_email_adapter_outside_development()
     {
         using var factory = new OuroborosApiFactory(
-            TestHostFactory<Program>.FakeConnectionString,
+            OuroborosApiFactory.FakeConnectionString,
             new Dictionary<string, string?>
             {
                 ["Identity:Email:Provider"] = "PickupDirectory",

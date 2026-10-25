@@ -6,7 +6,7 @@ A [criação do primeiro administrador](../identity/first-admin.md), o [cadastro
 
 ## Decisão
 
-A política fica em [`Application/Security/PasswordPolicy`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/PasswordPolicy.cs) (`internal`, no Identity) e segue o NIST SP 800-63B-4:
+A política fica em [`Application/Security/PasswordPolicy`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/PasswordPolicy.cs) (`internal`, no Identity) e segue o NIST SP 800-63B-4:
 
 | Regra | Comportamento |
 | --- | --- |
@@ -21,11 +21,11 @@ A política fica em [`Application/Security/PasswordPolicy`](../../src/Modules/Ou
 
 ### Lista de senhas comuns
 
-A lista é o arquivo [`Application/Security/common-passwords.txt`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/common-passwords.txt), embutido no assembly como recurso e carregado uma vez, na primeira validação. Uma entrada por linha; linhas vazias e iniciadas por `#` são ignoradas. Só fazem sentido entradas com 15 ou mais caracteres, porque as menores já são recusadas pelo tamanho. Para incluir uma senha, acrescente uma linha ao arquivo; não é preciso alterar código.
+A lista é o arquivo [`Application/Security/common-passwords.txt`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/common-passwords.txt), embutido no assembly como recurso e carregado uma vez, na primeira validação. Uma entrada por linha; linhas vazias e iniciadas por `#` são ignoradas. Só fazem sentido entradas com 15 ou mais caracteres, porque as menores já são recusadas pelo tamanho. Para incluir uma senha, acrescente uma linha ao arquivo; não é preciso alterar código.
 
 ### NFKC no hasher
 
-O [`AspNetCorePasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) aplica a mesma normalização (`PasswordPolicy.Normalize`) antes de gerar e de verificar o hash. Assim, a mesma senha digitada com acento composto (`ç` como um code point) ou decomposto (`c` mais cedilha combinante), como acontece entre teclados e sistemas operacionais diferentes, confere com o mesmo hash. Senhas ASCII não mudam com a normalização, mantendo a compatibilidade dos hashes ([Domínio de identidade](identity.md#hash-e-rehash)).
+O [`AspNetCorePasswordHasher`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) aplica a mesma normalização (`PasswordPolicy.Normalize`) antes de gerar e de verificar o hash. Assim, a mesma senha digitada com acento composto (`ç` como um code point) ou decomposto (`c` mais cedilha combinante), como acontece entre teclados e sistemas operacionais diferentes, confere com o mesmo hash. Senhas ASCII não mudam com a normalização, mantendo a compatibilidade dos hashes ([Domínio de identidade](identity.md#hash-e-rehash)).
 
 ## Alternativas descartadas
 

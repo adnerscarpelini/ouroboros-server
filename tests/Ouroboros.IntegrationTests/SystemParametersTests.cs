@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Ouroboros.Modules.Identity.Application.Parameters;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Domain.Parameters;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Application.Parameters;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Domain.Parameters;
+using Ouroboros.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -19,12 +19,12 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     {
         await using var scope = Api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
-        var sessions = scope.ServiceProvider.GetRequiredService<Ouroboros.Modules.Identity.Application.Sessions.ISessionStore>();
+        var sessions = scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Application.Sessions.ISessionStore>();
         await using var transaction = await sessions.BeginTransactionAsync(TestContext.Current.CancellationToken);
         await scope.ServiceProvider.GetRequiredService<ParameterWriter>().ChangeAsync(
             DomainKey, "atomic.example", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken);
-        context.Users.Add(Ouroboros.Modules.Identity.Domain.Users.User.Create(
-            "parameter-owner@example.com", "test hash", Ouroboros.Modules.Identity.Domain.Users.UserRole.Admin));
+        context.Users.Add(Ouroboros.Identity.Domain.Users.User.Create(
+            "parameter-owner@example.com", "test hash", Ouroboros.Identity.Domain.Users.UserRole.Admin));
         await context.SaveChangesAsync(TestContext.Current.CancellationToken);
         await transaction.RollbackAsync(TestContext.Current.CancellationToken);
 
@@ -36,6 +36,7 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Runtime_reads_and_changes_parameters_without_the_settings_schema()
     {
+        await ApplyLegacySettingsSchemaAsync();
         await ExecuteAsync("ALTER SCHEMA settings RENAME TO retained_settings");
         await using var scope = Api.Services.CreateAsyncScope();
         var reader = scope.ServiceProvider.GetRequiredService<ISystemParameters>();

@@ -5,10 +5,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -109,7 +109,7 @@ public sealed class LogoutAllTests(PostgresFixture postgres) : IntegrationTest(p
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.refresh_tokens WHERE revoked_at IS NULL"));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
             services.AddSingleton<IPasswordHasher>(new AspNetCorePasswordHasher(iterationCount: 1_000))));
 

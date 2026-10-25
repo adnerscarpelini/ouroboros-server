@@ -10,10 +10,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Npgsql;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -194,7 +194,7 @@ public sealed class RefreshTokenReuseTests(PostgresFixture postgres) : Integrati
         Assert.DoesNotContain(_logs, log => log.Contains(first, StringComparison.Ordinal) || log.Contains(successor, StringComparison.Ordinal));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
     {
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)));
         builder.ConfigureTestServices(services =>
@@ -204,7 +204,7 @@ public sealed class RefreshTokenReuseTests(PostgresFixture postgres) : Integrati
         });
     });
 
-    private static async Task<Guid> CreateUserAsync(WebApplicationFactory<Program> api)
+    private static async Task<Guid> CreateUserAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();

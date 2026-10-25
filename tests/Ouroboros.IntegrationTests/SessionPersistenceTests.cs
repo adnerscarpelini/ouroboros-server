@@ -3,12 +3,12 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Application.Sessions;
-using Ouroboros.Modules.Identity.Domain.Sessions;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Application.Sessions;
+using Ouroboros.Identity.Domain.Sessions;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 

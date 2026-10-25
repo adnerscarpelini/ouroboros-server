@@ -50,6 +50,12 @@ public abstract class IntegrationTest(PostgresFixture postgres) : IAsyncLifetime
         return result is null or DBNull ? default : (T)result;
     }
 
+    // Reproduz um banco que ainda guarda os parâmetros antigos em settings (esquema legado versionado em Resources).
+    protected async Task ApplyLegacySettingsSchemaAsync() =>
+        await ExecuteAsync(await File.ReadAllTextAsync(
+            RepositoryRoot.Resolve("tests", "Ouroboros.IntegrationTests", "Resources", "settings-legacy-schema.sql"),
+            TestContext.Current.CancellationToken));
+
     protected async Task ExecuteAsync(string sql)
     {
         await using var connection = new NpgsqlConnection(ConnectionString);

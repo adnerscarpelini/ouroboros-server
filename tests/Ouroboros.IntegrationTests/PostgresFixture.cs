@@ -28,7 +28,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         await using (var factory = new IntegrationApiFactory(ConnectionStringFor(TemplateDatabase)))
         {
             using var scope = factory.Services.CreateScope();
-            foreach (var context in ModuleDbContexts.Resolve(scope.ServiceProvider).OrderBy(context => context.GetType().Name == "SettingsDbContext" ? 0 : 1))
+            foreach (var context in ModuleDbContexts.Resolve(scope.ServiceProvider))
             {
                 await context.Database.MigrateAsync();
             }

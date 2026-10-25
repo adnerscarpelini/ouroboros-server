@@ -4,33 +4,33 @@
 
 O usuário encerra a sessão do dispositivo atual, por exemplo ao sair de um computador compartilhado. O logout revoga o refresh token informado, e a sessão deixa de renovar o access token. As outras sessões do usuário (outros logins, outros dispositivos) continuam funcionando; para encerrar todas de uma vez, use o [logout-all](logout-all.md).
 
-Módulo responsável: Identity. A regra fica no caso de uso `ILogout` do módulo; os controllers dos dois hosts só validam o tamanho da entrada, chamam o caso de uso e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogout` do serviço; os controllers da API de Identity (um por público) só validam o tamanho da entrada, chamam o caso de uso e traduzem o resultado em resposta HTTP ([Controllers HTTP nas APIs dos serviços](../architecture/http-controllers.md)).
 
 ## Rotas
 
-| Host | Rota |
+| Listener | Rota |
 | --- | --- |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions/logout` |
-| Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions/logout` |
+| Público | `POST /api/v1/identity/sessions/logout` |
+| Administrativo | `POST /api/v1/admin/identity/sessions/logout` |
 
-As duas rotas são anônimas (`[AllowAnonymous]`): quem chama não envia access token, só o refresh token no corpo. Quem tem o refresh token pode encerrar a sessão dele. Têm limite de requisições por IP com a política `identity-logout` (30 por minuto por IP em cada host, veja [Limite de requisições](#limite-de-requisições-429)).
+As duas rotas são anônimas (`[AllowAnonymous]`): quem chama não envia access token, só o refresh token no corpo. Quem tem o refresh token pode encerrar a sessão dele. Têm limite de requisições por IP com a política `identity-logout` (30 por minuto por IP em cada público, veja [Limite de requisições](#limite-de-requisições-429)).
 
-Duas decisões vão além da issue, que pedia só a rota da API externa:
+Duas decisões vão além da issue, que pedia só a rota da API externa (listener público):
 
-- **Rota no backoffice**, para que o `Admin` também possa sair.
+- **Rota no listener administrativo**, para que o `Admin` também possa sair.
 - **Política de rate limit própria** (`identity-logout`), como as do login e da renovação.
 
-Ao contrário do [login](login.md) e da [renovação](refresh-session.md), o logout não confere o canal: qualquer um dos dois hosts encerra a sessão do token informado, seja de `Customer` ou de `Admin`, porque nenhum token é emitido.
+Ao contrário do [login](login.md) e da [renovação](refresh-session.md), o logout não confere o canal: qualquer um dos dois listeners encerra a sessão do token informado, seja de `Customer` ou de `Admin`, porque nenhum token é emitido.
 
 ## Pré-requisitos
 
 - O banco local com as migrations do Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)). O logout não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
-- A política `identity-logout` configurada em `Identity:RateLimiting:Policies` nos dois hosts; sem ela, o host não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
+- A política `identity-logout` configurada em `Identity:RateLimiting:Policies` da API; sem ela, a API não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
 - Um refresh token, obtido no [login](login.md) ou na última [renovação](refresh-session.md).
 
 ## Como usar
 
-Com a API externa no ar (`http://localhost:5141` no perfil padrão) e o refresh token atual de um `Customer`:
+Com a API de Identity no ar (listener público em `http://localhost:5141` no perfil padrão) e o refresh token atual de um `Customer`:
 
 ```http
 POST /api/v1/identity/sessions/logout HTTP/1.1
@@ -44,7 +44,7 @@ Content-Type: application/json
 
 Exemplo executável no [guia de desenvolvimento](../development.md#encerrar-a-sessão).
 
-No backoffice (`http://localhost:5142`), o pedido é o mesmo, na rota `/api/v1/admin/identity/sessions/logout`. O valor do exemplo é fictício.
+No listener administrativo (`http://localhost:5142`), o pedido é o mesmo, na rota `/api/v1/admin/identity/sessions/logout`. O valor do exemplo é fictício.
 
 Depois do `204`, descarte o access token e o refresh token guardados. Envie sempre o refresh token mais recente, devolvido pela última renovação: um token antigo, já rotacionado, não encerra a sessão ([Limitações](#limitações)).
 
@@ -96,10 +96,10 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
-| [`Logout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Orquestra a transação e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
-| [`IdentityDbContext.LockSessionAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. É compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
-| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Logout`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Logout)]`, ao lado do login e da renovação; reutiliza o DTO `RefreshSessionBody` de `SessionModels.cs`. |
+| [`ILogout`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
+| [`Logout`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Orquestra a transação e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
+| [`IdentityDbContext.LockSessionAsync`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. É compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
+| `SessionsController` [externo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/External/SessionsController.cs) e [administrativo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/SessionsController.cs) | `Controllers/External` e `Controllers/Admin` da API de Identity | Action `Logout`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Logout)]`, ao lado do login e da renovação; reutiliza o DTO `RefreshSessionBody` de [`SessionModels.cs`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/SessionModels.cs). |
 
 ## Limitações
 
@@ -122,7 +122,7 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - um token expirado responde `204` e não é revogado;
 - token inexistente, vazio, `null` e campo ausente recebem `401` `invalid-refresh-token`;
 - com duas sessões do mesmo usuário, encerrar uma não afeta a outra, que continua renovando;
-- o logout do backoffice encerra uma sessão de `Admin`, e a renovação com o token recebe `401`.
+- o logout do listener administrativo encerra uma sessão de `Admin`, e a renovação com o token recebe `401`.
 
 O `400` acima de 256 caracteres e o limite da política `identity-logout` não têm teste próprio: o primeiro vem do `[MaxLength(256)]` do DTO compartilhado com a renovação; o segundo, do mesmo mecanismo testado em [`RateLimitingTests`](auth-rate-limiting.md#como-verificar). Como no `TestServer` todas as requisições chegam do mesmo IP, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva também o limite do logout para 100.000.
 

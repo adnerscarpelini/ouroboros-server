@@ -437,3 +437,6 @@ TestResults/
 
 # Configuração local do Codex
 .codex/
+
+# Backups da transferência do banco de Identity (podem conter dados e hashes)
+/backups/

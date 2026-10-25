@@ -6,7 +6,7 @@ Fintech fictícia e educacional em C#/.NET e PostgreSQL, cuja arquitetura aprova
 
 ## Arquitetura
 
-Cada serviço tem responsabilidade de negócio, processo e implantação próprios. Identity cuida de identidade e segurança; Notifications processa comunicações. Customers e o domínio financeiro evoluem conforme funcionalidades aprovadas. Contas, saldo e lançamentos que exigem atomicidade pertencem à mesma fronteira financeira.
+Cada serviço tem responsabilidade de negócio, processo e implantação próprios. Identity cuida de identidade e segurança; Notifications processa comunicações. Customers, Accounts, Transactions e o domínio financeiro só serão criados como serviços, em src/Services, quando houver funcionalidades aprovadas. Contas, saldo e lançamentos que exigem atomicidade pertencem à mesma fronteira financeira.
 
 Cada serviço persistente possui banco e credencial próprios. Por decisão consciente de aprendizado, todos os bancos compartilham uma instância PostgreSQL em um único container Docker local para economizar recursos. Disponibilidade, CPU, memória e armazenamento são compartilhados.
 

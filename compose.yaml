@@ -1,5 +1,7 @@
 # Banco PostgreSQL para desenvolvimento local. As credenciais vêm do arquivo .env (fora do Git);
-# copie .env.example para .env e ajuste os valores.
+# copie .env.example para .env e ajuste os valores. Uma única instância e um único container abrigam
+# os bancos de todos os serviços; POSTGRES_USER/POSTGRES_PASSWORD são a credencial ADMINISTRATIVA da
+# instância e nunca são usadas por APIs ou workers.
 name: ouroboros
 
 services:
@@ -19,6 +21,49 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Provisiona bancos e roles por serviço (scripts/database). Só roda por comando explícito, nunca na
+  # subida das APIs nem em `docker compose up`:
+  #   docker compose --profile provision run --rm provision-databases
+  # É idempotente e funciona em volume novo ou existente. As senhas dos serviços vêm do .env.
+  provision-databases:
+    image: postgres:18-alpine
+    profiles: ["provision"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGDATABASE: postgres
+      PGUSER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+    volumes:
+      - ./scripts/database:/scripts:ro
+    command: ["psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--file=/scripts/provision.sql"]
+
+  # Transfere o schema identity do banco original para o banco próprio do serviço (scripts/database/transfer-identity.sh),
+  # em etapas explícitas e com backup, validação e retorno. Nunca roda em `docker compose up`:
+  #   docker compose --profile transfer run --rm transfer-identity <freeze|backup|copy|validate|cutover|rollback|reconcile|unfreeze> [id]
+  # Os backups ficam em ./backups (fora do Git).
+  transfer-identity:
+    image: postgres:18-alpine
+    profiles: ["transfer"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGDATABASE: postgres
+      PGUSER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      SOURCE_DATABASE: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
+      TRANSFER_DIR: /backups
+    volumes:
+      - ./scripts/database:/scripts:ro
+      - ./backups:/backups
+    entrypoint: ["bash", "/scripts/transfer-identity.sh"]
 
 volumes:
   postgres-data:

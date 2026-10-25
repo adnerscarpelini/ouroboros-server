@@ -5,8 +5,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using Ouroboros.Modules.Identity.Application.Notifications;
-using Ouroboros.Modules.Identity.Infrastructure.Email;
+using Ouroboros.Identity.Application.Notifications;
+using Ouroboros.Identity.Infrastructure.Email;
 
 namespace Ouroboros.IntegrationTests;
 

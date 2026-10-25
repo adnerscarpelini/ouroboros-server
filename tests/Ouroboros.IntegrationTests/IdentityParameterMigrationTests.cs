@@ -3,11 +3,8 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Settings.Infrastructure.Persistence;
-using LegacyPersistence = Ouroboros.Modules.Settings.Infrastructure.Persistence.ParameterPersistence;
-using LegacyWriter = Ouroboros.Modules.Settings.Application.Parameters.ParameterWriter;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -40,7 +37,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             Assert.False(context.Database.HasPendingModelChanges());
             Assert.Equal("migrated.example", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
             // Sequências avançam além dos ids copiados, sem colidir na próxima escrita.
-            await scope.ServiceProvider.GetRequiredService<Ouroboros.Modules.Identity.Application.Parameters.ParameterWriter>()
+            await scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Application.Parameters.ParameterWriter>()
                 .ChangeAsync(Key, "updated.example", "Descrição posterior.", Guid.CreateVersion7(), Cancellation);
             Assert.Equal(before, await SnapshotAsync(source, "settings"));
         }
@@ -98,7 +95,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             Assert.Equal(8, await context.ParameterHistory.CountAsync(Cancellation));
             Assert.Equal("adnerscarpelini.com", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
             Assert.All(await context.Parameters.ToListAsync(Cancellation), parameter =>
-                Assert.Null(Ouroboros.Modules.Identity.Domain.Parameters.ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
+                Assert.Null(Ouroboros.Identity.Domain.Parameters.ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
         }
         finally
         {
@@ -107,16 +104,31 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
         }
     }
 
+    // Banco que ainda tem os parâmetros em settings (esquema legado versionado em Resources) e o Identity migrado até a
+    // migration anterior à que assume os parâmetros. O valor alterado reproduz a escrita do antigo módulo Settings: nova
+    // revisão no parâmetro e uma linha de histórico.
     private async Task PrepareLegacyAsync(string database)
     {
+        await ExecuteAsync(database, await File.ReadAllTextAsync(RepositoryRoot.Resolve("tests", "Ouroboros.IntegrationTests", "Resources", "settings-legacy-schema.sql"), Cancellation));
+
         await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
         await using var scope = factory.Services.CreateAsyncScope();
-        var legacy = scope.ServiceProvider.GetRequiredService<SettingsDbContext>();
-        await legacy.Database.MigrateAsync(Cancellation);
         await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().GetService<IMigrator>()
             .MigrateAsync(PreviousMigration, Cancellation);
-        var writer = new LegacyWriter(new LegacyPersistence(legacy), TimeProvider.System);
-        await writer.ChangeAsync(Key, "migrated.example", "Descrição alterada antes da transferência.", Guid.CreateVersion7(), Cancellation);
+
+        var author = Guid.CreateVersion7();
+        await ExecuteAsync(database, $"""
+            INSERT INTO settings.parameter_history
+                (parameter_key, revision, previous_value, new_value, previous_description, new_description, data_type,
+                 validation_pattern, is_sensitive, changed_by, changed_at, external_id, created_at, updated_at)
+            SELECT key, revision + 1, value, 'migrated.example', description, 'Descrição alterada antes da transferência.',
+                   data_type, validation_pattern, is_sensitive, '{author}', now(), gen_random_uuid(), now(), now()
+            FROM settings.parameters WHERE key = '{Key}';
+            UPDATE settings.parameters
+            SET value = 'migrated.example', description = 'Descrição alterada antes da transferência.',
+                revision = revision + 1, updated_by = '{author}', updated_at = now()
+            WHERE key = '{Key}';
+            """);
     }
 
     private Task<string?> SnapshotAsync(string database, string schema) => ScalarAsync(database, $"""

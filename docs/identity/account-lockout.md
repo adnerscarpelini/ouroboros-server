@@ -4,7 +4,7 @@
 
 Impedir que um atacante teste senhas indefinidamente contra a mesma conta, mesmo trocando de IP. Complementa o [limite de requisições por IP](auth-rate-limiting.md), que contém tentativas espalhadas por várias contas a partir do mesmo endereço. Depois de um número de falhas de senha seguidas, a conta fica bloqueada por um tempo, e o [login](login.md) a recusa mesmo com a senha correta.
 
-Módulo responsável: Identity. A regra fica no caso de uso `Login` e na classe [`AccountLockout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/AccountLockout.cs), em `Application/Sessions`; não há rota própria. O bloqueio vale para as duas rotas de login, a da API externa e a do backoffice, porque o contador fica no usuário.
+Serviço responsável: Identity. A regra fica no caso de uso `Login` e na classe [`AccountLockout`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/AccountLockout.cs), em `Application/Sessions`; não há rota própria. O bloqueio vale para as duas rotas de login, a do listener público e a do administrativo, porque o contador fica no usuário.
 
 ## Comportamento
 
@@ -21,8 +21,8 @@ Com os valores iniciais dos parâmetros (5 falhas, 15 minutos):
 
 | Situação | Efeito no contador |
 | --- | --- |
-| Senha errada | Soma uma falha, inclusive para usuário inativo e para usuário de outro papel (um `Admin` com senha errada na API externa soma falha na própria conta). |
-| Senha correta, usuário ativo do papel do host | Login bem-sucedido: zera o contador e limpa um bloqueio já vencido. |
+| Senha errada | Soma uma falha, inclusive para usuário inativo e para usuário de outro papel (um `Admin` com senha errada no listener público soma falha na própria conta). |
+| Senha correta, usuário ativo do papel do canal | Login bem-sucedido: zera o contador e limpa um bloqueio já vencido. |
 | Senha correta, usuário inativo ou de outro papel | `401`, sem somar nem zerar. |
 | Conta bloqueada (qualquer senha) | `401`, sem somar; a senha real não é verificada. |
 | E-mail inexistente | `401`; não há contador. |
@@ -39,7 +39,7 @@ Com os valores iniciais dos parâmetros (5 falhas, 15 minutos):
 
 ### Contagem atômica
 
-`AccountLockout.RegisterFailureAsync` delega a gravação à porta `ISessionStore`; o adaptador `SessionStore`, em Infrastructure, registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio módulo, sem tocar outro schema.
+`AccountLockout.RegisterFailureAsync` delega a gravação à porta `ISessionStore`; o adaptador `SessionStore`, em Infrastructure, registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio serviço, sem tocar outro schema.
 
 ### Log do bloqueio
 
@@ -65,11 +65,11 @@ As migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-d
 - `AddAccountLockout`, do Identity: as colunas do contador e do bloqueio em `identity.users`.
 - `OwnIdentityParameters`: os dois parâmetros e seu histórico no proprietário, copiados do legado ou criados com revisão 0 numa instalação limpa. Banco legado exige o [procedimento com backup e validação](parameters.md#upgrade-de-banco-existente).
 
-Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback para Settings.
+Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback para o schema `settings`.
 
 ## Persistência
 
-Colunas acrescentadas a `identity.users` pela migration `AddAccountLockout`, mapeadas por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) a partir de [`User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs):
+Colunas acrescentadas a `identity.users` pela migration `AddAccountLockout`, mapeadas por [`UserConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) a partir de [`User`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/User.cs):
 
 | Coluna | Tipo | Conteúdo |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao inst
 ## Limitações
 
 - **Falhas concorrentes ao bloqueio.** Uma requisição que leu o usuário antes de ele ser bloqueado e erra a senha depois ainda soma a falha, mesmo com a conta já bloqueada. Só acontece com tentativas simultâneas; o efeito é o contador começar acima de zero quando o bloqueio vence. Esse comportamento é uma limitação conhecida.
-- **Bloqueio provocado por terceiros.** Quem conhece o e-mail pode bloquear a conta por 15 minutos errando a senha, em qualquer um dos dois hosts. É o custo conhecido do bloqueio por conta; bloqueio progressivo, CAPTCHA e notificação ao dono da conta ficaram fora do escopo.
+- **Bloqueio provocado por terceiros.** Quem conhece o e-mail pode bloquear a conta por 15 minutos errando a senha, em qualquer um dos dois listeners. É o custo conhecido do bloqueio por conta; bloqueio progressivo, CAPTCHA e notificação ao dono da conta ficaram fora do escopo.
 - **O bloqueio protege uma conta, não o servidor.** Tentativas contra várias contas são contidas pelo limite de requisições por IP, da [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) ([Limitar requisições de autenticação por IP](auth-rate-limiting.md)). Uma requisição recusada com `429` não chega ao login e não soma falha no contador. Um atacante com muitos IPs ainda pode distribuir tentativas contra várias contas.
 - **Não há desbloqueio manual.** O bloqueio termina pelo tempo ou, para clientes, pela [redefinição de senha](password-reset.md). Como não há recuperação de senha para administradores, uma conta `Admin` bloqueada só é liberada pelo tempo.
 
@@ -89,7 +89,7 @@ No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao inst
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`AccountLockoutTests`](../../tests/Ouroboros.IntegrationTests/AccountLockoutTests.cs), contra o PostgreSQL real, na API externa, com relógio falso (`FakeTimeProvider`) e hasher de poucas iterações:
+[`AccountLockoutTests`](../../tests/Ouroboros.IntegrationTests/AccountLockoutTests.cs), contra o PostgreSQL real, no listener público da API de Identity, com relógio falso (`FakeTimeProvider`) e hasher de poucas iterações:
 
 - cinco falhas bloqueiam a conta: a sexta tentativa, com a senha correta, recebe `401` com o mesmo `type` de uma senha errada, o contador fica zerado, `locked_until` fica 15 minutos à frente e nenhuma sessão é aberta;
 - com a conta bloqueada, a única verificação feita é contra um hash diferente do hash real do usuário;

@@ -1,21 +1,24 @@
+extern alias identityapi;
+
 using System.Reflection;
+using identityapi::Ouroboros.Identity.Api;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Ouroboros.IntegrationTests;
 
-// Os DbContexts são internal em cada módulo. Eles são encontrados por reflexão nos assemblies de
-// módulo referenciados pela Api e resolvidos pela DI, então um módulo novo entra sem mudar os testes.
+// Os DbContexts são internal em cada serviço ou módulo. Eles são encontrados por reflexão nos assemblies
+// Ouroboros.* referenciados pela Api e resolvidos pela DI (os que o host não registra ficam de fora), então um serviço novo entra sem mudar os testes.
 internal static class ModuleDbContexts
 {
-    private const string ModuleAssemblyPrefix = "Ouroboros.Modules.";
+    private const string AssemblyPrefix = "Ouroboros.";
 
     public static IReadOnlyList<DbContext> Resolve(IServiceProvider services) =>
-        [.. Types().Select(type => (DbContext)services.GetRequiredService(type))];
+        [.. Types().Select(type => services.GetService(type)).OfType<DbContext>()];
 
     private static IEnumerable<Type> Types() =>
-        typeof(Program).Assembly.GetReferencedAssemblies()
-            .Where(reference => reference.Name?.StartsWith(ModuleAssemblyPrefix, StringComparison.Ordinal) == true)
+        typeof(IdentityApiEntryPoint).Assembly.GetReferencedAssemblies()
+            .Where(reference => reference.Name?.StartsWith(AssemblyPrefix, StringComparison.Ordinal) == true)
             .Select(Assembly.Load)
             .SelectMany(assembly => assembly.GetTypes())
             .Where(type => type is { IsClass: true, IsAbstract: false } && type.IsSubclassOf(typeof(DbContext)));

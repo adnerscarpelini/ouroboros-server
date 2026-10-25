@@ -2,13 +2,13 @@
 
 ## Objetivo
 
-Administradores não se cadastram sozinhos: depois do primeiro, novos administradores entram por convite ([#25](https://github.com/adnerscarpelini/ouroboros-server/issues/25)). O primeiro `Admin` é criado por quem opera a aplicação, com o comando de linha `create-admin` do host de backoffice, no mesmo espírito do bootstrap admin do Keycloak e do `createsuperuser` do Django.
+Administradores não se cadastram sozinhos: depois do primeiro, novos administradores entram por convite ([#25](https://github.com/adnerscarpelini/ouroboros-server/issues/25)). O primeiro `Admin` é criado por quem opera a aplicação, com o comando de linha `create-admin` da API de Identity, no mesmo espírito do bootstrap admin do Keycloak e do `createsuperuser` do Django.
 
-Módulo responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Api`](../../src/Ouroboros.Backoffice.Api/CommandLine/CreateAdminCommand.cs) e só traduz argumentos, variável de ambiente e resultado; a regra fica no caso de uso `ICreateFirstAdmin` do módulo.
+Serviço responsável: Identity. O comando fica na API [`Ouroboros.Identity.Api`](../../src/Services/Identity/Ouroboros.Identity.Api/CommandLine/CreateAdminCommand.cs) e só traduz argumentos, variável de ambiente e resultado; a regra fica no caso de uso `ICreateFirstAdmin` do serviço.
 
 ## Pré-requisitos
 
-- O banco local configurado, com a connection string `ConnectionStrings:Ouroboros` nos user-secrets ([Desenvolvimento](../development.md#banco-de-dados-local)).
+- O banco local configurado, com a connection string `ConnectionStrings:Identity` (ou `ConnectionStrings:Ouroboros`, quando a anterior não existe) nos user-secrets ([Desenvolvimento](../development.md#banco-de-dados-local)).
 - As migrations de Identity aplicadas, incluindo `OwnIdentityParameters`. O parâmetro local `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`) define o domínio aceito para o e-mail. Para banco legado, execute antes a [transferência de parâmetros](parameters.md#upgrade-de-banco-existente).
 
 ## Como usar
@@ -16,7 +16,7 @@ Módulo responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Ap
 Na raiz do repositório, com a senha na variável de ambiente `OUROBOROS_ADMIN_PASSWORD` e o e-mail no argumento `--email`. Os comandos estão no [guia de desenvolvimento](../development.md#criar-o-primeiro-administrador).
 
 - A senha nunca é aceita como argumento: argumentos ficam no histórico do shell e na lista de processos. No bash, a forma `VAR=valor comando` define a variável só para aquele processo; no PowerShell, a variável fica na sessão até ser removida.
-- O comando roda e encerra sem subir o servidor HTTP. Sem o argumento `create-admin`, o host sobe normalmente.
+- O comando roda e encerra sem subir o servidor HTTP nem abrir os listeners. Sem o argumento `create-admin`, a API sobe normalmente.
 - A senha não aparece na saída nem nos logs, em nenhum caso.
 
 ### Códigos de saída
@@ -44,11 +44,11 @@ Após as verificações 1 a 4, a Application calcula o hash e cria o objeto `Use
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) | `Contracts/Administrators` (`public`) | `ExecuteAsync(CreateFirstAdminRequest(Email, Password))`, que retorna `CreateFirstAdminResult` com `Outcome`, `Message` (nunca contém a senha) e `AdminId` (o `ExternalId` do Admin criado). |
+| [`ICreateFirstAdmin`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) | `Contracts/Administrators` (`public`) | `ExecuteAsync(CreateFirstAdminRequest(Email, Password))`, que retorna `CreateFirstAdminResult` com `Outcome`, `Message` (nunca contém a senha) e `AdminId` (o `ExternalId` do Admin criado). |
 | `CreateFirstAdminOutcome` | `Contracts/Administrators` | `Created`, `AdminAlreadyExists`, `InvalidEmail`, `EmailDomainNotAllowed`, `EmailAlreadyInUse`, `PasswordRejected` e `ConfigurationMissing` (parâmetro do domínio ausente). |
-| [`CreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Application/Administrators/CreateFirstAdmin.cs) | `Application/Administrators` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
-| [`IFirstAdminStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Administrators/IFirstAdminStore.cs) | `Application/Administrators` (`internal`) | Porta scoped `TryCreateAsync`, que recebe o usuário com hash e devolve `Created`, `AdminAlreadyExists` ou `EmailAlreadyInUse`. |
-| [`FirstAdminStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/FirstAdminStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped que mantém EF, SQL, lock global, consultas e criação na mesma unidade de trabalho de `IdentityDbContext`. |
+| [`CreateFirstAdmin`](../../src/Services/Identity/Ouroboros.Identity/Application/Administrators/CreateFirstAdmin.cs) | `Application/Administrators` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
+| [`IFirstAdminStore`](../../src/Services/Identity/Ouroboros.Identity/Application/Administrators/IFirstAdminStore.cs) | `Application/Administrators` (`internal`) | Porta scoped `TryCreateAsync`, que recebe o usuário com hash e devolve `Created`, `AdminAlreadyExists` ou `EmailAlreadyInUse`. |
+| [`FirstAdminStore`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/FirstAdminStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped que mantém EF, SQL, lock global, consultas e criação na mesma unidade de trabalho de `IdentityDbContext`. |
 
 O caso de uso é exposto em `Contracts`. A leitura de parâmetros e as dependências disponíveis estão descritas no [estado de implementação](../implementation-status.md#inventário-de-dependências-a-isolar). Não há endpoint HTTP para criar administradores.
 
@@ -60,7 +60,7 @@ A [#77](https://github.com/adnerscarpelini/ouroboros-server/issues/77) isolou a 
 
 ## Limitações
 
-- O comando só cria o primeiro administrador. Não há recuperação de acesso caso o único `Admin` perca a senha: a [solicitação de redefinição de senha](password-reset.md#contas-de-backoffice) da API externa (#22) só atende contas `Customer`, e o convite é acompanhado no [estado de implementação](../implementation-status.md).
+- O comando só cria o primeiro administrador. Não há recuperação de acesso caso o único `Admin` perca a senha: a [solicitação de redefinição de senha](password-reset.md#contas-de-backoffice) do listener público (#22) só atende contas `Customer`, e o convite é acompanhado no [estado de implementação](../implementation-status.md).
 - O e-mail não é confirmado: o comando confia em quem opera a aplicação.
 - A lista de senhas comuns é local; a consulta a senhas vazadas (Pwned Passwords) está fora do escopo.
 
@@ -73,9 +73,9 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 
 Os testes de persistência da #77 no mesmo arquivo também verificam:
 
-- dois processos reais do comando aguardam o advisory lock global, observados no PostgreSQL antes de liberá-lo; depois, saem com códigos `0` e `1` e deixam exatamente um Admin;
+- dois processos reais do comando (o executável da API de Identity com `create-admin`) aguardam o advisory lock global, observados no PostgreSQL antes de liberá-lo; depois, saem com códigos `0` e `1` e deixam exatamente um Admin;
 - falha por trigger na inserção desfaz a criação, e uma nova execução cria normalmente após remover a falha;
-- valor divergente no schema legado de Settings não altera o domínio permitido lido localmente de Identity.
+- valor divergente no schema `settings` retido não altera o domínio permitido lido localmente de Identity.
 
 A regra estrita de e-mail não tem teste próprio no `create-admin`; os casos recusados estão nos testes da [solicitação de cadastro](registration.md#como-verificar), que usa a mesma regra. A execução concorrente deve criar um único `Admin`; o hash usa o formato V3 (HMAC-SHA512, 210.000 iterações).
 
@@ -90,5 +90,6 @@ A regra estrita de e-mail não tem teste próprio no `create-admin`; os casos re
 - [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11): criar o primeiro administrador por comando de linha.
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): regra estrita de e-mail também no `create-admin`.
 - [#77](https://github.com/adnerscarpelini/ouroboros-server/issues/77): porta de persistência do primeiro administrador e serialização entre processos.
+- [#95](https://github.com/adnerscarpelini/ouroboros-server/issues/95): o comando passa a ser executado pela API de Identity, com os mesmos argumentos, variável de ambiente e códigos de saída.
 
 [Voltar à documentação](../README.md)

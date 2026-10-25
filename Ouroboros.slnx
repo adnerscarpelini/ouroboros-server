@@ -1,16 +1,11 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Ouroboros.Api/Ouroboros.Api.csproj" />
-    <Project Path="src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" />
     <Project Path="src/Ouroboros.BuildingBlocks/Ouroboros.BuildingBlocks.csproj" />
     <Project Path="src/Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/">
-    <Project Path="src/Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
-    <Project Path="src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj" />
-    <Project Path="src/Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
-    <Project Path="src/Modules/Ouroboros.Modules.Settings/Ouroboros.Modules.Settings.csproj" />
-    <Project Path="src/Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />
+  <Folder Name="/src/Services/Identity/">
+    <Project Path="src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" />
+    <Project Path="src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj" />

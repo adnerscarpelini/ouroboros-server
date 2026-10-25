@@ -9,17 +9,10 @@ internal readonly record struct KnownViolation(string Rule, string Subject, stri
 
 // Lista de transição (inventário em docs/implementation-status.md). Não autoriza novas ocorrências: um uso novo, mesmo em
 // um tipo listado, falha se a dependência não estiver nomeada aqui, e a remoção de uma dependência exige apagar a linha
-// (KnownViolations.Compare acusa as obsoletas). A refatoração de cada issue deixa a lista menor.
+// (KnownViolations.Compare acusa as obsoletas). A lista está vazia; uma exceção nova só entra com uma issue nomeada que a remova.
 internal static class KnownViolations
 {
-    private const string ForeignServiceExecutable = "project.executable-foreign-service";
-
-    public static IReadOnlyList<KnownViolation> All { get; } =
-    [
-        // #95 e #96: hosts agregadores que compõem todos os módulos.
-        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
-        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Backoffice.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
-    ];
+    public static IReadOnlyList<KnownViolation> All { get; } = [];
 
     // Novas: encontradas e não listadas (a regra falha). Obsoletas: listadas e não encontradas (a exceção deve sair).
     public static (IReadOnlyList<Violation> New, IReadOnlyList<KnownViolation> Obsolete) Compare(
@@ -32,7 +25,4 @@ internal static class KnownViolations
 
         return ([.. found.Except(listedViolations).OrderBy(violation => violation.ToString(), StringComparer.Ordinal)], [.. listed.Where(entry => !found.Contains(entry.Violation))]);
     }
-
-    private static IEnumerable<KnownViolation> Group(string issue, string rule, string subject, params string[] dependencies) =>
-        dependencies.Select(dependency => new KnownViolation(rule, subject, dependency, issue));
 }

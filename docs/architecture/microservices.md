@@ -11,7 +11,7 @@ A arquitetura aprovada do Ouroboros é de microsserviços em monorepo para estud
 | Customers | Perfil e ciclo de vida cadastral, conforme funcionalidades aprovadas |
 | Fronteira financeira | Contas, saldo e lançamentos que precisam de atomicidade; Banking é nome provisório |
 
-Não separar saldo e lançamentos por conveniência de pastas. Ledger e suas regras exigem escopo de negócio próprio. Settings não é serviço central obrigatório: parâmetros pertencem ao serviço que aplica a regra.
+Não separar saldo e lançamentos por conveniência de pastas. Ledger e suas regras exigem escopo de negócio próprio. Customers e a fronteira financeira (Accounts, Transactions) só são criados como serviços, em `src/Services`, quando houver funcionalidade e fronteira financeira aprovadas; não há serviços nem projetos vazios, e nenhuma regra financeira se infere de nomes de pasta. Settings não é serviço central obrigatório: parâmetros pertencem ao serviço que aplica a regra.
 
 ## Organização e execução
 

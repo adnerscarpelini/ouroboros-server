@@ -7,15 +7,15 @@ internal enum ProjectKind
     // Biblioteca de um serviço (domínio, aplicação, infraestrutura e contratos).
     Service,
 
-    // Projeto que produz um processo: API, worker ou host agregador legado.
+    // Projeto que produz um processo: API ou worker.
     Executable,
 
     // Código técnico compartilhado, como BuildingBlocks e Hosting.
     Shared,
 }
 
-// Service é o serviço proprietário, deduzido do caminho (src/Services/<Serviço>/... ou src/Modules/Ouroboros.Modules.<Serviço>).
-// Um executável fora dessas pastas, como os hosts agregadores, não pertence a nenhum serviço.
+// Service é o serviço proprietário, deduzido do caminho (src/Services/<Serviço>/<projeto>/...).
+// Um executável fora dessas pastas não pertence a nenhum serviço.
 internal sealed record ProjectInfo(string Name, ProjectKind Kind, string? Service, IReadOnlyList<string> References);
 
 // Descobre os projetos pela árvore de src, e não por uma lista mantida à mão: um serviço, API ou worker novo
@@ -100,7 +100,6 @@ internal sealed class SourceProjects
     private static string? ServiceOf(string[] relativePath) => relativePath switch
     {
         ["Services", var service, _, ..] => service,
-        ["Modules", var module, _, ..] => module[(module.LastIndexOf('.') + 1)..],
         _ => null,
     };
 
