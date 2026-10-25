@@ -79,6 +79,11 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
 
         Assert.Equal(1, parameter.Revision);
         Assert.Equal(admin, parameter.UpdatedBy);
+        Assert.Equal(parameter.Value, history.NewValue);
+        Assert.Equal(parameter.Description, history.NewDescription);
+        Assert.Equal(parameter.DataType, history.DataType);
+        Assert.Equal(parameter.ValidationPattern, history.ValidationPattern);
+        Assert.Equal(parameter.IsSensitive, history.IsSensitive);
         Assert.Equal("adnerscarpelini.com", history.PreviousValue);
         Assert.Equal("ouroboros.example", history.NewValue);
         Assert.Equal("Nova descrição detalhada.", history.NewDescription);
@@ -114,12 +119,15 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
         await using (var scope = Api.Services.CreateAsyncScope())
         {
             var writer = scope.ServiceProvider.GetRequiredService<ParameterWriter>();
-            await Assert.ThrowsAnyAsync<DbUpdateException>(() => writer.ChangeAsync(
+            var exception = await Assert.ThrowsAsync<ParameterConflictException>(() => writer.ChangeAsync(
                 DomainKey, "ouroboros.example", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken));
+            Assert.Equal(DomainKey, exception.Key);
         }
 
         Assert.Equal("adnerscarpelini.com", await QueryScalarAsync<string>($"SELECT value FROM settings.parameters WHERE key = '{DomainKey}'"));
         Assert.Equal(0, await QueryScalarAsync<int>($"SELECT revision FROM settings.parameters WHERE key = '{DomainKey}'"));
+        Assert.Null(await QueryScalarAsync<Guid?>($"SELECT updated_by FROM settings.parameters WHERE key = '{DomainKey}'"));
+        Assert.Equal(2L, await QueryScalarAsync<long>($"SELECT count(*) FROM settings.parameter_history WHERE parameter_key = '{DomainKey}'"));
     }
 
     [Fact]
@@ -136,14 +144,17 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Creating_a_parameter_writes_creation_history()
     {
+        var author = Guid.CreateVersion7();
         await using (var scope = Api.Services.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<ParameterWriter>().CreateAsync(
-                "Teste:Limite", "10", "Limite usado só neste teste.", ParameterDataType.Integer, null, false, null,
+                "Teste:Limite", "10", "Limite usado só neste teste.", ParameterDataType.Integer, "[0-9]+", false, author,
                 TestContext.Current.CancellationToken);
         }
 
         Assert.Equal("10", await QueryScalarAsync<string>("SELECT new_value FROM settings.parameter_history WHERE parameter_key = 'Teste:Limite' AND revision = 0"));
+        Assert.Equal(author, await QueryScalarAsync<Guid>("SELECT updated_by FROM settings.parameters WHERE key = 'Teste:Limite'"));
+        Assert.Equal(author, await QueryScalarAsync<Guid>("SELECT changed_by FROM settings.parameter_history WHERE parameter_key = 'Teste:Limite'"));
     }
 
     [Fact]
@@ -153,18 +164,87 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
         await using var second = Api.Services.CreateAsyncScope();
         var firstContext = first.ServiceProvider.GetRequiredService<SettingsDbContext>();
         var secondContext = second.ServiceProvider.GetRequiredService<SettingsDbContext>();
-        var firstCopy = await firstContext.Parameters.SingleAsync(parameter => parameter.Key == DomainKey, TestContext.Current.CancellationToken);
-        var secondCopy = await secondContext.Parameters.SingleAsync(parameter => parameter.Key == DomainKey, TestContext.Current.CancellationToken);
+        // Ambos os escopos observam a revisão inicial antes da primeira confirmação.
+        await firstContext.Parameters.SingleAsync(parameter => parameter.Key == DomainKey, TestContext.Current.CancellationToken);
+        await secondContext.Parameters.SingleAsync(parameter => parameter.Key == DomainKey, TestContext.Current.CancellationToken);
+        var firstAuthor = Guid.CreateVersion7();
 
-        firstContext.ParameterHistory.Add(firstCopy.Change("primeiro.example", null, Guid.CreateVersion7(), DateTimeOffset.UtcNow));
-        await firstContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+        await first.ServiceProvider.GetRequiredService<ParameterWriter>()
+            .ChangeAsync(DomainKey, "primeiro.example", null, firstAuthor, TestContext.Current.CancellationToken);
 
         // A segunda gravação falha inteira, seja pela revisão (token de concorrência) ou pelo índice
         // único (parameter_key, revision) do histórico; nenhuma alteração se perde.
-        secondContext.ParameterHistory.Add(secondCopy.Change("segundo.example", null, Guid.CreateVersion7(), DateTimeOffset.UtcNow));
-        await Assert.ThrowsAnyAsync<DbUpdateException>(() => secondContext.SaveChangesAsync(TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ParameterConflictException>(() => second.ServiceProvider.GetRequiredService<ParameterWriter>()
+            .ChangeAsync(DomainKey, "segundo.example", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken));
 
         Assert.Equal("primeiro.example", await QueryScalarAsync<string>($"SELECT value FROM settings.parameters WHERE key = '{DomainKey}'"));
         Assert.Equal(1L, await QueryScalarAsync<long>($"SELECT count(*) FROM settings.parameter_history WHERE parameter_key = '{DomainKey}' AND revision = 1"));
+        Assert.Equal(firstAuthor, await QueryScalarAsync<Guid>($"SELECT updated_by FROM settings.parameters WHERE key = '{DomainKey}'"));
+        Assert.Equal(firstAuthor, await QueryScalarAsync<Guid>($"SELECT changed_by FROM settings.parameter_history WHERE parameter_key = '{DomainKey}' AND revision = 1"));
+    }
+
+    [Fact]
+    public async Task Missing_key_cannot_be_changed_or_create_history()
+    {
+        var historyBefore = await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history");
+        await using var scope = Api.Services.CreateAsyncScope();
+        var exception = await Assert.ThrowsAsync<ParameterNotFoundException>(() =>
+            scope.ServiceProvider.GetRequiredService<ParameterWriter>().ChangeAsync(
+                "Nao:Existe", "valor", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken));
+
+        Assert.Equal("Nao:Existe", exception.Key);
+        Assert.Equal(historyBefore, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history"));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameters WHERE key = 'Nao:Existe'"));
+    }
+
+    [Fact]
+    public async Task Same_reader_observes_a_change_even_with_a_tracked_old_parameter()
+    {
+        await using var scope = Api.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<SettingsDbContext>().Parameters
+            .SingleAsync(parameter => parameter.Key == DomainKey, TestContext.Current.CancellationToken);
+        var reader = scope.ServiceProvider.GetRequiredService<ISystemParameters>();
+        Assert.Equal("adnerscarpelini.com", await reader.GetAsync(DomainKey, TestContext.Current.CancellationToken));
+
+        await using (var writerScope = Api.Services.CreateAsyncScope())
+        {
+            await writerScope.ServiceProvider.GetRequiredService<ParameterWriter>().ChangeAsync(
+                DomainKey, "novo.example", null, Guid.CreateVersion7(), TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal("novo.example", await reader.GetAsync(DomainKey, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task Creation_history_failure_rolls_back_the_new_parameter()
+    {
+        // Reserva a revisão de criação para provocar falha real no índice do histórico.
+        await ExecuteAsync("""
+            INSERT INTO settings.parameter_history
+                (external_id, parameter_key, revision, new_value, new_description, data_type,
+                 is_sensitive, changed_at, created_at, updated_at)
+            VALUES (uuidv7(), 'Teste:Atomico', 0, 'anterior', 'Anterior.', 'String', false, now(), now(), now())
+            """);
+        await using var scope = Api.Services.CreateAsyncScope();
+        await Assert.ThrowsAsync<ParameterConflictException>(() =>
+            scope.ServiceProvider.GetRequiredService<ParameterWriter>().CreateAsync(
+                "Teste:Atomico", "novo", "Novo.", ParameterDataType.String, null, false, Guid.CreateVersion7(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameters WHERE key = 'Teste:Atomico'"));
+        Assert.Equal("anterior", await QueryScalarAsync<string>("SELECT new_value FROM settings.parameter_history WHERE parameter_key = 'Teste:Atomico'"));
+    }
+
+    [Fact]
+    public async Task Invalid_creation_leaves_no_parameter_or_history()
+    {
+        await using var scope = Api.Services.CreateAsyncScope();
+        await Assert.ThrowsAsync<InvalidParameterException>(() =>
+            scope.ServiceProvider.GetRequiredService<ParameterWriter>().CreateAsync(
+                "Teste:Invalido", "texto", "Descrição.", ParameterDataType.Integer, null, false, Guid.CreateVersion7(),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameters WHERE key = 'Teste:Invalido'"));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM settings.parameter_history WHERE parameter_key = 'Teste:Invalido'"));
     }
 }

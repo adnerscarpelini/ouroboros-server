@@ -35,6 +35,8 @@ public static class DependencyInjection
             .AddInterceptors(provider.GetRequiredService<AuditTimestampsInterceptor>()));
 
         services.AddScoped<ISystemParameters, SystemParameters>();
+        services.AddScoped<IParameterReader, ParameterReader>();
+        services.AddScoped<IParameterPersistence, ParameterPersistence>();
         services.AddScoped<ParameterWriter>();
 
         return services;
