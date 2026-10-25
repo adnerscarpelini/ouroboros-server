@@ -14,7 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Ouroboros.Modules.Identity.Infrastructure.RateLimiting;
+using Ouroboros.Identity.Infrastructure.RateLimiting;
 
 namespace Ouroboros.IntegrationTests;
 

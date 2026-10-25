@@ -1,6 +1,6 @@
 using System.Text;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 

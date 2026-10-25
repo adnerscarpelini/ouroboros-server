@@ -8,9 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Npgsql;
-using Ouroboros.Modules.Identity.Contracts.Administrators;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Contracts.Administrators;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -41,7 +41,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
         await using var scope = Api.Services.CreateAsyncScope();
         var admin = await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().Users
             .SingleAsync(user => user.Email == Email, TestContext.Current.CancellationToken);
-        var verifier = scope.ServiceProvider.GetRequiredService<Ouroboros.Modules.Identity.Application.Security.UserPasswordVerifier>();
+        var verifier = scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Application.Security.UserPasswordVerifier>();
         Assert.True(verifier.Verify(admin, Password));
         Assert.DoesNotContain(Password, admin.PasswordHash);
     }

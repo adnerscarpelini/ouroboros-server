@@ -3,8 +3,8 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Infrastructure.Persistence;
 using Ouroboros.Modules.Settings.Infrastructure.Persistence;
 using LegacyPersistence = Ouroboros.Modules.Settings.Infrastructure.Persistence.ParameterPersistence;
 using LegacyWriter = Ouroboros.Modules.Settings.Application.Parameters.ParameterWriter;
@@ -40,7 +40,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             Assert.False(context.Database.HasPendingModelChanges());
             Assert.Equal("migrated.example", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
             // Sequências avançam além dos ids copiados, sem colidir na próxima escrita.
-            await scope.ServiceProvider.GetRequiredService<Ouroboros.Modules.Identity.Application.Parameters.ParameterWriter>()
+            await scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Application.Parameters.ParameterWriter>()
                 .ChangeAsync(Key, "updated.example", "Descrição posterior.", Guid.CreateVersion7(), Cancellation);
             Assert.Equal(before, await SnapshotAsync(source, "settings"));
         }
@@ -98,7 +98,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             Assert.Equal(8, await context.ParameterHistory.CountAsync(Cancellation));
             Assert.Equal("adnerscarpelini.com", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
             Assert.All(await context.Parameters.ToListAsync(Cancellation), parameter =>
-                Assert.Null(Ouroboros.Modules.Identity.Domain.Parameters.ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
+                Assert.Null(Ouroboros.Identity.Domain.Parameters.ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
         }
         finally
         {

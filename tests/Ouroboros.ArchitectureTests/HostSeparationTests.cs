@@ -58,10 +58,11 @@ public sealed class HostSeparationTests(OuroborosApiFactory external, Backoffice
     [Fact]
     public void Modules_are_not_application_parts()
     {
+        var libraryNames = SourceTree.Current.Services.Select(project => project.Name).ToHashSet(StringComparer.Ordinal);
         var moduleParts = new[] { external.Services, backoffice.Services }
             .SelectMany(services => services.GetRequiredService<ApplicationPartManager>().ApplicationParts)
             .Select(part => part.Name)
-            .Where(name => name.StartsWith("Ouroboros.Modules.", StringComparison.Ordinal));
+            .Where(name => libraryNames.Contains(name));
 
         Assert.Empty(moduleParts);
     }

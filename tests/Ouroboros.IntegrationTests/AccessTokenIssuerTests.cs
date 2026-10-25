@@ -4,8 +4,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Domain.Users;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Domain.Users;
 
 namespace Ouroboros.IntegrationTests;
 

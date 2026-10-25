@@ -13,7 +13,7 @@ Entidades seguem uma convenção única para chave interna, identificador públi
   - entidade alterada: só `UpdatedAt` muda, e `CreatedAt` nunca é regravado, mesmo que a propriedade seja marcada como alterada;
   - alterar só um owned type (value object), inclusive aninhado ou item de `OwnsMany`, também atualiza o `UpdatedAt` da entidade dona.
   - `UpdatedAt` não é token de concorrência.
-- **O relógio vem do `TimeProvider`.** O módulo registra `TimeProvider.System` com `TryAddSingleton`, então um `TimeProvider` registrado antes (por exemplo, um `FakeTimeProvider` em testes) prevalece.
+- **O relógio vem do `TimeProvider`.** O serviço registra `TimeProvider.System` com `TryAddSingleton`, então um `TimeProvider` registrado antes (por exemplo, um `FakeTimeProvider` em testes) prevalece.
 - **Nomes em snake_case.** Tabelas, colunas, chaves, foreign keys e índices do modelo do serviço ficam em snake_case (`ExternalId` → `external_id`). Owned types na tabela do dono herdam o nome e a chave do dono, e suas colunas levam o prefixo da propriedade (`HomeAddress.StreetName` → `home_address_street_name`). Nomes de schema não são convertidos: já são explícitos, como `identity`.
 - **Value objects e owned types não seguem esta convenção**: não têm `Id`, `ExternalId` nem datas próprias.
 
@@ -33,13 +33,13 @@ Os namespaces são `Ouroboros.BuildingBlocks.Domain` (só `Entity`, sem dependê
 
 ## Como criar uma entidade nova
 
-1. Crie a entidade em `Domain/`, `internal`, herdando `Entity` (`using Ouroboros.BuildingBlocks.Domain;`; o módulo referencia `Ouroboros.BuildingBlocks`). Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
+1. Crie a entidade em `Domain/`, `internal`, herdando `Entity` (`using Ouroboros.BuildingBlocks.Domain;`; o serviço referencia `Ouroboros.BuildingBlocks`). Não atribua `Id`, `ExternalId`, `CreatedAt` nem `UpdatedAt`: o `ExternalId` nasce com o objeto e as datas são preenchidas ao salvar.
 2. Crie a configuração em `Infrastructure/Persistence/Configurations/`, `internal sealed`, herdando `EntityConfiguration<TEntity>` e mapeando só o que é próprio da entidade em `ConfigureEntity`. Não renomeie colunas à mão: o `SnakeCaseNaming` cuida disso.
 3. Garanta que a configuração seja aplicada no `OnModelCreating` do DbContext antes de `SnakeCaseNaming.Apply(modelBuilder)`. O DbContext do proprietário chama `modelBuilder.ApplyConfigurationsFromAssembly(...)`, que encontra toda `IEntityTypeConfiguration<T>` do assembly do serviço; basta criar a classe. Um DbContext que aplique configurações uma a uma (`ApplyConfiguration(new ...())`) precisa listá-la.
 4. Gere a migration do proprietário com os comandos do [guia de desenvolvimento](../development.md#banco-de-dados-local).
 5. Na resposta HTTP, use um DTO cujo nome termine em `Response` e exponha o `ExternalId` como `id`, sem o `Id` interno. Rotas e buscas recebem o `ExternalId`.
 
-O exemplo real é o `User` do Identity ([#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8)): a entidade [`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs), a configuração [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e a migration `AddUsers`, descritas em [Domínio de identidade próprio e hash de senha](identity.md). Resumidamente:
+O exemplo real é o `User` do Identity ([#8](https://github.com/adnerscarpelini/ouroboros-server/issues/8)): a entidade [`Domain/Users/User`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/User.cs), a configuração [`UserConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) e a migration `AddUsers`, descritas em [Domínio de identidade próprio e hash de senha](identity.md). Resumidamente:
 
 ```csharp
 internal sealed class UserConfiguration : EntityConfiguration<User>
@@ -68,7 +68,7 @@ A [consulta do próprio usuário](../identity/me.md) aplica o passo 5: `MeRespon
 - Todo DbContext do proprietário com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md).
 - Mapear uma entidade exige herdar `EntityConfiguration<TEntity>`; uma configuração que não herde dela fica sem o índice único e os tipos de coluna da convenção.
 - O teste que protege a exposição do `Id` depende de nomes. Ele falha se uma propriedade `long` ou `long?` com nome terminado em `Id` aparecer num tipo de `Contracts` ou num tipo cujo nome termine em `Response`. Não detecta campos, propriedades terminadas em `ID` ou `Key`, nem DTOs com outro sufixo; por isso, DTOs de resposta devem terminar em `Response`.
-- Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, os módulos concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca aos hosts (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
+- Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, as bibliotecas dos serviços concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca aos hosts (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
 
 ## Testes
 

@@ -4,7 +4,7 @@
 
 Administradores não se cadastram sozinhos: depois do primeiro, novos administradores entram por convite ([#25](https://github.com/adnerscarpelini/ouroboros-server/issues/25)). O primeiro `Admin` é criado por quem opera a aplicação, com o comando de linha `create-admin` do host de backoffice, no mesmo espírito do bootstrap admin do Keycloak e do `createsuperuser` do Django.
 
-Módulo responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Api`](../../src/Ouroboros.Backoffice.Api/CommandLine/CreateAdminCommand.cs) e só traduz argumentos, variável de ambiente e resultado; a regra fica no caso de uso `ICreateFirstAdmin` do módulo.
+Serviço responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Api`](../../src/Ouroboros.Backoffice.Api/CommandLine/CreateAdminCommand.cs) e só traduz argumentos, variável de ambiente e resultado; a regra fica no caso de uso `ICreateFirstAdmin` do serviço.
 
 ## Pré-requisitos
 
@@ -44,11 +44,11 @@ Após as verificações 1 a 4, a Application calcula o hash e cria o objeto `Use
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ICreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) | `Contracts/Administrators` (`public`) | `ExecuteAsync(CreateFirstAdminRequest(Email, Password))`, que retorna `CreateFirstAdminResult` com `Outcome`, `Message` (nunca contém a senha) e `AdminId` (o `ExternalId` do Admin criado). |
+| [`ICreateFirstAdmin`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Administrators/ICreateFirstAdmin.cs) | `Contracts/Administrators` (`public`) | `ExecuteAsync(CreateFirstAdminRequest(Email, Password))`, que retorna `CreateFirstAdminResult` com `Outcome`, `Message` (nunca contém a senha) e `AdminId` (o `ExternalId` do Admin criado). |
 | `CreateFirstAdminOutcome` | `Contracts/Administrators` | `Created`, `AdminAlreadyExists`, `InvalidEmail`, `EmailDomainNotAllowed`, `EmailAlreadyInUse`, `PasswordRejected` e `ConfigurationMissing` (parâmetro do domínio ausente). |
-| [`CreateFirstAdmin`](../../src/Modules/Ouroboros.Modules.Identity/Application/Administrators/CreateFirstAdmin.cs) | `Application/Administrators` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
-| [`IFirstAdminStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Administrators/IFirstAdminStore.cs) | `Application/Administrators` (`internal`) | Porta scoped `TryCreateAsync`, que recebe o usuário com hash e devolve `Created`, `AdminAlreadyExists` ou `EmailAlreadyInUse`. |
-| [`FirstAdminStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/FirstAdminStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped que mantém EF, SQL, lock global, consultas e criação na mesma unidade de trabalho de `IdentityDbContext`. |
+| [`CreateFirstAdmin`](../../src/Services/Identity/Ouroboros.Identity/Application/Administrators/CreateFirstAdmin.cs) | `Application/Administrators` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
+| [`IFirstAdminStore`](../../src/Services/Identity/Ouroboros.Identity/Application/Administrators/IFirstAdminStore.cs) | `Application/Administrators` (`internal`) | Porta scoped `TryCreateAsync`, que recebe o usuário com hash e devolve `Created`, `AdminAlreadyExists` ou `EmailAlreadyInUse`. |
+| [`FirstAdminStore`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/FirstAdminStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped que mantém EF, SQL, lock global, consultas e criação na mesma unidade de trabalho de `IdentityDbContext`. |
 
 O caso de uso é exposto em `Contracts`. A leitura de parâmetros e as dependências disponíveis estão descritas no [estado de implementação](../implementation-status.md#inventário-de-dependências-a-isolar). Não há endpoint HTTP para criar administradores.
 

@@ -1,8 +1,8 @@
 using Ouroboros.Backoffice.Api.CommandLine;
 using Ouroboros.Hosting;
+using Ouroboros.Identity;
 using Ouroboros.Modules.Accounts;
 using Ouroboros.Modules.Customers;
-using Ouroboros.Modules.Identity;
 using Ouroboros.Modules.Settings;
 using Ouroboros.Modules.Transactions;
 

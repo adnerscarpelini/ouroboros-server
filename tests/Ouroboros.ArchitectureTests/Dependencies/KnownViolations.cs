@@ -17,8 +17,8 @@ internal static class KnownViolations
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
         // #95 e #96: hosts agregadores que compõem todos os módulos.
-        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
-        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Backoffice.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
+        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
+        .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Backoffice.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
     ];
 
     // Novas: encontradas e não listadas (a regra falha). Obsoletas: listadas e não encontradas (a exceção deve sair).

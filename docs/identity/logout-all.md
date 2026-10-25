@@ -4,7 +4,7 @@
 
 Quem suspeita que a conta foi usada em outro dispositivo encerra todas as sessões de uma vez. O logout-all revoga todos os refresh tokens ativos do usuário autenticado, em todas as sessões, inclusive a atual: nenhuma delas volta a renovar o access token. Para encerrar só a sessão do dispositivo atual, use o [logout](logout.md).
 
-Módulo responsável: Identity. A regra fica no caso de uso `ILogoutAll` do módulo; os controllers dos dois hosts só leem o usuário do access token, chamam o caso de uso e respondem `204` ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogoutAll` do serviço; os controllers dos dois hosts só leem o usuário do access token, chamam o caso de uso e respondem `204` ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
 ## Rotas
 
@@ -65,10 +65,10 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ILogoutAll`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogoutAll.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutAllRequest(UserId))`, sem retorno. `UserId` é o `ExternalId` do usuário, lido do claim `sub`. |
-| [`LogoutAll`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/LogoutAll.cs) | `Application/Sessions` (`internal`) | Orquestra a transação, o lock ordenado e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
-| [`IdentityDbContext.LockUserSessionsAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava todas as sessões de um usuário, em ordem de id, até o fim da transação atual. |
-| [`IdentityClaims`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityClaims.cs) | `Contracts` (`public`) | Nomes dos claims do access token (`sub`, `role`, `sid`). Permite que os controllers leiam o usuário autenticado por nomes estáveis de claims. |
+| [`ILogoutAll`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Sessions/ILogoutAll.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutAllRequest(UserId))`, sem retorno. `UserId` é o `ExternalId` do usuário, lido do claim `sub`. |
+| [`LogoutAll`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/LogoutAll.cs) | `Application/Sessions` (`internal`) | Orquestra a transação, o lock ordenado e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
+| [`IdentityDbContext.LockUserSessionsAsync`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava todas as sessões de um usuário, em ordem de id, até o fim da transação atual. |
+| [`IdentityClaims`](../../src/Services/Identity/Ouroboros.Identity/Contracts/IdentityClaims.cs) | `Contracts` (`public`) | Nomes dos claims do access token (`sub`, `role`, `sid`). Permite que os controllers leiam o usuário autenticado por nomes estáveis de claims. |
 | [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `LogoutAll`, sem `[AllowAnonymous]` nem rate limit, ao lado do login, da renovação e do logout. Lê o `sub` com `IdentityClaims.Subject`. |
 
 ## Limitações
@@ -106,6 +106,6 @@ A consulta do próprio usuário, que também exige access token, está em [Consu
 
 - [#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18): encerrar todas as sessões.
 - Depende de [#15](https://github.com/adnerscarpelini/ouroboros-server/issues/15) (renovação com rotação do refresh token) e segue a regra de lock da [#16](https://github.com/adnerscarpelini/ouroboros-server/issues/16) (reuso), aplicada a várias sessões.
-- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): a redefinição de senha usa o mesmo lock das sessões, depois do lock do usuário; a ordem dos locks do módulo está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
+- [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): a redefinição de senha usa o mesmo lock das sessões, depois do lock do usuário; a ordem dos locks do serviço está em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
 [Voltar à documentação](../README.md)

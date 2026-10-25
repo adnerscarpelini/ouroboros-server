@@ -6,9 +6,9 @@ Identity mantém credenciais, sessões e tokens na mesma unidade de trabalho loc
 
 | Tipo | Responsabilidade |
 | --- | --- |
-| [`ISessionStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/ISessionStore.cs) | Porta interna de leitura, escrita e coordenação dos locks do ciclo de sessões. Retorna entidades e projeções internas, sem expor `IQueryable` ou contratos do provedor. |
+| [`ISessionStore`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/ISessionStore.cs) | Porta interna de leitura, escrita e coordenação dos locks do ciclo de sessões. Retorna entidades e projeções internas, sem expor `IQueryable` ou contratos do provedor. |
 | `ISessionTransaction` | Porta interna, no mesmo arquivo, para commit, rollback e descarte da transação completa. |
-| [`SessionStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/SessionStore.cs) | Adaptador scoped com o mesmo `IdentityDbContext` da requisição. Implementa consultas, SQL, escritas e transação EF; delega os locks aos métodos do contexto também usados pelo reset. |
+| [`SessionStore`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/SessionStore.cs) | Adaptador scoped com o mesmo `IdentityDbContext` da requisição. Implementa consultas, SQL, escritas e transação EF; delega os locks aos métodos do contexto também usados pelo reset. |
 
 `AddIdentityModule` registra a porta e o adaptador. Não há configuração adicional, alteração de schema ou migration nesta refatoração. Os contratos HTTP, as regras de autenticação e a emissão pela porta `IAccessTokenIssuer` permanecem os mesmos.
 
@@ -25,7 +25,7 @@ As operações entre `BeginTransactionAsync` e o commit ou descarte participam d
 | Logout | Trava a sessão antes de revogar o token ativo informado; token expirado ou já rotacionado mantém a resposta idempotente e não revoga seu sucessor. |
 | Logout-all | Trava as sessões do usuário em ordem crescente de id antes de revogar seus tokens ativos. Não pede lock do usuário. |
 
-Quem trava usuário e sessões segue a ordem usuário → sessões → tokens; quem trava apenas sessões nunca pede o lock do usuário depois. O SQL dos locks permanece em [`IdentityDbContext`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs), compartilhado com a [redefinição de senha](password-reset.md). A troca de senha e o login continuam serializados: um login com hash antigo não abre sessão após a troca nem restaura a senha antiga por rehash. A [ordem dos locks](../architecture/identity.md#ordem-dos-locks) explica a compatibilidade com as FKs.
+Quem trava usuário e sessões segue a ordem usuário → sessões → tokens; quem trava apenas sessões nunca pede o lock do usuário depois. O SQL dos locks permanece em [`IdentityDbContext`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs), compartilhado com a [redefinição de senha](password-reset.md). A troca de senha e o login continuam serializados: um login com hash antigo não abre sessão após a troca nem restaura a senha antiga por rehash. A [ordem dos locks](../architecture/identity.md#ordem-dos-locks) explica a compatibilidade com as FKs.
 
 Não há chamada HTTP, ao broker ou ao provedor de e-mail enquanto os locks estão mantidos. A emissão local do access token ocorre após o commit. Logout e logout-all preservam a validade dos access tokens já emitidos até sua expiração. Logout-all não promete encerrar um login concorrente cuja sessão ainda não esteja confirmada.
 

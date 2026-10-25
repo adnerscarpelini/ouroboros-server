@@ -4,7 +4,7 @@ Identity possui seus parâmetros e histórico desde a [#81](https://github.com/a
 
 ## Leitura e escrita
 
-O contrato [`Identity.Contracts.ISystemParameters`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/ISystemParameters.cs) recebe chave e cancelamento e devolve valor textual. `SystemParameters` usa a porta interna `IParameterReader`; `ParameterReader` consulta `identity.parameters` sem cache e sem rastreamento. Chave em branco é recusada, ausência gera `ParameterNotFoundException` e não há fallback para Settings ou valor padrão silencioso. Login, cadastro, recuperação e primeiro administrador leem localmente pelo contrato do proprietário.
+O contrato [`Identity.Contracts.ISystemParameters`](../../src/Services/Identity/Ouroboros.Identity/Contracts/ISystemParameters.cs) recebe chave e cancelamento e devolve valor textual. `SystemParameters` usa a porta interna `IParameterReader`; `ParameterReader` consulta `identity.parameters` sem cache e sem rastreamento. Chave em branco é recusada, ausência gera `ParameterNotFoundException` e não há fallback para Settings ou valor padrão silencioso. Login, cadastro, recuperação e primeiro administrador leem localmente pelo contrato do proprietário.
 
 `ParameterWriter` usa `IParameterPersistence`; `ParameterPersistence` aplica as [regras de tipo, padrão e sensibilidade](../architecture/system-parameters.md), grava parâmetro e histórico num único `SaveChangesAsync` e preserva autor, instante e revisão. Os tipos de domínio e os adaptadores estão no próprio Identity; registros são scoped em `AddIdentityModule`. EF, SQL e tradução de concorrência/unicidade permanecem em Infrastructure. Revisão é token de concorrência; a combinação chave/revisão do histórico é única, e conflito desfaz a operação inteira.
 
@@ -12,7 +12,7 @@ O contexto é o mesmo que poderá gravar a intenção de aviso da #34; esta entr
 
 ## Migração e preservação
 
-A migration [`20261025142848_OwnIdentityParameters`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Migrations/20261025142848_OwnIdentityParameters.cs) cria as duas tabelas em `identity`, com PKs, índices únicos e colunas equivalentes. Na existência das duas tabelas legadas, obtém `SHARE` locks sobre elas, valida o histórico da revisão corrente, copia todos os campos e compara as linhas completas nos dois sentidos com `EXCEPT ALL` sobre JSONB. Preserva ids internos, identificadores públicos, valores, descrições, tipos, padrões, sensibilidade, revisões, autores e instantes, inclusive todo o histórico. Reposiciona as sequências acima dos ids copiados.
+A migration [`20261025142848_OwnIdentityParameters`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations/20261025142848_OwnIdentityParameters.cs) cria as duas tabelas em `identity`, com PKs, índices únicos e colunas equivalentes. Na existência das duas tabelas legadas, obtém `SHARE` locks sobre elas, valida o histórico da revisão corrente, copia todos os campos e compara as linhas completas nos dois sentidos com `EXCEPT ALL` sobre JSONB. Preserva ids internos, identificadores públicos, valores, descrições, tipos, padrões, sensibilidade, revisões, autores e instantes, inclusive todo o histórico. Reposiciona as sequências acima dos ids copiados.
 
 Cópia e validação pertencem à transação da migration. Origem incompleta, histórico corrente inconsistente ou divergência da cópia abortam a migration, inclusive a criação das tabelas de destino; o histórico de migrations não registra essa aplicação. A origem não é alterada. A versão nova não deve ser ativada nesse caso: seu leitor não acessa Settings como alternativa.
 
@@ -70,7 +70,7 @@ O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam
 4. Aplique a migration de Identity com a connection string atual e a aplicação nova ainda parada:
 
    ```powershell
-   dotnet ef database update --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
+   dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
    if ($LASTEXITCODE -ne 0) { throw 'Migração de Identity falhou; não ativar a versão nova.' }
    ```
 

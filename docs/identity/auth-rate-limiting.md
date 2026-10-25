@@ -4,7 +4,7 @@
 
 Conter força bruta, credential stuffing e consumo de CPU pelos endpoints anônimos de autenticação. O [bloqueio de conta](account-lockout.md) protege uma conta; o limite por IP protege o servidor contra tentativas espalhadas por muitas contas a partir do mesmo endereço.
 
-Módulo responsável: Identity. O módulo registra o rate limiter e as políticas em `AddIdentityModule`; os hosts ativam o middleware ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e aplicam a política em cada action com `[EnableRateLimiting]`. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
+Serviço responsável: Identity. O serviço registra o rate limiter e as políticas em `AddIdentityModule`; os hosts ativam o middleware ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e aplicam a política em cada action com `[EnableRateLimiting]`. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
 
 ## Comportamento
 
@@ -66,7 +66,7 @@ Como qualquer configuração do ASP.NET Core, os valores podem ser sobrescritos 
 
 ### Validação na subida
 
-As opções são validadas com `ValidateOnStart` pelo [`AuthRateLimitOptionsValidator`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/RateLimiting/AuthRateLimitOptions.cs). O host não sobe, com `OptionsValidationException` e uma mensagem que cita a chave, quando:
+As opções são validadas com `ValidateOnStart` pelo [`AuthRateLimitOptionsValidator`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/RateLimiting/AuthRateLimitOptions.cs). O host não sobe, com `OptionsValidationException` e uma mensagem que cita a chave, quando:
 
 - uma política usada por algum endpoint (listada em `AuthRateLimitOptions.RequiredPolicies`) não está configurada: `A política 'Identity:RateLimiting:Policies:identity-login' não foi configurada.`;
 - `PermitLimit` ou `Window` de qualquer política configurada é zero ou negativo: `'Identity:RateLimiting:Policies:identity-login:PermitLimit' deve ser positivo.`;
@@ -82,7 +82,7 @@ Os limites do [bloqueio de conta](account-lockout.md#configuração) ficam nos [
 
 Para um endpoint anônimo de autenticação, seguir o mesmo procedimento usado na renovação, no logout, no cadastro e na redefinição de senha:
 
-1. Crie a constante do nome em [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs), em `Contracts`, seguindo o padrão `identity-<endpoint>`.
+1. Crie a constante do nome em [`IdentityRateLimitPolicies`](../../src/Services/Identity/Ouroboros.Identity/Contracts/IdentityRateLimitPolicies.cs), em `Contracts`, seguindo o padrão `identity-<endpoint>`.
 2. Inclua a constante em `AuthRateLimitOptions.RequiredPolicies`, para que a falta de configuração impeça a subida.
 3. Configure `PermitLimit` e `Window` em `Identity:RateLimiting:Policies:<nome>` no `appsettings.json` dos dois hosts (mesmo que só um exponha o endpoint, os dois validam a lista de políticas obrigatórias).
 4. Marque a action do controller com `[EnableRateLimiting(IdentityRateLimitPolicies.<Nome>)]` e declare `[ProducesResponseType<ProblemDetails>(StatusCodes.Status429TooManyRequests)]`.
@@ -101,9 +101,9 @@ Cada política configurada vira uma política nomeada com o próprio contador; n
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IdentityRateLimitPolicies`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/IdentityRateLimitPolicies.cs) | `Contracts` (`public`) | Nomes das políticas usados pelos controllers dos hosts; hoje, `Login = "identity-login"`, `Refresh = "identity-refresh"`, `Logout = "identity-logout"`, `Registration = "identity-registration"`, `RegistrationCompletion = "identity-registration-completion"`, `PasswordReset = "identity-password-reset"` e `PasswordResetCompletion = "identity-password-reset-completion"`. |
-| [`AuthRateLimitOptions`, `FixedWindowPolicy` e `AuthRateLimitOptionsValidator`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/RateLimiting/AuthRateLimitOptions.cs) | `Infrastructure/RateLimiting` (`internal`) | Seção `Identity:RateLimiting`, lista das políticas obrigatórias e validação na subida. |
-| [`AuthRateLimiting`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/RateLimiting/AuthRateLimiting.cs) | `Infrastructure/RateLimiting` (`internal`) | Chamado por `AddIdentityModule`: registra as opções, o `AddRateLimiter` com a resposta `429` (ProblemDetails, `Retry-After` e log) e uma política de janela fixa por IP para cada política configurada. |
+| [`IdentityRateLimitPolicies`](../../src/Services/Identity/Ouroboros.Identity/Contracts/IdentityRateLimitPolicies.cs) | `Contracts` (`public`) | Nomes das políticas usados pelos controllers dos hosts; hoje, `Login = "identity-login"`, `Refresh = "identity-refresh"`, `Logout = "identity-logout"`, `Registration = "identity-registration"`, `RegistrationCompletion = "identity-registration-completion"`, `PasswordReset = "identity-password-reset"` e `PasswordResetCompletion = "identity-password-reset-completion"`. |
+| [`AuthRateLimitOptions`, `FixedWindowPolicy` e `AuthRateLimitOptionsValidator`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/RateLimiting/AuthRateLimitOptions.cs) | `Infrastructure/RateLimiting` (`internal`) | Seção `Identity:RateLimiting`, lista das políticas obrigatórias e validação na subida. |
+| [`AuthRateLimiting`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/RateLimiting/AuthRateLimiting.cs) | `Infrastructure/RateLimiting` (`internal`) | Chamado por `AddIdentityModule`: registra as opções, o `AddRateLimiter` com a resposta `429` (ProblemDetails, `Retry-After` e log) e uma política de janela fixa por IP para cada política configurada. |
 | [`OuroborosHostExtensions.UseOuroborosHost`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs) | `Ouroboros.Hosting` | `app.UseRateLimiter()` depois de `UseStatusCodePages()` e antes de `UseAuthentication()`. |
 
 Como o `AddRateLimiter` vem do Identity e o `UseRateLimiter` está na configuração comum dos hosts, todo host que use `UseOuroborosHost` precisa registrar o Identity; sem ele, o host não sobe.

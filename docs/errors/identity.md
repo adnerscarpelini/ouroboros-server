@@ -1,6 +1,6 @@
-# Erros do módulo Identity
+# Erros do serviço Identity
 
-Falhas de negócio do módulo Identity, no formato do [catálogo de erros](README.md).
+Falhas de negócio do serviço Identity, no formato do [catálogo de erros](README.md).
 
 ## invalid-credentials
 

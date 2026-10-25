@@ -3,8 +3,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Contracts.PasswordResets;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Contracts.PasswordResets;
 
 namespace Ouroboros.Api.Controllers.Identity;
 

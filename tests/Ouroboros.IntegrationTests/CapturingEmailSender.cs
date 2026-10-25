@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using Ouroboros.Modules.Identity.Application.Notifications;
+using Ouroboros.Identity.Application.Notifications;
 
 namespace Ouroboros.IntegrationTests;
 

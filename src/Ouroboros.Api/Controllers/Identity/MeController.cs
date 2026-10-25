@@ -1,9 +1,9 @@
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Contracts.Sessions;
-using Ouroboros.Modules.Identity.Contracts.Users;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Contracts.Sessions;
+using Ouroboros.Identity.Contracts.Users;
 
 namespace Ouroboros.Api.Controllers.Identity;
 

@@ -4,7 +4,7 @@
 
 O cliente da API precisa saber quem está autenticado e qual é o seu papel, por exemplo para decidir que telas mostrar. A rota `me` devolve o `id`, o e-mail e o papel do usuário do access token, lidos do banco a cada chamada.
 
-Módulo responsável: Identity. A consulta fica no caso de uso `IGetCurrentUser` do módulo; os controllers dos dois hosts só leem o usuário do access token, chamam o caso de uso e traduzem o resultado em `200` ou `401` ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A consulta fica no caso de uso `IGetCurrentUser` do serviço; os controllers dos dois hosts só leem o usuário do access token, chamam o caso de uso e traduzem o resultado em `200` ou `401` ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
 ## Rotas
 
@@ -76,10 +76,10 @@ Nos casos com token válido, é o controller que responde `401` e acrescenta `WW
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IGetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Users/IGetCurrentUser.cs) | `Contracts/Users` (`public`) | `ExecuteAsync(GetCurrentUserRequest(UserId, Channel))`, que devolve `CurrentUser(Id, Email, Role)` ou `null`. `UserId` é o `ExternalId` do usuário, lido do claim `sub`; `Channel` é o `LoginChannel` do host (`CustomerApp` ou `Backoffice`). |
-| [`GetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Application/Users/GetCurrentUser.cs) | `Application/Users` (`internal`) | Resolve o papel exigido pelo canal com `LoginChannels.RoleOf` e consulta a porta `ICurrentUserReader`, propagando o cancelamento. Registrado como scoped em `AddIdentityModule`. |
-| [`ICurrentUserReader`](../../src/Modules/Ouroboros.Modules.Identity/Application/Users/ICurrentUserReader.cs) | `Application/Users` (`internal`) | Porta mínima de leitura: `FindActiveAsync(Guid externalId, UserRole role, CancellationToken)` devolve `CurrentUser?`, sem entidades, `IQueryable` ou tipos de persistência. |
-| [`CurrentUserReader`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/CurrentUserReader.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador EF Core da porta, registrado como scoped. Filtra pelo identificador público, usuário ativo e papel informado; projeta somente os campos de `CurrentUser`, sem tracking. |
+| [`IGetCurrentUser`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Users/IGetCurrentUser.cs) | `Contracts/Users` (`public`) | `ExecuteAsync(GetCurrentUserRequest(UserId, Channel))`, que devolve `CurrentUser(Id, Email, Role)` ou `null`. `UserId` é o `ExternalId` do usuário, lido do claim `sub`; `Channel` é o `LoginChannel` do host (`CustomerApp` ou `Backoffice`). |
+| [`GetCurrentUser`](../../src/Services/Identity/Ouroboros.Identity/Application/Users/GetCurrentUser.cs) | `Application/Users` (`internal`) | Resolve o papel exigido pelo canal com `LoginChannels.RoleOf` e consulta a porta `ICurrentUserReader`, propagando o cancelamento. Registrado como scoped em `AddIdentityModule`. |
+| [`ICurrentUserReader`](../../src/Services/Identity/Ouroboros.Identity/Application/Users/ICurrentUserReader.cs) | `Application/Users` (`internal`) | Porta mínima de leitura: `FindActiveAsync(Guid externalId, UserRole role, CancellationToken)` devolve `CurrentUser?`, sem entidades, `IQueryable` ou tipos de persistência. |
+| [`CurrentUserReader`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/CurrentUserReader.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador EF Core da porta, registrado como scoped. Filtra pelo identificador público, usuário ativo e papel informado; projeta somente os campos de `CurrentUser`, sem tracking. |
 | [`MeController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/MeController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/MeController.cs) | `Controllers/Identity` de cada host | Action `Get`, sem `[AllowAnonymous]` nem rate limit. Lê o `sub` com `IdentityClaims.Subject`, passa o canal do host e devolve o `MeResponse(Id, Email, Role)` declarado no mesmo arquivo. |
 
 O caso de uso depende da porta interna, sem acessar EF Core ou Infrastructure. A consulta e a projeção ficam no adaptador de Infrastructure; o contrato público e as restrições dos dois hosts permanecem os mesmos. A exceção de `GetCurrentUser` foi retirada da [lista de transição dos testes de arquitetura](../../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs), conforme a [matriz de dependências](../architecture/layer-dependencies.md).

@@ -5,11 +5,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Ouroboros.Modules.Identity.Application.Notifications;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
+using Ouroboros.Identity.Application.Notifications;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 

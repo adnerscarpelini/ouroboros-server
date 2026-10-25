@@ -8,9 +8,11 @@
   <Folder Name="/src/Modules/">
     <Project Path="src/Modules/Ouroboros.Modules.Accounts/Ouroboros.Modules.Accounts.csproj" />
     <Project Path="src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj" />
-    <Project Path="src/Modules/Ouroboros.Modules.Identity/Ouroboros.Modules.Identity.csproj" />
     <Project Path="src/Modules/Ouroboros.Modules.Settings/Ouroboros.Modules.Settings.csproj" />
     <Project Path="src/Modules/Ouroboros.Modules.Transactions/Ouroboros.Modules.Transactions.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Identity/">
+    <Project Path="src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Ouroboros.ArchitectureTests/Ouroboros.ArchitectureTests.csproj" />

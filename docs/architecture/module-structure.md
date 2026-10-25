@@ -17,7 +17,7 @@ src/
 tests/
 ```
 
-A biblioteca própria organiza Domain, Application, Infrastructure e contratos. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
+A biblioteca própria organiza Domain, Application, Infrastructure e contratos como pastas, com assembly e namespace raiz `Ouroboros.<Serviço>`. Identity segue esse formato em `src/Services/Identity/Ouroboros.Identity`. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
 
 Customers e a fronteira financeira serão implementados conforme funcionalidades. Não criar serviços vazios para reproduzir pastas. Parâmetros pertencem ao proprietário, sem serviço Settings central obrigatório.
 

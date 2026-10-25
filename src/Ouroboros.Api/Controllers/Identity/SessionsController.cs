@@ -2,8 +2,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using Ouroboros.Modules.Identity.Contracts;
-using Ouroboros.Modules.Identity.Contracts.Sessions;
+using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Contracts.Sessions;
 
 namespace Ouroboros.Api.Controllers.Identity;
 

@@ -1,6 +1,6 @@
 # Portas de leitura e escrita de parâmetros
 
-A [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) introduziu em Settings as portas usadas por `SystemParameters` e `ParameterWriter`. A [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) transferiu esses tipos, regras e dados para Identity, preservando a semântica descrita abaixo. O contrato vigente é `Ouroboros.Modules.Identity.Contracts.ISystemParameters`; o contexto de runtime é `IdentityDbContext`. Consulte [parâmetros locais de Identity](../identity/parameters.md) para os caminhos atuais, migração, backup e recuperação. O projeto e o schema legados de Settings permanecem preservados, sem leitores/escritores registrados em runtime.
+A [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) introduziu em Settings as portas usadas por `SystemParameters` e `ParameterWriter`. A [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) transferiu esses tipos, regras e dados para Identity, preservando a semântica descrita abaixo. O contrato vigente é `Ouroboros.Identity.Contracts.ISystemParameters`; o contexto de runtime é `IdentityDbContext`. Consulte [parâmetros locais de Identity](../identity/parameters.md) para os caminhos atuais, migração, backup e recuperação. O projeto e o schema legados de Settings permanecem preservados, sem leitores/escritores registrados em runtime.
 
 ## Leitura
 

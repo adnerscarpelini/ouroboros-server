@@ -4,7 +4,7 @@
 
 O usuário encerra a sessão do dispositivo atual, por exemplo ao sair de um computador compartilhado. O logout revoga o refresh token informado, e a sessão deixa de renovar o access token. As outras sessões do usuário (outros logins, outros dispositivos) continuam funcionando; para encerrar todas de uma vez, use o [logout-all](logout-all.md).
 
-Módulo responsável: Identity. A regra fica no caso de uso `ILogout` do módulo; os controllers dos dois hosts só validam o tamanho da entrada, chamam o caso de uso e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogout` do serviço; os controllers dos dois hosts só validam o tamanho da entrada, chamam o caso de uso e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
 ## Rotas
 
@@ -96,9 +96,9 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
-| [`Logout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Orquestra a transação e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
-| [`IdentityDbContext.LockSessionAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. É compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
+| [`ILogout`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
+| [`Logout`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Orquestra a transação e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
+| [`IdentityDbContext.LockSessionAsync`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. É compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
 | [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Logout`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Logout)]`, ao lado do login e da renovação; reutiliza o DTO `RefreshSessionBody` de `SessionModels.cs`. |
 
 ## Limitações

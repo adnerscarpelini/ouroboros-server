@@ -11,7 +11,7 @@ O fluxo tem duas etapas:
 
 Depois disso, o cliente entra pelo [login da API externa](login.md). A conclusão não faz login automático.
 
-Módulo responsável: Identity. As regras ficam nos casos de uso `IRequestRegistration` e `ICompleteRegistration` do módulo; o controller da API externa só valida a entrada, chama o caso de uso e traduz o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. As regras ficam nos casos de uso `IRequestRegistration` e `ICompleteRegistration` do serviço; o controller da API externa só valida a entrada, chama o caso de uso e traduz o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
 ## Rotas
 
@@ -116,7 +116,7 @@ Acima de 5 solicitações por minuto do mesmo IP, a resposta é `429` com `Retry
 
 ### Regra estrita de e-mail
 
-Os e-mails de conta passam por [`EmailAddresses.IsValid`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) (`Domain/Users`), a mesma regra do tipo `Email` dos [parâmetros do sistema](../architecture/system-parameters.md#regras-de-validação). Sobre o e-mail já normalizado, exige:
+Os e-mails de conta passam por [`EmailAddresses.IsValid`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/EmailAddresses.cs) (`Domain/Users`), a mesma regra do tipo `Email` dos [parâmetros do sistema](../architecture/system-parameters.md#regras-de-validação). Sobre o e-mail já normalizado, exige:
 
 - no máximo 254 caracteres;
 - endereço interpretado igual à própria entrada, sem nome de exibição (`Ana <ana@example.com>` é recusado);
@@ -205,14 +205,14 @@ Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IRequestRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Registrations/IRequestRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(RequestRegistrationRequest(Email))`, que devolve `RequestRegistrationResult`: `Accepted` (com ou sem envio do link) ou `InvalidEmail` (formato fora da regra estrita). |
-| [`RequestRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/RequestRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da solicitação, registrada como scoped em `AddIdentityModule`. Declara as chaves dos dois parâmetros. |
-| [`ICompleteRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Registrations/ICompleteRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(CompleteRegistrationRequest(Token, Password))`, que devolve `CompleteRegistrationResult(Outcome, Message)`. `CompleteRegistrationOutcome`: `Completed`, `InvalidToken` ou `PasswordRejected` (com a regra violada em `Message`). |
-| [`CompleteRegistration`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/CompleteRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
-| [`IRegistrationStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Registrations/IRegistrationStore.cs) | `Application/Registrations` (`internal`) | Porta scoped de consulta de e-mail/token, substituição atômica de token pendente e conclusão atômica com a conta. Não expõe EF, SQL ou transação do provedor. |
-| [`RegistrationStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/RegistrationStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped sobre `IdentityDbContext`; mantém EF, SQL, advisory lock, transações e reconhecimento de unicidade por `PersistenceErrors` fora dos casos de uso. |
-| [`EmailAddresses`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) | `Domain/Users` (`internal`) | Regra estrita de e-mail das contas. |
-| [`OpaqueTokens`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera tokens opacos de 32 bytes em Base64Url e calcula o SHA-256; usado pelo cadastro, pela [redefinição de senha](password-reset.md) e pelas sessões. Era o `RefreshTokens`, renomeado na #20. |
+| [`IRequestRegistration`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Registrations/IRequestRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(RequestRegistrationRequest(Email))`, que devolve `RequestRegistrationResult`: `Accepted` (com ou sem envio do link) ou `InvalidEmail` (formato fora da regra estrita). |
+| [`RequestRegistration`](../../src/Services/Identity/Ouroboros.Identity/Application/Registrations/RequestRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da solicitação, registrada como scoped em `AddIdentityModule`. Declara as chaves dos dois parâmetros. |
+| [`ICompleteRegistration`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Registrations/ICompleteRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(CompleteRegistrationRequest(Token, Password))`, que devolve `CompleteRegistrationResult(Outcome, Message)`. `CompleteRegistrationOutcome`: `Completed`, `InvalidToken` ou `PasswordRejected` (com a regra violada em `Message`). |
+| [`CompleteRegistration`](../../src/Services/Identity/Ouroboros.Identity/Application/Registrations/CompleteRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
+| [`IRegistrationStore`](../../src/Services/Identity/Ouroboros.Identity/Application/Registrations/IRegistrationStore.cs) | `Application/Registrations` (`internal`) | Porta scoped de consulta de e-mail/token, substituição atômica de token pendente e conclusão atômica com a conta. Não expõe EF, SQL ou transação do provedor. |
+| [`RegistrationStore`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/RegistrationStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped sobre `IdentityDbContext`; mantém EF, SQL, advisory lock, transações e reconhecimento de unicidade por `PersistenceErrors` fora dos casos de uso. |
+| [`EmailAddresses`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/EmailAddresses.cs) | `Domain/Users` (`internal`) | Regra estrita de e-mail das contas. |
+| [`OpaqueTokens`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera tokens opacos de 32 bytes em Base64Url e calcula o SHA-256; usado pelo cadastro, pela [redefinição de senha](password-reset.md) e pelas sessões. Era o `RefreshTokens`, renomeado na #20. |
 | [`RegistrationsController`](../../src/Ouroboros.Api/Controllers/Identity/RegistrationsController.cs) | `Controllers/Identity` da API externa | Action `Create` (solicitação), com `[EnableRateLimiting(IdentityRateLimitPolicies.Registration)]`, e action `Complete` (`[HttpPost("complete")]`), com `[EnableRateLimiting(IdentityRateLimitPolicies.RegistrationCompletion)]`; as duas com `[AllowAnonymous]`. Declara no mesmo arquivo o `RegistrationRequestBody` (só `Email`), o `CompleteRegistrationBody` (`Token` e `Password`) e o `AcceptedResponse(Message)`. As constantes do `type` e do `title` dos dois erros ficam em `IdentityErrors`, no `SessionModels.cs`. |
 
 ## Persistência
@@ -223,7 +223,7 @@ Cada operação de escrita da porta preserva a unidade de trabalho inteira. `Rep
 
 O transporte continua pela porta local `IEmailSender`, chamada somente após o retorno confirmado de `ReplacePendingTokenAsync`, sem locks mantidos durante envio. Não há outbox nesta entrega; a [política da #79](../architecture/reliable-delivery.md) será integrada pela #85. A #81 transferiu a leitura de parâmetros para o [proprietário Identity](parameters.md), no mesmo contexto.
 
-A migration `AddEmailTokens` cria a tabela `identity.email_tokens`, da entidade [`EmailToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/EmailTokens/EmailToken.cs) (`Domain/EmailTokens`), mapeada por [`EmailTokenConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/EmailTokenConfiguration.cs). É genérica: guarda os tokens de uso único enviados por e-mail, hoje os de cadastro e os da [redefinição de senha](password-reset.md#persistência) ([#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22)). Os dois tipos são independentes: uma solicitação de um tipo só revoga os pendentes do mesmo tipo. Além de `id`, `external_id`, `created_at` e `updated_at` das [convenções das entidades](../architecture/entity-conventions.md):
+A migration `AddEmailTokens` cria a tabela `identity.email_tokens`, da entidade [`EmailToken`](../../src/Services/Identity/Ouroboros.Identity/Domain/EmailTokens/EmailToken.cs) (`Domain/EmailTokens`), mapeada por [`EmailTokenConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/EmailTokenConfiguration.cs). É genérica: guarda os tokens de uso único enviados por e-mail, hoje os de cadastro e os da [redefinição de senha](password-reset.md#persistência) ([#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22)). Os dois tipos são independentes: uma solicitação de um tipo só revoga os pendentes do mesmo tipo. Além de `id`, `external_id`, `created_at` e `updated_at` das [convenções das entidades](../architecture/entity-conventions.md):
 
 | Coluna | Tipo | Observação |
 | --- | --- | --- |

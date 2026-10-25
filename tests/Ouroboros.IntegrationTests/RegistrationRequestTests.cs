@@ -10,9 +10,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
-using Ouroboros.Modules.Identity.Application.Notifications;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Application.Notifications;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 

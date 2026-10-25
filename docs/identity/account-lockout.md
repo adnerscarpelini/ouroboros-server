@@ -4,7 +4,7 @@
 
 Impedir que um atacante teste senhas indefinidamente contra a mesma conta, mesmo trocando de IP. Complementa o [limite de requisições por IP](auth-rate-limiting.md), que contém tentativas espalhadas por várias contas a partir do mesmo endereço. Depois de um número de falhas de senha seguidas, a conta fica bloqueada por um tempo, e o [login](login.md) a recusa mesmo com a senha correta.
 
-Módulo responsável: Identity. A regra fica no caso de uso `Login` e na classe [`AccountLockout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/AccountLockout.cs), em `Application/Sessions`; não há rota própria. O bloqueio vale para as duas rotas de login, a da API externa e a do backoffice, porque o contador fica no usuário.
+Serviço responsável: Identity. A regra fica no caso de uso `Login` e na classe [`AccountLockout`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/AccountLockout.cs), em `Application/Sessions`; não há rota própria. O bloqueio vale para as duas rotas de login, a da API externa e a do backoffice, porque o contador fica no usuário.
 
 ## Comportamento
 
@@ -39,7 +39,7 @@ Com os valores iniciais dos parâmetros (5 falhas, 15 minutos):
 
 ### Contagem atômica
 
-`AccountLockout.RegisterFailureAsync` delega a gravação à porta `ISessionStore`; o adaptador `SessionStore`, em Infrastructure, registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio módulo, sem tocar outro schema.
+`AccountLockout.RegisterFailureAsync` delega a gravação à porta `ISessionStore`; o adaptador `SessionStore`, em Infrastructure, registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio serviço, sem tocar outro schema.
 
 ### Log do bloqueio
 
@@ -69,7 +69,7 @@ Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback 
 
 ## Persistência
 
-Colunas acrescentadas a `identity.users` pela migration `AddAccountLockout`, mapeadas por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) a partir de [`User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs):
+Colunas acrescentadas a `identity.users` pela migration `AddAccountLockout`, mapeadas por [`UserConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs) a partir de [`User`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/User.cs):
 
 | Coluna | Tipo | Conteúdo |
 | --- | --- | --- |

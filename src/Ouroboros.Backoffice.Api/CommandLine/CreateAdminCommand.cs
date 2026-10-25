@@ -1,4 +1,4 @@
-using Ouroboros.Modules.Identity.Contracts.Administrators;
+using Ouroboros.Identity.Contracts.Administrators;
 
 namespace Ouroboros.Backoffice.Api.CommandLine;
 

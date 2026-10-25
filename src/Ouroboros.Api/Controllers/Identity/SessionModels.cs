@@ -1,5 +1,5 @@
 using System.ComponentModel.DataAnnotations;
-using Ouroboros.Modules.Identity.Contracts.Sessions;
+using Ouroboros.Identity.Contracts.Sessions;
 
 namespace Ouroboros.Api.Controllers.Identity;
 

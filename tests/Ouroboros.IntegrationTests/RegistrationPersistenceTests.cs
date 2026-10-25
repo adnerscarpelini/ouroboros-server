@@ -1,10 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Ouroboros.Modules.Identity.Application.Registrations;
-using Ouroboros.Modules.Identity.Application.Security;
-using Ouroboros.Modules.Identity.Domain.EmailTokens;
-using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
+using Ouroboros.Identity.Application.Registrations;
+using Ouroboros.Identity.Application.Security;
+using Ouroboros.Identity.Domain.EmailTokens;
+using Ouroboros.Identity.Domain.Users;
+using Ouroboros.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.IntegrationTests;
 

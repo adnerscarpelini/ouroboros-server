@@ -2,7 +2,7 @@
 
 ## Contexto
 
-O módulo Identity precisa de usuários com senha, papéis e login com JWT e refresh token. O ASP.NET Core Identity completo oferece tudo isso pronto, mas com custos para o Ouroboros:
+O serviço Identity precisa de usuários com senha, papéis e login com JWT e refresh token. O ASP.NET Core Identity completo oferece tudo isso pronto, mas com custos para o Ouroboros:
 
 - os endpoints prontos (`MapIdentityApi`) emitem tokens proprietários, que não são JWT, e a Microsoft os descreve como voltados a cenários simples;
 - o `IdentityDbContext` e o `IdentityUser` impõem as tabelas `AspNet*` e acoplam o domínio ao framework, em conflito com as [convenções das entidades](entity-conventions.md) e a independência do domínio. O schema é uma organização interna do [banco do proprietário](persistence.md).
@@ -18,13 +18,13 @@ Por outro lado, escrever o hash de senha à mão é um risco desnecessário: alg
 
 ## Modelo do usuário
 
-[`Domain/Users/User`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/User.cs) é `internal sealed` e herda a base `Entity` de [BuildingBlocks](building-blocks.md) (`Id`, `ExternalId`, `CreatedAt`, `UpdatedAt`). É criado por `User.Create(email, passwordHash, role)`:
+[`Domain/Users/User`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/User.cs) é `internal sealed` e herda a base `Entity` de [BuildingBlocks](building-blocks.md) (`Id`, `ExternalId`, `CreatedAt`, `UpdatedAt`). É criado por `User.Create(email, passwordHash, role)`:
 
 | Propriedade | Regra |
 | --- | --- |
-| `Email` | Obrigatório. Normalizado no domínio (sem espaços nas pontas e em minúsculas, com `ToLowerInvariant`); depois da normalização, tem no máximo 254 caracteres (`User.EmailMaxLength`, limite prático da RFC 5321) e precisa atender à regra estrita de [`EmailAddresses.IsValid`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/EmailAddresses.cs) (veja abaixo). Vazio ou em branco lança `ArgumentException` na normalização; longo demais ou fora da regra estrita lança `ArgumentException` com `O e-mail não é um endereço válido.` |
+| `Email` | Obrigatório. Normalizado no domínio (sem espaços nas pontas e em minúsculas, com `ToLowerInvariant`); depois da normalização, tem no máximo 254 caracteres (`User.EmailMaxLength`, limite prático da RFC 5321) e precisa atender à regra estrita de [`EmailAddresses.IsValid`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/EmailAddresses.cs) (veja abaixo). Vazio ou em branco lança `ArgumentException` na normalização; longo demais ou fora da regra estrita lança `ArgumentException` com `O e-mail não é um endereço válido.` |
 | `PasswordHash` | Obrigatório; o domínio guarda só o hash, nunca a senha. Muda por `ChangePasswordHash` (rehash no login) ou pelo `UPDATE` explícito da [redefinição de senha](../identity/password-reset.md#regras-da-redefinição), que não passa pela entidade. |
-| `Role` | [`UserRole`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Users/UserRole.cs): `Customer` ou `Admin`, exatamente um por usuário. |
+| `Role` | [`UserRole`](../../src/Services/Identity/Ouroboros.Identity/Domain/Users/UserRole.cs): `Customer` ou `Admin`, exatamente um por usuário. |
 | `IsActive` | Nasce `true`. O login recusa usuário inativo com o mesmo `401` de senha errada, e a [rota `me`](../identity/me.md) responde `401` a um usuário inativo mesmo com access token válido. |
 | `FailedLoginCount` | Nasce 0. Falhas de senha seguidas; o incremento é feito por um `UPDATE` atômico no banco, não pela entidade. Zerado por `ResetFailedLogins` no login bem-sucedido e pela redefinição de senha. |
 | `LockedUntil` | Nasce nulo. Fim do bloqueio por falhas de senha; `IsLockedAt(now)` indica se ainda vale. Limpo por `ResetFailedLogins` e pela redefinição de senha. Detalhes em [Bloquear a conta](../identity/account-lockout.md). |
@@ -37,9 +37,9 @@ A unicidade do e-mail sem distinção de maiúsculas vem da normalização: `Cli
 
 | Tipo | Camada | Papel |
 | --- | --- | --- |
-| [`IPasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/IPasswordHasher.cs) | `Application/Security` | Porta do serviço: `Hash(password)` e `Verify(passwordHash, providedPassword)`, que retorna `PasswordVerificationOutcome` (`Failed`, `Succeeded`, `SucceededRehashNeeded`). Os tipos do ASP.NET Core Identity não aparecem nela. |
-| [`UserPasswordVerifier`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/UserPasswordVerifier.cs) | `Application/Security` | Verifica a senha de um `User`; em `SucceededRehashNeeded`, gera um hash novo e o atribui com `ChangePasswordHash`. Retorna `true` nos dois casos de sucesso. Não grava: quem chama salva o usuário, como faz o login. Em falha, o hash não muda. `VerifyWithoutUser(password)` executa uma verificação que sempre falha contra um hash fictício, gerado com os parâmetros atuais na criação do singleton, para que um e-mail inexistente custe o mesmo que uma senha errada. |
-| [`AspNetCorePasswordHasher`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) | `Infrastructure/Security` | Implementa a porta com `PasswordHasher<User>`, `CompatibilityMode = IdentityV3` e `IterationCount = 210.000`. Normaliza a senha em NFKC antes de gerar e de verificar o hash, para que a mesma senha com acento composto ou decomposto confira ([Política de senha](password-policy.md#nfkc-no-hasher)). Traduz `PasswordVerificationResult` para `PasswordVerificationOutcome`. |
+| [`IPasswordHasher`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/IPasswordHasher.cs) | `Application/Security` | Porta do serviço: `Hash(password)` e `Verify(passwordHash, providedPassword)`, que retorna `PasswordVerificationOutcome` (`Failed`, `Succeeded`, `SucceededRehashNeeded`). Os tipos do ASP.NET Core Identity não aparecem nela. |
+| [`UserPasswordVerifier`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/UserPasswordVerifier.cs) | `Application/Security` | Verifica a senha de um `User`; em `SucceededRehashNeeded`, gera um hash novo e o atribui com `ChangePasswordHash`. Retorna `true` nos dois casos de sucesso. Não grava: quem chama salva o usuário, como faz o login. Em falha, o hash não muda. `VerifyWithoutUser(password)` executa uma verificação que sempre falha contra um hash fictício, gerado com os parâmetros atuais na criação do singleton, para que um e-mail inexistente custe o mesmo que uma senha errada. |
+| [`AspNetCorePasswordHasher`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Security/AspNetCorePasswordHasher.cs) | `Infrastructure/Security` | Implementa a porta com `PasswordHasher<User>`, `CompatibilityMode = IdentityV3` e `IterationCount = 210.000`. Normaliza a senha em NFKC antes de gerar e de verificar o hash, para que a mesma senha com acento composto ou decomposto confira ([Política de senha](password-policy.md#nfkc-no-hasher)). Traduz `PasswordVerificationResult` para `PasswordVerificationOutcome`. |
 
 O formato V3 grava no próprio hash o algoritmo, o número de iterações e o sal. Por isso o hasher verifica hashes antigos com os parâmetros com que foram gerados e sinaliza o rehash quando as iterações gravadas são menores que as configuradas. Aumentar `IterationCount` no futuro atualiza os hashes aos poucos, a cada login bem-sucedido, sem migração de dados.
 
@@ -51,7 +51,7 @@ O `PasswordHasher<T>` vem do shared framework `Microsoft.AspNetCore.App`. Não �
 
 ## Política de senha
 
-Toda senha nova passa por [`PasswordPolicy`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/PasswordPolicy.cs), em `Application/Security`, antes do hash: 15 a 128 caracteres contados em code points após NFKC, sem regras de composição, recusada se estiver na lista local de senhas comuns ou se contiver `ouroboros` ou a parte local do e-mail (com 4 ou mais caracteres). Detalhes em [Política de senha](password-policy.md). Usam a política o [`create-admin`](../identity/first-admin.md), a [conclusão do cadastro de cliente](../identity/registration.md#regras-da-conclusão), com o e-mail do token como contexto, e a [redefinição de senha](../identity/password-reset.md#regras-da-redefinição), com o e-mail da conta como contexto.
+Toda senha nova passa por [`PasswordPolicy`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/PasswordPolicy.cs), em `Application/Security`, antes do hash: 15 a 128 caracteres contados em code points após NFKC, sem regras de composição, recusada se estiver na lista local de senhas comuns ou se contiver `ouroboros` ou a parte local do e-mail (com 4 ou mais caracteres). Detalhes em [Política de senha](password-policy.md). Usam a política o [`create-admin`](../identity/first-admin.md), a [conclusão do cadastro de cliente](../identity/registration.md#regras-da-conclusão), com o e-mail do token como contexto, e a [redefinição de senha](../identity/password-reset.md#regras-da-redefinição), com o e-mail da conta como contexto.
 
 ## Primeiro administrador
 
@@ -73,7 +73,7 @@ Concluir cadastro consome token e cria usuário de forma atômica, com unicidade
 
 As tabelas `identity.sessions` e `identity.refresh_tokens`, da migration `AddSessions`, estão descritas em [Fazer login com e-mail e senha](../identity/login.md#persistência); a coluna `revoked_at`, da migration `AddRefreshTokenRevocation` (#15), em [Renovar o access token](../identity/refresh-session.md#persistência). A tabela `identity.email_tokens`, da migration `AddEmailTokens` (#20), que guarda só o hash dos tokens de uso único enviados por e-mail (cadastro e redefinição de senha, com `user_id` da conta), está em [Cadastrar cliente por e-mail](../identity/registration.md#persistência). A conclusão do cadastro preenche o `used_at` do token na mesma transação que grava o usuário. Os tokens de redefinição estão em [Redefinir a senha por e-mail](../identity/password-reset.md#persistência); a redefinição preenche o `used_at` do token na mesma transação que troca a senha.
 
-A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs), criada pela migration `AddUsers` e ampliada pela `AddAccountLockout` (#13):
+A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/UserConfiguration.cs), criada pela migration `AddUsers` e ampliada pela `AddAccountLockout` (#13):
 
 | Coluna | Tipo | Observação |
 | --- | --- | --- |

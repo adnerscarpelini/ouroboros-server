@@ -53,6 +53,8 @@ O procedimento `scripts/database`, executado pela credencial administrativa da i
 
 Histórico pertence ao serviço. Aplicar migrations explicitamente por comando, script ou bundle, sem execução automática na subida da API. Classes geradas podem ser públicas para descoberta do EF; não são contratos de integração.
 
+As migrations de Identity ficam em `src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations`. O modelo de dados não depende do caminho, do assembly nem do namespace da biblioteca: `IdentityDbContext`, o schema `identity`, a tabela de histórico, os ids das migrations e o snapshot são os mesmos de bancos já migrados, e o EF não encontra mudanças pendentes no modelo. [`IdentityModelStabilityTests`](../../tests/Ouroboros.IntegrationTests/IdentityModelStabilityTests.cs) verifica ids, schema e ausência de mudanças pendentes; reorganizar pastas ou namespaces não deve gerar migration.
+
 Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento de bancos e roles: [#92](https://github.com/adnerscarpelini/ouroboros-server/issues/92). Parâmetros: #81. Transferência do banco de Identity: #82. Destino do banco original: #97.
 
 ## Transações e recuperação

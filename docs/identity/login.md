@@ -4,7 +4,7 @@
 
 Clientes e administradores entram com e-mail e senha e recebem um access token (JWT) para chamar as rotas protegidas, mais um refresh token opaco. Cada público entra pelo seu host ([Hosts](../architecture/hosts.md)): o cliente pela API externa e o administrador pelo backoffice.
 
-Módulo responsável: Identity. A regra fica no caso de uso `ILogin` do módulo; os controllers dos dois hosts só validam o formato da entrada, chamam o caso de uso com o canal do host e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogin` do serviço; os controllers dos dois hosts só validam o formato da entrada, chamam o caso de uso com o canal do host e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
 
 ## Rotas
 
@@ -117,7 +117,7 @@ A verificação da senha, que é cara, continua fora da transação; só a abert
 - sem o lock, um login com a senha antiga, verificado antes de a redefinição terminar, abriria uma sessão depois de a redefinição revogar todas as outras, e essa sessão seguiria viva com a senha trocada;
 - e um login que refizesse o hash da senha antiga gravaria esse hash por cima do novo, trazendo a senha antiga de volta.
 
-Com o lock, ou o login confirma primeiro (e a redefinição, que espera por ele, revoga a sessão aberta), ou a redefinição confirma primeiro (e o login, que espera por ela, encontra outro hash e responde `401`). O porquê do `FOR NO KEY UPDATE` e a ordem dos locks do módulo estão em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
+Com o lock, ou o login confirma primeiro (e a redefinição, que espera por ele, revoga a sessão aberta), ou a redefinição confirma primeiro (e o login, que espera por ela, encontra outro hash e responde `401`). O porquê do `FOR NO KEY UPDATE` e a ordem dos locks do serviço estão em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
 
 A coordenação da transação permanece em `Login`, por `ISessionStore` e `ISessionTransaction`; EF, consultas e locks são implementados por `SessionStore` em Infrastructure. Veja [Persistência do ciclo de sessões](session-persistence.md).
 
@@ -125,15 +125,15 @@ A coordenação da transação permanece em `Login`, por `ISessionStore` e `ISes
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`ILogin`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogin.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LoginRequest(Email, Password, Channel))`, que retorna `LoginResult`. O mesmo arquivo declara `LoginChannel` (`CustomerApp`, `Backoffice`), `LoginResult` (`Tokens`, `Succeeded` e `InvalidCredentials`, sem motivo da falha) e `SessionTokens` (os dois tokens e as expirações). |
-| [`Login`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Login.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
-| [`OpaqueTokens`](../../src/Modules/Ouroboros.Modules.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera o refresh token (32 bytes aleatórios em Base64Url) e calcula o seu SHA-256. Chamava-se `RefreshTokens` até a #20, que o renomeou ao reutilizá-lo nos tokens enviados por e-mail ([Cadastrar cliente por e-mail](registration.md)). |
-| [`LoginChannels`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/LoginChannels.cs) | `Application/Sessions` (`internal`) | `RoleOf(channel)`: papel aceito por canal, compartilhado com a [renovação](refresh-session.md). |
+| [`ILogin`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Sessions/ILogin.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LoginRequest(Email, Password, Channel))`, que retorna `LoginResult`. O mesmo arquivo declara `LoginChannel` (`CustomerApp`, `Backoffice`), `LoginResult` (`Tokens`, `Succeeded` e `InvalidCredentials`, sem motivo da falha) e `SessionTokens` (os dois tokens e as expirações). |
+| [`Login`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/Login.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
+| [`OpaqueTokens`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera o refresh token (32 bytes aleatórios em Base64Url) e calcula o seu SHA-256. Chamava-se `RefreshTokens` até a #20, que o renomeou ao reutilizá-lo nos tokens enviados por e-mail ([Cadastrar cliente por e-mail](registration.md)). |
+| [`LoginChannels`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/LoginChannels.cs) | `Application/Sessions` (`internal`) | `RoleOf(channel)`: papel aceito por canal, compartilhado com a [renovação](refresh-session.md). |
 | [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Login)]`; os DTOs `CreateSessionRequest` e `SessionResponse` e o `type` do erro ficam em `SessionModels.cs`, um por host. O mesmo controller tem a action `Refresh` da [renovação](refresh-session.md), a `Logout` do [logout](logout.md) e a `LogoutAll` do [logout-all](logout-all.md). |
 
 ## Persistência
 
-A migration `AddSessions` cria duas tabelas no schema `identity`, mapeadas por [`SessionConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/SessionConfiguration.cs) a partir das entidades [`Session`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/Session.cs) e [`RefreshToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/Sessions/RefreshToken.cs), em `Domain/Sessions`. Além das colunas abaixo, as duas têm `id`, `external_id`, `created_at` e `updated_at`, conforme as [convenções das entidades](../architecture/entity-conventions.md); todas as colunas são `not null`, exceto `revoked_at`.
+A migration `AddSessions` cria duas tabelas no schema `identity`, mapeadas por [`SessionConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/SessionConfiguration.cs) a partir das entidades [`Session`](../../src/Services/Identity/Ouroboros.Identity/Domain/Sessions/Session.cs) e [`RefreshToken`](../../src/Services/Identity/Ouroboros.Identity/Domain/Sessions/RefreshToken.cs), em `Domain/Sessions`. Além das colunas abaixo, as duas têm `id`, `external_id`, `created_at` e `updated_at`, conforme as [convenções das entidades](../architecture/entity-conventions.md); todas as colunas são `not null`, exceto `revoked_at`.
 
 | Tabela | Coluna | Observação |
 | --- | --- | --- |

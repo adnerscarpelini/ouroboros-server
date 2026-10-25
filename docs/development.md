@@ -10,15 +10,16 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src` e `Modules` são pastas organizadoras da solution; cada módulo é um projeto C# independente, compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Modules`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é o projeto `Ouroboros.Identity`, em `src/Services/Identity/Ouroboros.Identity`; Accounts, Customers, Settings e Transactions são projetos em `src/Modules`. Cada projeto de biblioteca é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Api` e/ou `Ouroboros.Backoffice.Api` como projetos de inicialização para executar os hosts (para os dois ao mesmo tempo, use **Configurar Projetos de Inicialização → Vários projetos de inicialização**). As bibliotecas dos módulos não são executáveis independentes.
+Defina `Ouroboros.Api` e/ou `Ouroboros.Backoffice.Api` como projetos de inicialização para executar os hosts (para os dois ao mesmo tempo, use **Configurar Projetos de Inicialização → Vários projetos de inicialização**). As bibliotecas de Identity e dos módulos não são executáveis independentes.
 
 Na raiz do repositório:
 
 ```powershell
 dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
+dotnet build src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj
 dotnet build src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj
 ```
 
@@ -85,7 +86,7 @@ Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela,
 
    ```powershell
    dotnet tool restore
-   dotnet ef database update --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
+   dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
    ```
 
    `OwnIdentityParameters` cria sementes com `uuidv7()` em instalação limpa, exigindo PostgreSQL 18 (a versão do `compose.yaml`). No upgrade, copia e valida os parâmetros e histórico de Settings na mesma transação. A migration não faz backup automaticamente nem exclui a origem; não ative a versão nova se ela falhar.
@@ -101,7 +102,7 @@ Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela,
 Para gerar uma nova migration do Identity:
 
 ```powershell
-dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
+dotnet ef migrations add <Nome> --project src/Services/Identity/Ouroboros.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
 `docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
