@@ -77,8 +77,12 @@ Nos casos com token válido, é o controller que responde `401` e acrescenta `WW
 | Tipo | Local | Papel |
 | --- | --- | --- |
 | [`IGetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Users/IGetCurrentUser.cs) | `Contracts/Users` (`public`) | `ExecuteAsync(GetCurrentUserRequest(UserId, Channel))`, que devolve `CurrentUser(Id, Email, Role)` ou `null`. `UserId` é o `ExternalId` do usuário, lido do claim `sub`; `Channel` é o `LoginChannel` do host (`CustomerApp` ou `Backoffice`). |
-| [`GetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Application/Users/GetCurrentUser.cs) | `Application/Users` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
+| [`GetCurrentUser`](../../src/Modules/Ouroboros.Modules.Identity/Application/Users/GetCurrentUser.cs) | `Application/Users` (`internal`) | Resolve o papel exigido pelo canal com `LoginChannels.RoleOf` e consulta a porta `ICurrentUserReader`, propagando o cancelamento. Registrado como scoped em `AddIdentityModule`. |
+| [`ICurrentUserReader`](../../src/Modules/Ouroboros.Modules.Identity/Application/Users/ICurrentUserReader.cs) | `Application/Users` (`internal`) | Porta mínima de leitura: `FindActiveAsync(Guid externalId, UserRole role, CancellationToken)` devolve `CurrentUser?`, sem entidades, `IQueryable` ou tipos de persistência. |
+| [`CurrentUserReader`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/CurrentUserReader.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador EF Core da porta, registrado como scoped. Filtra pelo identificador público, usuário ativo e papel informado; projeta somente os campos de `CurrentUser`, sem tracking. |
 | [`MeController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/MeController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/MeController.cs) | `Controllers/Identity` de cada host | Action `Get`, sem `[AllowAnonymous]` nem rate limit. Lê o `sub` com `IdentityClaims.Subject`, passa o canal do host e devolve o `MeResponse(Id, Email, Role)` declarado no mesmo arquivo. |
+
+O caso de uso depende da porta interna, sem acessar EF Core ou Infrastructure. A consulta e a projeção ficam no adaptador de Infrastructure; o contrato público e as restrições dos dois hosts permanecem os mesmos. A exceção de `GetCurrentUser` foi retirada da [lista de transição dos testes de arquitetura](../../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs), conforme a [matriz de dependências](../architecture/layer-dependencies.md).
 
 ## Limitações
 
@@ -90,7 +94,7 @@ Nos casos com token válido, é o controller que responde `401` e acrescenta `WW
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`MeTests`](../../tests/Ouroboros.IntegrationTests/MeTests.cs), contra o PostgreSQL real, com tokens emitidos pelo login de cada host:
+[`MeTests`](../../tests/Ouroboros.IntegrationTests/MeTests.cs), contra o PostgreSQL real, usa o login de cada host nos cenários autenticados existentes e verifica:
 
 - um `Customer` ativo recebe `200` com o seu `id`, e-mail e `role` `Customer`;
 - os campos da resposta são exatamente os da lista permitida no teste (`email`, `id`, `role`) e o corpo não contém o access token; adicionar um campo à resposta sem atualizar essa lista reprova o teste;
@@ -99,7 +103,12 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - sem token e com um token que não é JWT, a resposta é `401`;
 - um `Admin` consulta os próprios dados pelo backoffice, com `role` `Admin` e a mesma lista de campos.
 
-A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo host é coberta em [Autenticação](../architecture/authentication.md#testes).
+A mesma suíte usa tokens emitidos diretamente por `IAccessTokenIssuer` para verificar:
+
+- usuário inexistente, inativo ou com papel alterado no banco após a emissão, nos dois hosts: seis casos que respondem `401`, com ProblemDetails e `WWW-Authenticate: Bearer`;
+- token da audiência do outro host, nas duas direções: `401` com `WWW-Authenticate: Bearer`, mesmo com usuário ativo e papel adequado ao destino.
+
+A suíte de arquitetura verifica as dependências do fluxo sem a exceção da #78 e a visibilidade interna da porta e do adaptador. A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo host também é coberta em [Autenticação](../architecture/authentication.md#testes).
 
 ## Referências
 
@@ -109,6 +118,7 @@ A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo ho
 ## Issues relacionadas
 
 - [#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19): consultar o próprio usuário.
+- [#78](https://github.com/adnerscarpelini/ouroboros-server/issues/78): isolar a consulta e a projeção por porta interna, preservando contratos e restrições.
 - Depende de [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12) (login, que emite o access token).
 
 [Voltar à documentação](../README.md)
