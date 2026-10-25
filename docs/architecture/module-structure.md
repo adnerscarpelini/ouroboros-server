@@ -27,6 +27,7 @@ A biblioteca própria organiza Domain, Application, Infrastructure e contratos c
 | `src/Services/Identity/Ouroboros.Identity.Api` | API de Identity: controllers externos e administrativos, listeners, políticas, rate limiting, configuração e o comando `create-admin` ([APIs e workers](hosts.md)) |
 | `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
 | `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
+| `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec e fábrica RabbitMQ; sem entidades ou referência a serviços, ainda sem integração no runtime ([mensageria](messaging.md)) |
 
 Não há executável agregador que componha vários serviços, nem projeto Settings: os parâmetros pertencem ao serviço que aplica a regra, e Identity é a proprietária dos seus. Accounts, Customers e Transactions não existem como projetos.
 

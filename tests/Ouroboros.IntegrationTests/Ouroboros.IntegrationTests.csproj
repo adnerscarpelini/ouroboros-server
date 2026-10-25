@@ -7,12 +7,14 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="RabbitMQ.Client" />
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/Ouroboros.Messaging/Ouroboros.Messaging.csproj" />
     <!-- Alias porque o .NET 10 gera um Program público em cada executável web. -->
     <ProjectReference Include="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" Aliases="identityapi" />
   </ItemGroup>

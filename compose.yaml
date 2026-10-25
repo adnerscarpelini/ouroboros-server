@@ -5,6 +5,25 @@
 name: ouroboros
 
 services:
+  rabbitmq:
+    image: rabbitmq:4.4.0-management
+    hostname: ouroboros-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_ADMIN_USER:?defina RABBITMQ_ADMIN_USER no .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_ADMIN_PASSWORD:?defina RABBITMQ_ADMIN_PASSWORD no .env}
+      RABBITMQ_DEFAULT_VHOST: ouroboros
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
@@ -67,3 +86,4 @@ services:
 
 volumes:
   postgres-data:
+  rabbitmq-data:

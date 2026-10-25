@@ -4,6 +4,8 @@
 
 BuildingBlocks guarda mecanismos técnicos realmente reutilizados, como identificadores, datas e mapeamentos. Não contém regras de negócio, orquestração ou entidades de outros serviços.
 
+O transporte de mensagens fica na biblioteca técnica separada `Ouroboros.Messaging`: envelope opaco, validação de wire contract e fábrica de conexão, sem entidades nem referência a serviços. A decisão de compartilhar somente esse mecanismo, preservando DTOs de conteúdo próprios, está em [RabbitMQ e contrato de mensagem](messaging.md#compartilhamento-sem-referência-entre-serviços). Não há integração da biblioteca no runtime de Identity nesta etapa.
+
 ## Regras
 
 - Não referencia serviços, APIs ou workers.

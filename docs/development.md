@@ -6,11 +6,12 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 - .NET SDK 10.0.402, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
-- Docker com Docker Compose, para o PostgreSQL de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- Docker com Docker Compose, para PostgreSQL e RabbitMQ de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- PowerShell 7 (`pwsh`) para provisionar o RabbitMQ e para sua fixture de teste, inclusive em Linux.
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks` e `Ouroboros.Hosting` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e `Ouroboros.Messaging` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
 Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). As demais bibliotecas não são executáveis independentes.
 
@@ -36,7 +37,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string fictícia e um manifesto externo de chaves RSA efêmeras. Os testes não usam as chaves dos user-secrets.
 - Os testes de listeners em Kestrel real ([`KestrelListenerTests`](../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs)) abrem portas livres de loopback e exigem Docker pelo banco. O teste de que o listener administrativo não responde por endereço da máquina é ignorado quando a máquina não tem endereço IPv4 fora de loopback.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
-- Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
+- Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`. Os testes de mensageria também baixam `rabbitmq:4.4.0-management` e exigem `pwsh`; contratos e topologia estão descritos em [RabbitMQ e contrato de mensagem](architecture/messaging.md#como-verificar).
 - Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
 - Os testes da transferência do banco de Identity (`IdentityDatabaseTransferTests` e `IdentityDatabaseTransferHardeningTests`) também exigem o Docker e usam a mesma `ProvisionedInstance`, que copia `scripts/database` para o container e executa `transfer-identity.sh` com a credencial administrativa da instância de teste. Cobrem backup restaurado e comparado, janela sem escrita, equivalência de origem e destino, falha de validação sem troca e com origem intacta, recusas do `copy`, privilégios da role de runtime (sem DDL, sem banco alheio, sem `public`), migrations só pela role de migration, rollback sem e com novas escritas, reconciliação (idempotência, conflito, sequências nunca usadas) e login, renovação e `me` com a API real na role de runtime após a troca. Não substituem o ensaio em cópia do ambiente real.
 - `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
@@ -51,17 +52,62 @@ O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pul
 | Check (nome do job) | O que executa | Equivale localmente a |
 | --- | --- | --- |
 | Build e testes de arquitetura | Restore e build da solution em Release, mais os testes de arquitetura | `dotnet build Ouroboros.slnx -c Release` e `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` |
-| Testes de integração | Testes de integração com PostgreSQL em container (Testcontainers) | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
+| Testes de integração | Testes de integração com PostgreSQL e RabbitMQ em containers (Testcontainers); confere a disponibilidade de PowerShell para o provisionador | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
 
 Falha de build, de teste ou de job reprova o check. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
 
 ### Fixtures e adaptadores de teste
 
-O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API de Identity e remove somente seu banco ao terminar.
+O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API de Identity e remove somente seu banco ao terminar. A [RabbitMqFixture](../tests/Ouroboros.IntegrationTests/RabbitMqFixture.cs) cria broker e volume exclusivos de teste, gera credenciais efêmeras e executa o mesmo `provision-rabbitmq.ps1` da operação local; remove somente seus recursos. Os testes verificam contrato, permissões, reinício e reprovisionamento, sem serviço de e-mail conectado.
 
 [IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) inicia a API de Identity (`Ouroboros.Identity.Api`) em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. `CreateClient()` fala com o listener público e `CreateAdminClient()`, com o administrativo; `BackofficeIntegrationApiFactory`, declarada no mesmo arquivo, faz todas as requisições do cliente chegarem ao listener administrativo. Como o `TestServer` não tem sockets, o listener é escolhido pelo cabeçalho de teste `X-Test-Listener` (`admin`), lido só por um resolvedor registrado no projeto de testes; a produção ignora o cabeçalho. A separação por portas é verificada em `KestrelListenerTests`, com Kestrel real. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios; `ForwardedHeadersTests` usa o cabeçalho de teste `X-Test-Client-IP` para definir o IP da conexão.
 
 A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
+
+## RabbitMQ local
+
+O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. A API ainda não o usa nesta etapa: o fluxo distribuído depende das #72/#85–#87. [Topologia, contratos e limites](architecture/messaging.md).
+
+1. Se ainda não existe `.env`, copie `.env.example` uma vez, sem sobrescrever um arquivo existente. Troque as quatro senhas do broker por valores aleatórios **distintos**, de pelo menos 32 caracteres; placeholders `troque-` são recusados pelo provisionador. Use, por exemplo, quatro valores hexadecimais gerados pelo gerenciador de segredos. Hexadecimal evita diferenças de interpretação de `$`/aspas entre o Compose e o leitor literal de `-EnvFile`. Não imprima nem registre senhas em histórico, transcript ou argumentos.
+
+   | Variável | Uso |
+   | --- | --- |
+   | `RABBITMQ_ADMIN_USER` | Operador do broker; padrão de exemplo `broker_operator`, nunca `guest` |
+   | `RABBITMQ_ADMIN_PASSWORD` | Bootstrap do volume novo e autenticação do provisionador; somente operação |
+   | `IDENTITY_BROKER_PASSWORD` | `identity_publisher`, publica somente no exchange de solicitações |
+   | `NOTIFICATIONS_BROKER_PASSWORD` | `notifications_consumer`, lê somente a fila de e-mails |
+   | `NOTIFICATIONS_FAILURES_BROKER_PASSWORD` | `notifications_failures`, publica somente referências no exchange de falhas |
+
+   Proteja o `.env` contra leitura ampla: ACL exclusiva da operação no Windows, `0600` no Linux. O provisionador roda na máquina do operador, não recebe connection strings de banco e nunca entrega a credencial administrativa aos serviços. Em volume existente, mudar `RABBITMQ_DEFAULT_*` não altera o administrador já criado: use a credencial vigente e o procedimento administrativo próprio de rotação. O provisionador converge as três credenciais de runtime; não redefine o administrador nem remove usuários alheios.
+
+2. Suba apenas o broker e aguarde o healthcheck:
+
+   ```powershell
+   docker compose up -d --wait rabbitmq
+   ```
+
+   AMQP usa `127.0.0.1:5672` e gestão `http://127.0.0.1:15672`, alteráveis por `RABBITMQ_PORT`/`RABBITMQ_MANAGEMENT_PORT`. Nenhuma porta de gestão é exposta fora da máquina. HTTP/AMQP sem TLS se restringem ao desenvolvimento local; outros ambientes exigem TLS e certificados, sem desabilitar validação.
+
+3. Provisione explicitamente o vhost, usuários, exchanges, filas e bindings:
+
+   ```powershell
+   pwsh -NoProfile -File scripts/messaging/provision-rabbitmq.ps1 -EnvFile .env -LocalDevelopment
+   ```
+
+   Com porta de gestão alterada, acrescente `-ManagementUrl http://127.0.0.1:<porta>`. Sem `-EnvFile`, as cinco variáveis de usuário/senhas devem vir do ambiente, carregadas pelo gerenciador de segredos. Variáveis já definidas no processo têm precedência sobre o arquivo; confira sua origem ao trocar credenciais. O leitor de arquivo usa somente a allowlist da tabela, ignora comentários/outros nomes, remove um par de aspas externas e não expande variáveis nem executa o conteúdo. Não use dot-source, `Invoke-Expression`, `-Verbose`, `-Debug` ou transcript para carregar/exibir os segredos.
+
+   A saída de sucesso é `Topologia RabbitMQ e permissões convergidas; nenhum dado removido.` Uma falha interrompe o script com indicação sanitizada da operação; não repita a senha em logs para investigar. Reexecute o mesmo comando após corrigir a causa: ele não apaga mensagens. Uma incompatibilidade de argumentos de uma fila existente exige análise do operador, sem apagá-la para fazer a declaração passar.
+
+4. Para testar reinício local sem descartar persistência, use `docker compose restart rabbitmq` e reexecute o provisionador. Para parar somente o broker, use `docker compose stop rabbitmq`. `docker compose down` mantém os volumes, mas para todos os containers do projeto. Preserve `rabbitmq-data`, `postgres-data` e backups; os comandos documentados não removem volumes.
+
+A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. Não há consumidor ou limpeza de payload vencido ativo ainda; a #87 deve completar essas garantias antes de ativar mensagens sensíveis. A recuperação por outbox é a #86.
+
+Testes focados, com Docker e `pwsh` disponíveis, sem usar esse broker ou `.env`:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*MessageContractTests'
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*RabbitMqTopologyTests'
+```
 
 ## Banco de dados local
 
@@ -76,7 +122,7 @@ A API de Identity lê a connection string de `ConnectionStrings:Identity`, o ban
 2. Suba o PostgreSQL e aguarde o healthcheck:
 
    ```powershell
-   docker compose up -d --wait
+   docker compose up -d --wait postgres
    ```
 
 3. Grave a connection string do **banco original** nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env` (credencial administrativa da instância; uso restrito ao desenvolvimento local). Os segredos ficam no `UserSecretsId` do `Ouroboros.Identity.Api.csproj`:
@@ -120,7 +166,7 @@ Para gerar uma nova migration do Identity:
 dotnet ef migrations add <Nome> --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
-`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros serviços estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+`docker compose down` para os containers do projeto, incluindo RabbitMQ se iniciado, e mantém os dados nos volumes `postgres-data` e `rabbitmq-data`. Para parar somente o banco, use `docker compose stop postgres`. Preserve os volumes e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros serviços estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
 
 ## Provisionar bancos e roles por serviço
 

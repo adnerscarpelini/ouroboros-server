@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Ouroboros.BuildingBlocks/Ouroboros.BuildingBlocks.csproj" />
     <Project Path="src/Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
+    <Project Path="src/Ouroboros.Messaging/Ouroboros.Messaging.csproj" />
   </Folder>
   <Folder Name="/src/Services/Identity/">
     <Project Path="src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" />

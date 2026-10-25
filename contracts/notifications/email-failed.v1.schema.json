@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ouroboros:notification.email.failed:1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "version", "failureId", "messageId", "code", "occurredAt", "retainUntil"],
+  "properties": {
+    "type": { "const": "notification.email.failed" },
+    "version": { "const": 1 },
+    "failureId": { "type": "string", "format": "uuid" },
+    "messageId": { "type": ["string", "null"], "format": "uuid" },
+    "code": { "enum": ["invalid-contract", "unsupported-version", "content-conflict", "provider-permanent", "retry-exhausted", "expired", "protection-unavailable"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "retainUntil": { "type": "string", "format": "date-time" }
+  },
+  "$comment": "Somente referência opaca ao registro sanitizado de Notifications. Sem corpo, links, destinatário ou ciphertext. retainUntil não ultrapassa expiresAt original + 30 dias; para envelope sem prazo válido, occurredAt + 30 dias. TTL por mensagem limitado ao tempo restante, além do TTL máximo de fila de 30 dias. Nunca republicar o envelope original nesta fila. Publicação recuperável na #87."
+}

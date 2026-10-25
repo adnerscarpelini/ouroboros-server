@@ -4,7 +4,7 @@ Decisão da [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79)
 
 ## Fronteiras e contrato v1
 
-Identity decide destinatário, conteúdo, finalidade, validade e substituição dos links. Notifications entrega uma comunicação já resolvida, sem consultar Identity ou seus dados. Integração por mensagem JSON versionada, sem referência ao assembly de outro serviço. RabbitMQ é o transporte escolhido; topologia, biblioteca, schema executável e testes de compatibilidade pertencem à #93.
+Identity decide destinatário, conteúdo, finalidade, validade e substituição dos links. Notifications entrega uma comunicação já resolvida, sem consultar Identity ou seus dados. Integração por mensagem JSON versionada, sem referência ao assembly de outro serviço. RabbitMQ é o transporte escolhido; a #93 materializa [topologia, biblioteca, schema executável e testes de compatibilidade](messaging.md), preservando o restante desta política para as entregas de origem/consumidor.
 
 O contrato lógico `notification.email.requested`, versão inteira `1`, exige:
 
@@ -17,7 +17,7 @@ O contrato lógico `notification.email.requested`, versão inteira `1`, exige:
 | `correlationId`, `causationId` | Identificadores opacos de correlação e causa; nunca tokens ou dados pessoais. |
 | `payload` | Destinatário único, assunto, texto e finalidade (`registration` ou `password-reset`); nenhuma senha/hash de senha ou id interno. Inclui o link secreto já composto por Identity. |
 
-Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. Limites de tamanho e serialização serão fixados e testados na #93; ausência desses limites impede ativar o transporte.
+Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; a criptografia e sua gestão de chaves ainda precisam ser implementadas antes de ativar o fluxo.
 
 ## Estado local e publicação
 

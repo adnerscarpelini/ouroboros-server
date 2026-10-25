@@ -15,6 +15,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Domínio de identidade](identity.md).
 - [Entrega de e-mail por Notifications](email.md).
 - [Contrato e política de entrega confiável](reliable-delivery.md).
+- [RabbitMQ, topologia, contratos e biblioteca cliente](messaging.md).
 - [Testes de integração](integration-tests.md).
 - [Versionamento HTTP](api-versioning.md).
 - [ProblemDetails](error-responses.md).
