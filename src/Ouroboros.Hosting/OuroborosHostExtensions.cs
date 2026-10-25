@@ -33,7 +33,8 @@ public static class OuroborosHostExtensions
 
         // Nega por padrão: um endpoint só é anônimo se declarar [AllowAnonymous]. No backoffice, além
         // de autenticado, o usuário precisa ter o papel Admin em todo endpoint, mesmo que o controller
-        // não declare nenhuma política.
+        // não declare nenhuma política. Um serviço com os dois públicos exige autenticação aqui e aplica
+        // o papel Admin aos endpoints administrativos por convenção de rota.
         builder.Services.AddAuthorization(options => options.FallbackPolicy = audience == HostAudience.Backoffice
             ? new AuthorizationPolicyBuilder().RequireAuthenticatedUser().RequireRole(AdminRole).Build()
             : new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());

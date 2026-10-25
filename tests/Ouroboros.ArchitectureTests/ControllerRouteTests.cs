@@ -1,8 +1,7 @@
-extern alias backoffice;
+extern alias identityapi;
 
 using System.Reflection;
 using Asp.Versioning;
-using backoffice::Ouroboros.Backoffice.Api;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,56 +9,51 @@ using Ouroboros.ArchitectureTests.Dependencies;
 
 namespace Ouroboros.ArchitectureTests;
 
-// Convenção dos controllers de cada host, verificada sobre as actions que o host realmente registra:
-// ficam em <Host>.Controllers.<Module>, o módulo existe, declaram [ApiVersion] e usam a rota do seu
-// público: api/v{version:apiVersion}/<module>/ na API externa e
-// api/v{version:apiVersion}/admin/<module>/ no backoffice.
-public sealed class ControllerRouteTests(OuroborosApiFactory external, BackofficeApiFactory backoffice)
-    : IClassFixture<OuroborosApiFactory>, IClassFixture<BackofficeApiFactory>
+// Convenção dos controllers de cada serviço, verificada sobre as actions que a API realmente registra: ficam em
+// <Api>.Controllers.External (ou Admin).<Recurso>?, o serviço existe, declaram [ApiVersion] e usam a rota do seu
+// público: api/v{version:apiVersion}/<service>/ no público externo e api/v{version:apiVersion}/admin/<service>/
+// no administrativo.
+public sealed class ControllerRouteTests(OuroborosApiFactory factory) : IClassFixture<OuroborosApiFactory>
 {
     private const string VersionSegment = "api/v{version:apiVersion}/";
 
     [Fact]
-    public void External_host_controllers_follow_the_convention() =>
-        AssertConvention(external.Services, typeof(Program).Assembly, routePrefix: "");
-
-    [Fact]
-    public void Backoffice_host_controllers_follow_the_convention() =>
-        AssertConvention(backoffice.Services, typeof(BackofficeApiEntryPoint).Assembly, routePrefix: "admin/");
-
-    private static void AssertConvention(IServiceProvider services, Assembly hostAssembly, string routePrefix)
+    public void Controllers_of_the_identity_api_follow_the_convention()
     {
-        var modules = SourceTree.Current.Services
+        var assembly = typeof(identityapi::Ouroboros.Identity.Api.IdentityApiEntryPoint).Assembly;
+        var services = SourceTree.Current.Services
             .Select(project => project.Service!)
             .ToHashSet(StringComparer.Ordinal);
 
-        var violations = services.GetRequiredService<IActionDescriptorCollectionProvider>()
+        var violations = factory.Services.GetRequiredService<IActionDescriptorCollectionProvider>()
             .ActionDescriptors.Items
             .OfType<ControllerActionDescriptor>()
-            .Where(action => action.ControllerTypeInfo.Assembly == hostAssembly)
-            .Select(action => FindViolation(action, hostAssembly, modules, routePrefix))
+            .Where(action => action.ControllerTypeInfo.Assembly == assembly)
+            .Select(action => FindViolation(action, assembly, services))
             .OfType<string>()
             .ToList();
 
         Assert.True(violations.Count == 0, string.Join(Environment.NewLine, violations));
     }
 
-    private static string? FindViolation(
-        ControllerActionDescriptor action,
-        Assembly hostAssembly,
-        HashSet<string> modules,
-        string routePrefix)
+    private static string? FindViolation(ControllerActionDescriptor action, Assembly assembly, HashSet<string> services)
     {
         var controllerType = action.ControllerTypeInfo;
         var actionName = $"{controllerType.FullName}.{action.ActionName}";
-        var controllersNamespace = $"{hostAssembly.GetName().Name}.Controllers.";
+        var rootNamespace = $"{assembly.GetName().Name}.Controllers.";
 
-        var module = controllerType.Namespace?.StartsWith(controllersNamespace, StringComparison.Ordinal) == true
-            ? controllerType.Namespace[controllersNamespace.Length..]
+        var audience = controllerType.Namespace?.StartsWith(rootNamespace, StringComparison.Ordinal) == true
+            ? controllerType.Namespace[rootNamespace.Length..]
             : null;
-        if (module is null || module.Contains('.', StringComparison.Ordinal) || !modules.Contains(module))
+        var routePrefix = audience switch
         {
-            return $"{actionName} não está em {controllersNamespace}<Module> de um módulo existente.";
+            "External" => "",
+            "Admin" => "admin/",
+            _ => null,
+        };
+        if (routePrefix is null)
+        {
+            return $"{actionName} não está em {rootNamespace}External nem em {rootNamespace}Admin.";
         }
 
         if (!controllerType.IsDefined(typeof(ApiVersionAttribute), inherit: true))
@@ -67,8 +61,14 @@ public sealed class ControllerRouteTests(OuroborosApiFactory external, Backoffic
             return $"{actionName} não declara [ApiVersion].";
         }
 
+        var service = assembly.GetName().Name!.Split('.')[1];
+        if (!services.Contains(service))
+        {
+            return $"{actionName} pertence a um serviço inexistente ({service}).";
+        }
+
         var template = action.AttributeRouteInfo?.Template?.TrimStart('~', '/');
-        var expectedPrefix = $"{VersionSegment}{routePrefix}{module.ToLowerInvariant()}/";
+        var expectedPrefix = $"{VersionSegment}{routePrefix}{service.ToLowerInvariant()}/";
         if (template is null || !template.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
         {
             return $"{actionName} usa a rota '{template}', fora de {expectedPrefix}.";

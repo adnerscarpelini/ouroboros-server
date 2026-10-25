@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Ouroboros.Identity.Contracts;
 
 namespace Ouroboros.Identity.Infrastructure.RateLimiting;
 
@@ -52,7 +53,7 @@ internal static partial class AuthRateLimiting
             foreach (var (name, policy) in auth.Value.Policies)
             {
                 rateLimiter.AddPolicy(name, http => RateLimitPartition.GetFixedWindowLimiter(
-                    ClientAddress(http),
+                    PartitionKey(http),
                     _ => new FixedWindowRateLimiterOptions
                     {
                         PermitLimit = policy.PermitLimit,
@@ -62,6 +63,10 @@ internal static partial class AuthRateLimiting
             }
         });
     }
+
+    // O escopo (público do listener) separa os contadores de quem atende dois públicos no mesmo processo.
+    private static string PartitionKey(HttpContext http) =>
+        $"{http.Items[IdentityHttpItems.RateLimitScope]}|{ClientAddress(http)}";
 
     private static string ClientAddress(HttpContext http) => http.Connection.RemoteIpAddress?.ToString() ?? "desconhecido";
 

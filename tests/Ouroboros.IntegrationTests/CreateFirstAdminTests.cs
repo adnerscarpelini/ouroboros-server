@@ -1,8 +1,8 @@
-extern alias backoffice;
+extern alias identityapi;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using backoffice::Ouroboros.Backoffice.Api.CommandLine;
+using identityapi::Ouroboros.Identity.Api.CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;

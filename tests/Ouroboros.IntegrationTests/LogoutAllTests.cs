@@ -109,7 +109,7 @@ public sealed class LogoutAllTests(PostgresFixture postgres) : IntegrationTest(p
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.refresh_tokens WHERE revoked_at IS NULL"));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
             services.AddSingleton<IPasswordHasher>(new AspNetCorePasswordHasher(iterationCount: 1_000))));
 

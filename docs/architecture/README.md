@@ -6,7 +6,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Estrutura dos serviços](module-structure.md).
 - [Dependências entre camadas e serviços](layer-dependencies.md).
 - [Plano de entregas e preservação das garantias](migration-plan.md).
-- [APIs e workers](hosts.md).
+- [APIs e workers, listeners e camadas de proteção](hosts.md).
 - [Controllers HTTP](http-controllers.md).
 - [Persistência e instância PostgreSQL local](persistence.md).
 - [Parâmetros por serviço](system-parameters.md).

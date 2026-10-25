@@ -153,7 +153,7 @@ public sealed class AccountLockoutTests(PostgresFixture postgres) : IntegrationT
         Assert.DoesNotContain(_logs, log => log.Contains(WrongPassword, StringComparison.Ordinal) || log.Contains(Password, StringComparison.Ordinal));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
     {
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)));
         builder.ConfigureTestServices(services =>
@@ -177,7 +177,7 @@ public sealed class AccountLockoutTests(PostgresFixture postgres) : IntegrationT
     private static async Task<string?> ProblemTypeAsync(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<Dictionary<string, object>>(TestContext.Current.CancellationToken))?["type"]?.ToString();
 
-    private static async Task<Guid> CreateUserAsync(WebApplicationFactory<Program> api)
+    private static async Task<Guid> CreateUserAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
@@ -187,7 +187,7 @@ public sealed class AccountLockoutTests(PostgresFixture postgres) : IntegrationT
         return user.ExternalId;
     }
 
-    private static async Task ChangeParameterAsync(WebApplicationFactory<Program> api, string key, string value)
+    private static async Task ChangeParameterAsync(ApiFactory api, string key, string value)
     {
         await using var scope = api.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<ParameterWriter>()

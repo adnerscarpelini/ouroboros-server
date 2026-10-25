@@ -234,7 +234,7 @@ public sealed class RefreshSessionTests(PostgresFixture postgres) : IntegrationT
         Assert.NotEqual(RefreshTokenOf(login), RefreshTokenOf(renewed));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<TimeProvider>(_time);

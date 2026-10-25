@@ -2,28 +2,28 @@
 
 ## Objetivo
 
-Clientes e administradores entram com e-mail e senha e recebem um access token (JWT) para chamar as rotas protegidas, mais um refresh token opaco. Cada público entra pelo seu host ([Hosts](../architecture/hosts.md)): o cliente pela API externa e o administrador pelo backoffice.
+Clientes e administradores entram com e-mail e senha e recebem um access token (JWT) para chamar as rotas protegidas, mais um refresh token opaco. Cada público entra pelo seu listener da API de Identity ([APIs e workers](../architecture/hosts.md)): o cliente pelo listener público e o administrador pelo administrativo.
 
-Serviço responsável: Identity. A regra fica no caso de uso `ILogin` do serviço; os controllers dos dois hosts só validam o formato da entrada, chamam o caso de uso com o canal do host e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogin` do serviço; os controllers da API de Identity (um por público) só validam o formato da entrada, chamam o caso de uso com o canal do público e traduzem o resultado em resposta HTTP ([Controllers HTTP nas APIs dos serviços](../architecture/http-controllers.md)).
 
 ## Rotas
 
-| Host | Rota | Papel aceito | Audiência do token |
+| Listener | Rota | Papel aceito | Audiência do token |
 | --- | --- | --- | --- |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions` | `Customer` | `ouroboros-api` |
-| Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions` | `Admin` | `ouroboros-backoffice` |
+| Público | `POST /api/v1/identity/sessions` | `Customer` | `ouroboros-api` |
+| Administrativo | `POST /api/v1/admin/identity/sessions` | `Admin` | `ouroboros-backoffice` |
 
-As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refresh-session.md), e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. As duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada host, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito pelo host em que o login foi feito ([Autenticação](../architecture/authentication.md#validação-do-token)).
+As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refresh-session.md), e respondem com `Cache-Control: no-store`, para que nenhum cache guarde os tokens. As duas têm limite de requisições por IP, com a política `identity-login` (10 por minuto por IP em cada público, veja [Limitar requisições de autenticação por IP](auth-rate-limiting.md)). O access token emitido só é aceito no listener do seu público, pela audiência do canal ([Autenticação](../architecture/authentication.md#audiências-por-canal)).
 
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas, inclusive `AddSessions`, `AddRefreshTokenRevocation` (o login grava `revoked_at` do refresh token), `AddAccountLockout` e `OwnIdentityParameters` ([Desenvolvimento](../development.md#banco-de-dados-local)). Banco legado exige a [transferência de parâmetros com backup e validação](parameters.md#upgrade-de-banco-existente). Sem os parâmetros locais do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
-- Um usuário ativo do papel do host. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
+- Um usuário ativo do papel do canal. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
 
 ## Como usar
 
-Com o backoffice no ar (`http://localhost:5142` no perfil padrão, veja o [README](../development.md#executar-os-hosts)) e um `Admin` criado:
+Com a API de Identity no ar (listener administrativo em `http://localhost:5142` no perfil padrão, veja o [guia de desenvolvimento](../development.md#executar-a-api-de-identity)) e um `Admin` criado:
 
 ```http
 POST /api/v1/admin/identity/sessions HTTP/1.1
@@ -38,9 +38,9 @@ Content-Type: application/json
 
 Exemplo executável no [guia de desenvolvimento](../development.md#fazer-login).
 
-Na API externa (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions`, com um `Customer`.
+No listener público (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions`, com um `Customer`.
 
-Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo host. Antes que ele expire, troque o refresh token por um par novo na rota de renovação do mesmo host ([Renovar o access token com rotação do refresh token](refresh-session.md)). Para sair, encerre a sessão com o refresh token atual ([Encerrar a sessão atual](logout.md)); para encerrar todas as sessões do usuário, chame o logout-all com o access token ([Encerrar todas as sessões](logout-all.md)). Para saber quem está autenticado e com qual papel, consulte a rota `me` do mesmo host ([Consultar o próprio usuário](me.md)).
+Use o access token no header `Authorization: Bearer <accessToken>` das demais rotas do mesmo público. Antes que ele expire, troque o refresh token por um par novo na rota de renovação do mesmo público ([Renovar o access token com rotação do refresh token](refresh-session.md)). Para sair, encerre a sessão com o refresh token atual ([Encerrar a sessão atual](logout.md)); para encerrar todas as sessões do usuário, chame o logout-all com o access token ([Encerrar todas as sessões](logout-all.md)). Para saber quem está autenticado e com qual papel, consulte a rota `me` do mesmo público ([Consultar o próprio usuário](me.md)).
 
 ### Entrada
 
@@ -75,7 +75,7 @@ Acima de 10 requisições do mesmo IP na mesma janela fixa de 1 minuto, o login 
 | `refreshToken` | Valor opaco: 32 bytes aleatórios em Base64Url (43 caracteres), de uso único na [renovação](refresh-session.md). |
 | `refreshTokenExpiresAt` | Instante de expiração do refresh token: agora + `RefreshTokenLifetime` (7 dias). |
 
-O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-editor.org/rfc/rfc6749#section-5.1), com as expirações como instantes em vez de segundos. Os tempos de vida ficam em `Authentication:Jwt` no `appsettings.json` de cada host ([Configuração](../architecture/authentication.md)). Os valores do exemplo são fictícios.
+O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-editor.org/rfc/rfc6749#section-5.1), com as expirações como instantes em vez de segundos. Os tempos de vida ficam em `Authentication:Jwt` no `appsettings.json` ([Configuração](../architecture/authentication.md)). Os valores do exemplo são fictícios.
 
 ### Credenciais inválidas (401)
 
@@ -88,11 +88,11 @@ O formato segue a resposta de token da [RFC 6749, seção 5.1](https://www.rfc-e
 }
 ```
 
-O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é o mesmo para e-mail inexistente, senha errada, usuário inativo, usuário de outro papel (um `Admin` na API externa, um `Customer` no backoffice) e conta bloqueada por falhas de senha, mesmo com a senha correta ([Bloquear a conta](account-lockout.md)). Nenhum token é emitido e nenhuma sessão é aberta.
+O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é o mesmo para e-mail inexistente, senha errada, usuário inativo, usuário de outro papel (um `Admin` no listener público, um `Customer` no administrativo) e conta bloqueada por falhas de senha, mesmo com a senha correta ([Bloquear a conta](account-lockout.md)). Nenhum token é emitido e nenhuma sessão é aberta.
 
 ## Regras
 
-- **O canal define o papel.** Cada controller informa o seu `LoginChannel`: `CustomerApp` na API externa, que aceita só `Customer`, e `Backoffice`, que aceita só `Admin` (o mapeamento fica em `LoginChannels.RoleOf`, usado também pela [renovação](refresh-session.md)). É a camada 4 das [camadas de proteção do backoffice](../architecture/hosts.md#camadas-de-proteção-do-backoffice).
+- **O canal define o papel.** Cada controller informa o seu `LoginChannel`: `CustomerApp` no listener público, que aceita só `Customer`, e `Backoffice` no administrativo, que aceita só `Admin` (o mapeamento fica em `LoginChannels.RoleOf`, usado também pela [renovação](refresh-session.md)). É a camada 4 das [camadas de proteção do backoffice](../architecture/hosts.md#camadas-de-proteção-do-backoffice). O emissor escolhe a audiência do token pelo papel do usuário (`Customer`: `ouroboros-api`; `Admin`: `ouroboros-backoffice`).
 - **Mesma resposta para toda falha.** O resultado do caso de uso não diz o motivo da falha, e o controller responde sempre o mesmo `401`, para não revelar se a conta existe.
 - **Mesmo custo para e-mail inexistente e conta bloqueada.** Sem usuário ou com a conta bloqueada, a senha real não é verificada: o `UserPasswordVerifier.VerifyWithoutUser` verifica a senha contra um hash fictício, de uma senha aleatória gerado com os parâmetros atuais do hasher. O hash é calculado na criação do verificador (singleton), e não no primeiro uso, para que o primeiro login com e-mail inexistente não demore mais que os outros. Usuário inativo ou de outro papel também passa pela verificação real da senha antes da recusa. Os parâmetros do bloqueio são lidos no início de todo login, com ou sem usuário, pelo mesmo motivo.
 - **Limite por IP antes de tudo.** O limite de requisições roda antes do controller: uma requisição recusada com `429` não chega ao caso de uso, não soma falha no [bloqueio](account-lockout.md) e não custa hash de senha ([Limitar requisições](auth-rate-limiting.md)).
@@ -129,7 +129,7 @@ A coordenação da transação permanece em `Login`, por `ISessionStore` e `ISes
 | [`Login`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/Login.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
 | [`OpaqueTokens`](../../src/Services/Identity/Ouroboros.Identity/Application/Security/OpaqueTokens.cs) | `Application/Security` (`internal`) | Gera o refresh token (32 bytes aleatórios em Base64Url) e calcula o seu SHA-256. Chamava-se `RefreshTokens` até a #20, que o renomeou ao reutilizá-lo nos tokens enviados por e-mail ([Cadastrar cliente por e-mail](registration.md)). |
 | [`LoginChannels`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/LoginChannels.cs) | `Application/Sessions` (`internal`) | `RoleOf(channel)`: papel aceito por canal, compartilhado com a [renovação](refresh-session.md). |
-| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Login)]`; os DTOs `CreateSessionRequest` e `SessionResponse` e o `type` do erro ficam em `SessionModels.cs`, um por host. O mesmo controller tem a action `Refresh` da [renovação](refresh-session.md), a `Logout` do [logout](logout.md) e a `LogoutAll` do [logout-all](logout-all.md). |
+| `SessionsController` [externo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/External/SessionsController.cs) e [administrativo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/SessionsController.cs) | `Controllers/External` e `Controllers/Admin` da API de Identity | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Login)]`; os DTOs `CreateSessionRequest` e `SessionResponse` e o `type` do erro ficam em [`SessionModels.cs`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/SessionModels.cs), compartilhado pelos dois. O mesmo controller tem a action `Refresh` da [renovação](refresh-session.md), a `Logout` do [logout](logout.md) e a `LogoutAll` do [logout-all](logout-all.md). |
 
 ## Persistência
 
@@ -148,7 +148,7 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [reno
 ## Limitações
 
 - **Sessões sem expiração por inatividade.** As sessões não têm estado de encerramento e, enquanto forem renovadas, não expiram. O [logout](logout.md) ([#17](https://github.com/adnerscarpelini/ouroboros-server/issues/17)) encerra a sessão atual, e o [logout-all](logout-all.md) ([#18](https://github.com/adnerscarpelini/ouroboros-server/issues/18)), todas. A validação do access token não consulta a sessão: um token emitido vale até expirar, mesmo depois do logout ou do logout-all, inclusive na [rota `me`](me.md) ([#19](https://github.com/adnerscarpelini/ouroboros-server/issues/19)), que confere no banco só se o usuário segue ativo e com o papel do canal.
-- **Limite por IP, em memória e por instância.** O login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (sem leitura de `X-Forwarded-For`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo de CPU do hash (veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
+- **Limite por IP, em memória e por instância.** O login é limitado por IP, mas os contadores ficam em memória em cada instância, o IP é o da conexão (`X-Forwarded-For` só vale de proxies configurados em `Identity:ForwardedHeaders`) e cada endereço IPv6 tem o próprio contador. Um atacante com muitos IPs ainda distribui as tentativas, que encontram o custo de CPU do hash (veja [Domínio de identidade](../architecture/identity.md#hash-e-rehash)) e o [bloqueio por conta](account-lockout.md). Detalhes em [Limitar requisições](auth-rate-limiting.md#limitações).
 - **Refresh token no corpo da resposta.** É aceitável enquanto o único cliente for um aplicativo próprio, sem frontend web; com um frontend web, o cookie `HttpOnly` deverá ser avaliado. Cookies e MFA estão fora do escopo.
 - **Tempo de resposta não medido.** Os testes verificam que o e-mail inexistente executa uma verificação de hash, mas não medem a diferença de tempo entre as respostas.
 
@@ -156,14 +156,14 @@ Uma sessão tem um ou mais refresh tokens: o login cria o primeiro, e cada [reno
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`LoginTests`](../../tests/Ouroboros.IntegrationTests/LoginTests.cs), contra o PostgreSQL real, nos dois hosts (o do backoffice sobe pela [`BackofficeIntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/BackofficeIntegrationApiFactory.cs), com a mesma configuração da `IntegrationApiFactory`):
+[`LoginTests`](../../tests/Ouroboros.IntegrationTests/LoginTests.cs), contra o PostgreSQL real, nos dois públicos da API de Identity (o administrativo é atendido pela `BackofficeIntegrationApiFactory`, declarada com a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), em que todas as requisições chegam ao listener administrativo):
 
-- login de `Customer` responde `200` com `Cache-Control: no-store`, `tokenType` `Bearer`, access token com `sub`, `role`, `sid` (de uma sessão gravada para o usuário) e audiência `ouroboros-api`, e `accessTokenExpiresAt` igual ao `exp`; o token é aceito pelo mesmo host;
+- login de `Customer` responde `200` com `Cache-Control: no-store`, `tokenType` `Bearer`, access token com `sub`, `role`, `sid` (de uma sessão gravada para o usuário) e audiência `ouroboros-api`, e `accessTokenExpiresAt` igual ao `exp`; o token é aceito pelo mesmo público;
 - e-mail com maiúsculas e espaços entra;
-- senha errada, e-mail inexistente, usuário inativo, `Admin` na API externa e `Customer` no backoffice recebem o mesmo `401` `invalid-credentials`, sem abrir sessão; e-mail inexistente e senha errada têm a mesma forma de resposta;
+- senha errada, e-mail inexistente, usuário inativo, `Admin` no listener público e `Customer` no administrativo recebem o mesmo `401` `invalid-credentials`, sem abrir sessão; e-mail inexistente e senha errada têm a mesma forma de resposta;
 - e-mail inexistente executa uma verificação de hash;
 - um segundo login abre outra sessão e mantém a anterior, cada uma com o seu refresh token;
-- login de `Admin` no backoffice emite token com audiência `ouroboros-backoffice`;
+- login de `Admin` no listener administrativo emite token com audiência `ouroboros-backoffice`;
 - o refresh token tem 32 bytes, e o banco guarda só o seu SHA-256;
 - um hash com parâmetros antigos é refeito e gravado no login;
 - e-mail ou senha ausente responde `400`;

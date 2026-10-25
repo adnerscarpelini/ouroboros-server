@@ -1,10 +1,14 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using Ouroboros.Identity.Application.Security;
 using Ouroboros.Identity.Domain.Users;
 using Ouroboros.Identity.Infrastructure.Persistence;
@@ -158,9 +162,9 @@ public sealed class MeTests(PostgresFixture postgres) : IntegrationTest(postgres
         var role = targetBackoffice ? UserRole.Admin : UserRole.Customer;
         var userId = await CreateUserAsync(Api, "user@example.com", role);
         await using var backoffice = new BackofficeIntegrationApiFactory(ConnectionString);
-        var issuerServices = targetBackoffice ? Api.Services : backoffice.Services;
-        var token = issuerServices.GetRequiredService<IAccessTokenIssuer>()
-            .Issue(userId, role, Guid.CreateVersion7()).Token;
+
+        // O emissor escolhe a audiência pelo papel; o token do outro público é forjado com a chave de teste.
+        var token = ForgeToken(userId, role, targetBackoffice ? "ouroboros-api" : "ouroboros-backoffice");
 
         using var client = targetBackoffice ? backoffice.CreateClient() : Api.CreateClient();
         var route = targetBackoffice ? "/api/v1/admin/identity/me" : "/api/v1/identity/me";
@@ -170,7 +174,24 @@ public sealed class MeTests(PostgresFixture postgres) : IntegrationTest(postgres
         Assert.Equal("Bearer", response.Headers.WwwAuthenticate.Single().Scheme);
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private static string ForgeToken(Guid userId, UserRole role, string audience) =>
+        new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = "ouroboros",
+            Audience = audience,
+            Expires = DateTime.UtcNow.AddMinutes(5),
+            Subject = new ClaimsIdentity(
+            [
+                new Claim("sub", userId.ToString()),
+                new Claim("role", role.ToString()),
+                new Claim("sid", Guid.CreateVersion7().ToString()),
+            ]),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(IntegrationApiFactory.SigningKey)),
+                SecurityAlgorithms.HmacSha256),
+        });
+
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
             services.AddSingleton<IPasswordHasher>(new AspNetCorePasswordHasher(iterationCount: 1_000))));
 

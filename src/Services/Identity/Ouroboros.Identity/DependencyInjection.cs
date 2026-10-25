@@ -82,8 +82,8 @@ public static class DependencyInjection
         return services;
     }
 
-    // O Identity emite e valida os tokens. Cada host aceita só a própria audiência
-    // (Authentication:Jwt:Audience do seu appsettings).
+    // O Identity emite e valida os tokens. Cada público aceita só a própria audiência
+    // (Authentication:Jwt:Audience e AdminAudience do appsettings do host).
     private static void AddTokenAuthentication(IServiceCollection services)
     {
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
@@ -92,8 +92,22 @@ public static class DependencyInjection
         services.AddSingleton(provider => new SessionTokenOptions(
             provider.GetRequiredService<IOptions<JwtOptions>>().Value.RefreshTokenLifetime));
 
-        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
-        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+        // Dois esquemas, um por público. Um host com um só público usa o padrão; quem hospeda os dois
+        // escolhe o esquema pelo listener (veja IdentityAuthenticationSchemes).
+        services.AddAuthentication(IdentityAuthenticationSchemes.Customer)
+            .AddJwtBearer(IdentityAuthenticationSchemes.Customer, _ => { })
+            .AddJwtBearer(IdentityAuthenticationSchemes.Admin, _ => { });
+        ConfigureBearer(services, IdentityAuthenticationSchemes.Customer, jwt => jwt.Audience);
+        ConfigureBearer(services, IdentityAuthenticationSchemes.Admin, jwt => jwt.AdminAudience is { Length: > 0 } adminAudience ? adminAudience : jwt.Audience);
+
+        // Mapeamento de papel para política: só aqui, no módulo dono das capacidades.
+        services.AddAuthorization(options => options.AddPolicy(
+            IdentityPolicies.AdminsInvite,
+            policy => policy.RequireRole(nameof(UserRole.Admin))));
+    }
+
+    private static void ConfigureBearer(IServiceCollection services, string scheme, Func<JwtOptions, string> audience) =>
+        services.AddOptions<JwtBearerOptions>(scheme)
             .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
             {
                 var jwt = jwtOptions.Value;
@@ -104,7 +118,7 @@ public static class DependencyInjection
                 bearer.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidIssuer = jwt.Issuer,
-                    ValidAudience = jwt.Audience,
+                    ValidAudience = audience(jwt),
                     IssuerSigningKey = new SymmetricSecurityKey(jwt.SigningKeyBytes),
                     ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
                     ValidateIssuer = true,
@@ -118,12 +132,6 @@ public static class DependencyInjection
                     RoleClaimType = IdentityClaims.Role,
                 };
             });
-
-        // Mapeamento de papel para política: só aqui, no módulo dono das capacidades.
-        services.AddAuthorization(options => options.AddPolicy(
-            IdentityPolicies.AdminsInvite,
-            policy => policy.RequireRole(nameof(UserRole.Admin))));
-    }
 
     // O provedor de e-mail vem da configuração (Identity:Email:Provider). O adaptador local só é aceito
     // em Development; sem provedor, enviar é erro explícito.

@@ -194,7 +194,7 @@ public sealed class RefreshTokenReuseTests(PostgresFixture postgres) : Integrati
         Assert.DoesNotContain(_logs, log => log.Contains(first, StringComparison.Ordinal) || log.Contains(successor, StringComparison.Ordinal));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
     {
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)));
         builder.ConfigureTestServices(services =>
@@ -204,7 +204,7 @@ public sealed class RefreshTokenReuseTests(PostgresFixture postgres) : Integrati
         });
     });
 
-    private static async Task<Guid> CreateUserAsync(WebApplicationFactory<Program> api)
+    private static async Task<Guid> CreateUserAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();

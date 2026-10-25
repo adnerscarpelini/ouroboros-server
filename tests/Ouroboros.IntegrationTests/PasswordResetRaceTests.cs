@@ -116,14 +116,14 @@ public sealed class PasswordResetRaceTests(PostgresFixture postgres) : Integrati
         await transaction.RollbackAsync(TestContext.Current.CancellationToken);
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IEmailSender>(_emails);
             services.AddSingleton<IPasswordHasher>(_hasher);
         }));
 
-    private static async Task CreateUserAsync(WebApplicationFactory<Program> api)
+    private static async Task CreateUserAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();

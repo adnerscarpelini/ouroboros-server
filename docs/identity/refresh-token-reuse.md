@@ -12,7 +12,7 @@ Serviço responsável: Identity. A detecção fica no mesmo caso de uso da renov
 - **Mesma resposta.** O cliente recebe o mesmo `401` [`invalid-refresh-token`](../errors/identity.md#invalid-refresh-token) de um token inexistente ([Token inválido](refresh-session.md#token-inválido-401)). A resposta não indica que houve reuso.
 - **Só a sessão do token.** As outras sessões do mesmo usuário (outros logins, outros dispositivos) continuam funcionando.
 - **Token só expirado não é reuso.** Um token expirado e nunca revogado recebe `401` sem revogar nada. Um token revogado é tratado como reuso mesmo que também esteja expirado.
-- **Antes das checagens do dono.** O reuso é verificado logo depois de encontrar o token, antes de conferir se o dono está ativo e se é do papel do host. Um token revogado apresentado no host errado ou por um usuário inativo também encerra a sessão.
+- **Antes das checagens do dono.** O reuso é verificado logo depois de encontrar o token, antes de conferir se o dono está ativo e se é do papel do canal. Um token revogado apresentado no listener errado ou por um usuário inativo também encerra a sessão.
 - **Sem janela de tolerância.** Não há intervalo em que o token anterior ainda seja aceito depois da rotação. O cliente deve serializar as renovações: uma por vez, sempre com o refresh token devolvido pela última.
 - **A sessão não muda de estado.** A linha de `identity.sessions` continua lá, sem tokens ativos; os tokens ficam em `identity.refresh_tokens` com `revoked_at` preenchido. Não há coluna nova nem migration.
 
@@ -65,7 +65,7 @@ O cliente não consegue distinguir o reuso das outras causas do `401` e não pre
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`RefreshTokenReuseTests`](../../tests/Ouroboros.IntegrationTests/RefreshTokenReuseTests.cs), contra o PostgreSQL real, pela API externa:
+[`RefreshTokenReuseTests`](../../tests/Ouroboros.IntegrationTests/RefreshTokenReuseTests.cs), contra o PostgreSQL real, pelo listener público da API de Identity:
 
 - um token já rotacionado, apresentado de novo, recebe `401` `invalid-refresh-token`, e o sucessor também deixa de renovar; não sobra token ativo;
 - com duas sessões do mesmo usuário, o reuso na primeira não afeta a segunda, que continua renovando com o mesmo `sid`;

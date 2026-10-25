@@ -24,7 +24,7 @@ Depois do corte, o schema `settings` fica preservado e sem novas escritas. `AddS
 
 O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam o Compose local (`localhost:5432`, banco e usuário `ouroboros`); ajuste os nomes ao ambiente. Exigem clientes PostgreSQL 18 (`pg_dump`, `createdb`, `pg_restore`, `psql`) no PATH, autenticação protegida por prompt ou arquivo de senha com acesso restrito e espaço para backup/restauração. Não coloque senha na linha de comando nem no Git.
 
-1. Pare os dois hosts, `create-admin`, comandos de migration concorrentes e qualquer outro escritor. Mantenha a janela sem escrita até validar o corte; o lock da cópia não substitui essa janela. Confira o histórico de migrations legado. Se faltarem migrations antigas de Settings, aplique-as **antes** de migrar Identity, ainda nessa janela:
+1. Pare a API de Identity (e os hosts agregadores, se estiverem em execução), `create-admin`, comandos de migration concorrentes e qualquer outro escritor. Mantenha a janela sem escrita até validar o corte; o lock da cópia não substitui essa janela. Confira o histórico de migrations legado. Se faltarem migrations antigas de Settings, aplique-as **antes** de migrar Identity, ainda nessa janela. O `SettingsDbContext` só é registrado pelo host agregado `Ouroboros.Api`, por isso este comando o usa como projeto de inicialização; a API de Identity não carrega Settings:
 
    ```powershell
    dotnet tool restore
@@ -70,7 +70,7 @@ O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam
 4. Aplique a migration de Identity com a connection string atual e a aplicação nova ainda parada:
 
    ```powershell
-   dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
+   dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
    if ($LASTEXITCODE -ne 0) { throw 'Migração de Identity falhou; não ativar a versão nova.' }
    ```
 

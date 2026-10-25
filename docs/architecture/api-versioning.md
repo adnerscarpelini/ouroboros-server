@@ -13,6 +13,8 @@ Cada API de serviço versiona seus contratos HTTP para que mudanças incompatív
   | Cliente e anônimos | `api/v{version:apiVersion}/<module>/...` |
   | Administrativo | `api/v{version:apiVersion}/admin/<module>/...` |
 
+  O prefixo `admin` também decide o público: as rotas administrativas só existem no listener administrativo da API ([Rota por público](hosts.md#rota-do-outro-público-é-rota-inexistente)).
+
 - Só a versão maior é exposta (`/api/v1/...`), como no [AIP-185](https://google.aip.dev/185) do Google. Mudanças compatíveis não mudam a versão.
 - Não há versão padrão implícita: toda requisição informa a versão na URL. O Asp.Versioning não permite versão padrão quando a versão está no caminho.
 - A API do serviço configura AddApiVersioning com UrlSegmentApiVersionReader, ReportApiVersions e AddMvc.
@@ -20,10 +22,10 @@ Cada API de serviço versiona seus contratos HTTP para que mudanças incompatív
 
 ## Como declarar versões
 
-Exemplo de organização aprovada: cada controller, na API do serviço (`Controllers/<Module>/`, conforme [Controllers HTTP nas APIs dos serviços](http-controllers.md)), declara as versões que atende:
+Exemplo de organização aprovada: cada controller, na API do serviço (`Controllers/External` ou `Controllers/Admin`, conforme [Controllers HTTP nas APIs dos serviços](http-controllers.md)), declara as versões que atende:
 
 ```csharp
-namespace Ouroboros.Identity.Api.Controllers.Identity;
+namespace Ouroboros.Identity.Api.Controllers.External;
 
 [ApiController]
 [ApiVersion(1)]

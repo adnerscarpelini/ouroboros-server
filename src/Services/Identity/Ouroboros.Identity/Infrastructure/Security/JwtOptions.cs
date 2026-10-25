@@ -3,9 +3,8 @@ using Microsoft.Extensions.Options;
 
 namespace Ouroboros.Identity.Infrastructure.Security;
 
-// Configuração dos tokens (seção Authentication:Jwt). Emissor e tempos ficam no appsettings de
-// cada host; a audiência também, porque cada host aceita só a sua. A chave vem de fora do Git
-// (user-secrets em desenvolvimento).
+// Configuração dos tokens (seção Authentication:Jwt). Emissor, tempos e audiências ficam no appsettings
+// do host; cada público aceita só a sua audiência. A chave vem de fora do Git (user-secrets em desenvolvimento).
 internal sealed class JwtOptions
 {
     public const string SectionName = "Authentication:Jwt";
@@ -15,7 +14,14 @@ internal sealed class JwtOptions
 
     public string Issuer { get; set; } = "";
 
+    // Audiência dos tokens de cliente (papel Customer).
     public string Audience { get; set; } = "";
+
+    // Audiência dos tokens de administrador. Ausente, vale Audience (um host com um só público).
+    public string? AdminAudience { get; set; }
+
+    public string AudienceOf(Ouroboros.Identity.Domain.Users.UserRole role) =>
+        role == Ouroboros.Identity.Domain.Users.UserRole.Admin && !string.IsNullOrWhiteSpace(AdminAudience) ? AdminAudience : Audience;
 
     public string SigningKey { get; set; } = "";
 
@@ -39,6 +45,12 @@ internal sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
         if (string.IsNullOrWhiteSpace(options.Audience))
         {
             failures.Add($"'{JwtOptions.SectionName}:Audience' não foi configurado.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.AdminAudience)
+            && string.Equals(options.AdminAudience, options.Audience, StringComparison.Ordinal))
+        {
+            failures.Add($"'{JwtOptions.SectionName}:AdminAudience' deve ser diferente de '{JwtOptions.SectionName}:Audience'; omita-a em um host com um só público.");
         }
 
         if (string.IsNullOrWhiteSpace(options.SigningKey))

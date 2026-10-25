@@ -166,7 +166,7 @@ public sealed class RegistrationCompletionTests(PostgresFixture postgres) : Inte
         Assert.Equal("hash", await QueryScalarAsync<string>("SELECT password_hash FROM identity.users"));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IEmailSender>(_emails);

@@ -175,7 +175,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         Assert.Contains(_logs, entry => entry.Contains("Falha ao enviar o e-mail de redefinição de senha", StringComparison.Ordinal));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
     {
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)).SetMinimumLevel(LogLevel.Trace));
         builder.ConfigureTestServices(services =>
@@ -185,7 +185,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         });
     });
 
-    private static async Task CreateUserAsync(WebApplicationFactory<Program> api, string email, UserRole role)
+    private static async Task CreateUserAsync(ApiFactory api, string email, UserRole role)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();

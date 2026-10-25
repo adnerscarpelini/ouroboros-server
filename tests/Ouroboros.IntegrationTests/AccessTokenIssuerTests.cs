@@ -15,7 +15,7 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
     [Fact]
     public async Task Issued_token_is_accepted_and_carries_identity_claims()
     {
-        var user = User.Create("admin@example.com", "hash", UserRole.Admin);
+        var user = User.Create("cliente@example.com", "hash", UserRole.Customer);
         var sessionId = Guid.CreateVersion7();
         var token = Api.Services.GetRequiredService<IAccessTokenIssuer>().Issue(user.ExternalId, user.Role, sessionId);
 
@@ -27,20 +27,22 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
         var claims = await response.Content.ReadFromJsonAsync<Dictionary<string, string>>(TestContext.Current.CancellationToken);
         Assert.NotNull(claims);
         Assert.Equal(user.ExternalId.ToString(), claims["sub"]);
-        Assert.Equal("Admin", claims["role"]);
+        Assert.Equal("Customer", claims["role"]);
         Assert.Equal(sessionId.ToString(), claims["sid"]);
     }
 
-    [Fact]
-    public void Issued_token_uses_host_audience_and_access_token_lifetime()
+    [Theory]
+    [InlineData("Customer", "ouroboros-api")]
+    [InlineData("Admin", "ouroboros-backoffice")]
+    public void Issued_token_uses_the_role_audience_and_access_token_lifetime(string roleName, string audience)
     {
         var token = Api.Services.GetRequiredService<IAccessTokenIssuer>()
-            .Issue(Guid.CreateVersion7(), UserRole.Customer, Guid.CreateVersion7());
+            .Issue(Guid.CreateVersion7(), Enum.Parse<UserRole>(roleName), Guid.CreateVersion7());
 
         var jwt = new JsonWebToken(token.Token);
         Assert.Equal("HS256", jwt.Alg);
         Assert.Equal("ouroboros", jwt.Issuer);
-        Assert.Equal(["ouroboros-api"], jwt.Audiences);
+        Assert.Equal([audience], jwt.Audiences);
         Assert.Equal(TimeSpan.FromMinutes(15), jwt.ValidTo - jwt.IssuedAt);
         Assert.Equal(token.ExpiresAt.UtcDateTime, jwt.ValidTo, TimeSpan.FromSeconds(1));
     }

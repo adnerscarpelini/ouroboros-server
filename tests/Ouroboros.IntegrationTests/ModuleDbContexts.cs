@@ -5,13 +5,13 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Ouroboros.IntegrationTests;
 
 // Os DbContexts são internal em cada serviço ou módulo. Eles são encontrados por reflexão nos assemblies
-// Ouroboros.* referenciados pela Api e resolvidos pela DI, então um serviço novo entra sem mudar os testes.
+// Ouroboros.* referenciados pela Api e resolvidos pela DI (os que o host não registra ficam de fora), então um serviço novo entra sem mudar os testes.
 internal static class ModuleDbContexts
 {
     private const string AssemblyPrefix = "Ouroboros.";
 
     public static IReadOnlyList<DbContext> Resolve(IServiceProvider services) =>
-        [.. Types().Select(type => (DbContext)services.GetRequiredService(type))];
+        [.. Types().Select(type => services.GetService(type)).OfType<DbContext>()];
 
     private static IEnumerable<Type> Types() =>
         typeof(Program).Assembly.GetReferencedAssemblies()

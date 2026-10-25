@@ -13,8 +13,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Hosts agregadores, mantidos até a retirada da #96; só a fumaça e a semente de migrations os usam. -->
     <ProjectReference Include="../../src/Ouroboros.Api/Ouroboros.Api.csproj" />
     <!-- Alias porque o .NET 10 gera um Program público em cada host web. -->
     <ProjectReference Include="../../src/Ouroboros.Backoffice.Api/Ouroboros.Backoffice.Api.csproj" Aliases="backoffice" />
+    <ProjectReference Include="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" Aliases="identityapi" />
   </ItemGroup>
 </Project>

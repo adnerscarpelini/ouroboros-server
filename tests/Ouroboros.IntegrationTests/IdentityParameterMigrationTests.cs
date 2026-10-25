@@ -30,7 +30,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await postgres.BackupAndRestoreAsync(source, restored);
             Assert.Equal(before, await SnapshotAsync(restored, "settings"));
 
-            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(source));
+            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(source));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
             await context.Database.MigrateAsync(Cancellation);
@@ -61,7 +61,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await PrepareLegacyAsync(database);
             await ExecuteAsync(database, $"UPDATE settings.parameters SET revision = revision + 1 WHERE key = '{Key}'");
             var before = await SnapshotAsync(database, "settings");
-            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
+            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
 
@@ -88,7 +88,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
         var database = await postgres.CreateDatabaseAsync(useTemplate: false);
         try
         {
-            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
+            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
             await context.Database.MigrateAsync(Cancellation);
@@ -109,7 +109,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
 
     private async Task PrepareLegacyAsync(string database)
     {
-        await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
+        await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
         await using var scope = factory.Services.CreateAsyncScope();
         var legacy = scope.ServiceProvider.GetRequiredService<SettingsDbContext>();
         await legacy.Database.MigrateAsync(Cancellation);

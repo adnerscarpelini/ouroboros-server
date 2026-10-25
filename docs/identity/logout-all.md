@@ -4,27 +4,27 @@
 
 Quem suspeita que a conta foi usada em outro dispositivo encerra todas as sessões de uma vez. O logout-all revoga todos os refresh tokens ativos do usuário autenticado, em todas as sessões, inclusive a atual: nenhuma delas volta a renovar o access token. Para encerrar só a sessão do dispositivo atual, use o [logout](logout.md).
 
-Serviço responsável: Identity. A regra fica no caso de uso `ILogoutAll` do serviço; os controllers dos dois hosts só leem o usuário do access token, chamam o caso de uso e respondem `204` ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `ILogoutAll` do serviço; os controllers da API de Identity (um por público) só leem o usuário do access token, chamam o caso de uso e respondem `204` ([Controllers HTTP nas APIs dos serviços](../architecture/http-controllers.md)).
 
 ## Rotas
 
-| Host | Rota | Access token aceito |
+| Listener | Rota | Access token aceito |
 | --- | --- | --- |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions/logout-all` | De `Customer`, audiência `ouroboros-api` |
-| Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions/logout-all` | De `Admin`, audiência `ouroboros-backoffice` |
+| Público | `POST /api/v1/identity/sessions/logout-all` | De `Customer`, audiência `ouroboros-api` |
+| Administrativo | `POST /api/v1/admin/identity/sessions/logout-all` | De `Admin`, audiência `ouroboros-backoffice` |
 
-Ao contrário do login, da renovação e do logout, as duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão de cada host ([Autenticação](../architecture/authentication.md)). O usuário é o do claim `sub` do token. Não há corpo.
+Ao contrário do login, da renovação e do logout, as duas rotas **exigem access token** (`Authorization: Bearer <accessToken>`): não declaram `[AllowAnonymous]` e seguem a política padrão da API: autenticação em ambas e, na rota administrativa, também o papel `Admin`, aplicado por convenção de rota mesmo sem política declarada no controller ([Autenticação](../architecture/authentication.md#autorização)). O usuário é o do claim `sub` do token. Não há corpo.
 
-A rota do backoffice permite que o `Admin` encerre todas as suas próprias sessões.
+A rota administrativa permite que o `Admin` encerre todas as suas próprias sessões.
 
 ## Pré-requisitos
 
 - O banco local com as migrations do Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)). O logout-all não cria migration: usa a coluna `revoked_at` da [renovação](refresh-session.md#persistência).
-- Um access token válido, obtido no [login](login.md) ou na última [renovação](refresh-session.md), da audiência do host chamado.
+- Um access token válido, obtido no [login](login.md) ou na última [renovação](refresh-session.md), da audiência do listener chamado.
 
 ## Como usar
 
-Com a API externa no ar (`http://localhost:5141` no perfil padrão) e o access token de um `Customer`:
+Com a API de Identity no ar (listener público em `http://localhost:5141` no perfil padrão) e o access token de um `Customer`:
 
 ```http
 POST /api/v1/identity/sessions/logout-all HTTP/1.1
@@ -34,7 +34,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.exemplo.assinatura
 
 Exemplo executável no [guia de desenvolvimento](../development.md#encerrar-todas-as-sessões).
 
-No backoffice (`http://localhost:5142`), o pedido é o mesmo, na rota `/api/v1/admin/identity/sessions/logout-all`, com o access token de um `Admin`. O valor do exemplo é fictício.
+No listener administrativo (`http://localhost:5142`), o pedido é o mesmo, na rota `/api/v1/admin/identity/sessions/logout-all`, com o access token de um `Admin`. O valor do exemplo é fictício.
 
 Depois do `204`, descarte o access token e o refresh token guardados neste dispositivo; para voltar a usar a conta, faça um novo [login](login.md), que abre uma sessão nova normalmente.
 
@@ -44,7 +44,7 @@ Sem corpo. A resposta é a mesma quando havia tokens ativos e eles foram revogad
 
 ### Sem token ou token inválido (401)
 
-Sem o header `Authorization`, com um token malformado, expirado, de outra assinatura ou de outra audiência (por exemplo, um token de `Customer` no backoffice), a resposta é `401` em ProblemDetails, sem explicar o motivo da recusa ([Respostas de erro](../architecture/error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Nada é revogado. Um token válido cujo `sub` não seja um UUID também recebe `401`; os tokens emitidos pelo Identity sempre trazem o `ExternalId` do usuário no `sub`.
+Sem o header `Authorization`, com um token malformado, expirado, de outra assinatura ou de outra audiência (por exemplo, um token de `Customer` no listener administrativo), a resposta é `401` em ProblemDetails, sem explicar o motivo da recusa ([Respostas de erro](../architecture/error-responses.md#respostas-sem-corpo-401-403-404-405-415)). Nada é revogado. Um token válido cujo `sub` não seja um UUID também recebe `401`; os tokens emitidos pelo Identity sempre trazem o `ExternalId` do usuário no `sub`.
 
 ## Regras
 
@@ -52,7 +52,7 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 - **Outros usuários não são afetados.** O `UPDATE` só alcança tokens de sessões do próprio usuário.
 - **Idempotente.** Sem tokens ativos, o `UPDATE` afeta 0 linhas e a resposta continua `204`. Um `sub` sem usuário correspondente também responde `204`, sem gravar nada.
 - **Tokens expirados ficam como estão.** Um refresh token já expirado não é revogado; ele já não renova.
-- **Sem checagem do papel nem do estado do usuário.** O caso de uso não confere se o usuário está ativo nem o papel dele; quem garante o público é a audiência do token e a política de cada host.
+- **Sem checagem do papel nem do estado do usuário.** O caso de uso não confere se o usuário está ativo nem o papel dele; quem garante o público é a audiência do token, o listener e a política padrão.
 - **Depois do logout-all, tokens revogados são reuso.** Uma renovação com um dos tokens revogados recebe `401` `invalid-refresh-token` e é tratada como [reuso](refresh-token-reuse.md); como a sessão já não tem token ativo, nada mais é revogado.
 - **Sessões travadas em ordem de id.** A operação roda numa transação que começa travando todas as sessões do usuário, em ordem de id (`IdentityDbContext.LockUserSessionsAsync`, `SELECT 1 FROM identity.sessions WHERE user_id = ... ORDER BY id FOR UPDATE`), antes do `UPDATE` dos tokens, como manda a [regra das escritas em `identity.refresh_tokens`](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão):
   - uma renovação em andamento numa das sessões termina antes, e o `UPDATE` seguinte já enxerga o token novo que ela gravou; nenhum token novo fica para trás;
@@ -69,7 +69,7 @@ Sem o header `Authorization`, com um token malformado, expirado, de outra assina
 | [`LogoutAll`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/LogoutAll.cs) | `Application/Sessions` (`internal`) | Orquestra a transação, o lock ordenado e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
 | [`IdentityDbContext.LockUserSessionsAsync`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava todas as sessões de um usuário, em ordem de id, até o fim da transação atual. |
 | [`IdentityClaims`](../../src/Services/Identity/Ouroboros.Identity/Contracts/IdentityClaims.cs) | `Contracts` (`public`) | Nomes dos claims do access token (`sub`, `role`, `sid`). Permite que os controllers leiam o usuário autenticado por nomes estáveis de claims. |
-| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `LogoutAll`, sem `[AllowAnonymous]` nem rate limit, ao lado do login, da renovação e do logout. Lê o `sub` com `IdentityClaims.Subject`. |
+| `SessionsController` [externo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/External/SessionsController.cs) e [administrativo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/SessionsController.cs) | `Controllers/External` e `Controllers/Admin` da API de Identity | Action `LogoutAll`, sem `[AllowAnonymous]` nem rate limit, ao lado do login, da renovação e do logout. Lê o `sub` com `IdentityClaims.Subject`. |
 
 ## Limitações
 
@@ -89,10 +89,10 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - um segundo logout-all, já sem sessões ativas, responde `204`;
 - sem token e com um token que não é JWT, a resposta é `401`;
 - com dois usuários, o logout-all de um não afeta o outro, que continua renovando;
-- um `Admin` encerra pelo backoffice as suas duas sessões, e a outra sessão deixa de renovar;
-- um token de `Customer` da API externa recebe `401` no backoffice, e o refresh token continua ativo.
+- um `Admin` encerra pelo listener administrativo as suas duas sessões, e a outra sessão deixa de renovar;
+- um token de `Customer` recebe `401` no listener administrativo, e o refresh token continua ativo.
 
-A espera pelo lock e a ausência de deadlock entre chamadas simultâneas não têm teste próprio; o mecanismo de lock da sessão é exercitado nos [`RefreshTokenReuseTests`](refresh-token-reuse.md#como-verificar). A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo host é coberta em [Autenticação](../architecture/authentication.md#testes).
+A espera pelo lock e a ausência de deadlock entre chamadas simultâneas não têm teste próprio; o mecanismo de lock da sessão é exercitado nos [`RefreshTokenReuseTests`](refresh-token-reuse.md#como-verificar). A recusa de tokens expirados, de outra assinatura ou de outra audiência pelo listener é coberta em [Autenticação](../architecture/authentication.md#testes).
 
 A consulta do próprio usuário, que também exige access token, está em [Consultar o próprio usuário](me.md).
 

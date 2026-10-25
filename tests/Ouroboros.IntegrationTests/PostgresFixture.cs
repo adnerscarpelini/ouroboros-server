@@ -25,7 +25,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         await _container.StartAsync();
         await ExecuteAsync($"""CREATE DATABASE "{TemplateDatabase}" """);
 
-        await using (var factory = new IntegrationApiFactory(ConnectionStringFor(TemplateDatabase)))
+        await using (var factory = new LegacyExternalHostFactory(ConnectionStringFor(TemplateDatabase)))
         {
             using var scope = factory.Services.CreateScope();
             foreach (var context in ModuleDbContexts.Resolve(scope.ServiceProvider).OrderBy(context => context.GetType().Name == "SettingsDbContext" ? 0 : 1))

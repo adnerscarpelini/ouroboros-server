@@ -198,7 +198,7 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         Assert.Contains(_logs, entry => entry.Contains("Falha ao enviar o e-mail de cadastro", StringComparison.Ordinal));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
     {
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)).SetMinimumLevel(LogLevel.Trace));
         builder.ConfigureTestServices(services =>

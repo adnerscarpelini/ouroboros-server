@@ -4,29 +4,29 @@
 
 O access token dura 15 minutos. A renovação troca o refresh token entregue no [login](login.md) por um par novo (access token e refresh token), sem pedir a senha de novo. O refresh token é de uso único: cada renovação revoga o token recebido, o que limita o efeito de um vazamento. Apresentar de novo um token já revogado encerra a sessão inteira ([Revogar a sessão ao detectar reuso de refresh token](refresh-token-reuse.md)). O usuário encerra a sessão atual pelo [logout](logout.md), que revoga o refresh token sem emitir outro.
 
-Serviço responsável: Identity. A regra fica no caso de uso `IRefreshSession` do serviço; os controllers dos dois hosts só validam o tamanho da entrada, chamam o caso de uso com o canal do host e traduzem o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. A regra fica no caso de uso `IRefreshSession` do serviço; os controllers da API de Identity (um por público) só validam o tamanho da entrada, chamam o caso de uso com o canal do público e traduzem o resultado em resposta HTTP ([Controllers HTTP nas APIs dos serviços](../architecture/http-controllers.md)).
 
 ## Rotas
 
-| Host | Rota | Sessões aceitas | Audiência do token novo |
+| Listener | Rota | Sessões aceitas | Audiência do token novo |
 | --- | --- | --- | --- |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/sessions/refresh` | De usuários `Customer` | `ouroboros-api` |
-| Backoffice (`Ouroboros.Backoffice.Api`) | `POST /api/v1/admin/identity/sessions/refresh` | De usuários `Admin` | `ouroboros-backoffice` |
+| Público | `POST /api/v1/identity/sessions/refresh` | De usuários `Customer` | `ouroboros-api` |
+| Administrativo | `POST /api/v1/admin/identity/sessions/refresh` | De usuários `Admin` | `ouroboros-backoffice` |
 
-As duas rotas são anônimas (`[AllowAnonymous]`): quem chama não envia access token, só o refresh token no corpo. Respondem com `Cache-Control: no-store`, como o login, e têm limite de requisições por IP com a política `identity-refresh` (30 por minuto por IP em cada host, veja [Limite de requisições](#limite-de-requisições-429)).
+As duas rotas são anônimas (`[AllowAnonymous]`): quem chama não envia access token, só o refresh token no corpo. Respondem com `Cache-Control: no-store`, como o login, e têm limite de requisições por IP com a política `identity-refresh` (30 por minuto por IP em cada público, veja [Limite de requisições](#limite-de-requisições-429)).
 
-Cada host renova somente sessões do seu papel, como no login. A checagem de canal impede que um refresh token de `Admin` gere access token com a audiência externa; a rota do backoffice permite renovar a sessão administrativa sem repetir o login a cada 15 minutos.
+Cada listener renova somente sessões do seu papel, como no login. A checagem de canal impede que um refresh token de `Admin` gere access token com a audiência externa; a rota administrativa permite renovar a sessão administrativa sem repetir o login a cada 15 minutos.
 
 ## Pré-requisitos
 
 - O banco local com as migrations do Identity aplicadas, inclusive a `AddRefreshTokenRevocation`, que cria a coluna `revoked_at` ([Desenvolvimento](../development.md#banco-de-dados-local)). O login também grava essa coluna ao criar o primeiro refresh token da sessão.
 - A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
-- A política `identity-refresh` configurada em `Identity:RateLimiting:Policies` nos dois hosts; sem ela, o host não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
-- Um refresh token ativo, obtido no login do mesmo host ([Fazer login com e-mail e senha](login.md)).
+- A política `identity-refresh` configurada em `Identity:RateLimiting:Policies` da API; sem ela, a API não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
+- Um refresh token ativo, obtido no login do mesmo público ([Fazer login com e-mail e senha](login.md)).
 
 ## Como usar
 
-Com o backoffice no ar (`http://localhost:5142` no perfil padrão) e um refresh token recebido no login de um `Admin`:
+Com a API de Identity no ar (listener administrativo em `http://localhost:5142` no perfil padrão) e um refresh token recebido no login de um `Admin`:
 
 ```http
 POST /api/v1/admin/identity/sessions/refresh HTTP/1.1
@@ -40,7 +40,7 @@ Content-Type: application/json
 
 Exemplo executável no [guia de desenvolvimento](../development.md#renovar-a-sessão).
 
-Na API externa (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions/refresh`, com o refresh token de um `Customer`.
+No listener público (`http://localhost:5141`), o pedido é o mesmo, na rota `/api/v1/identity/sessions/refresh`, com o refresh token de um `Customer`.
 
 Guarde o par devolvido e descarte o anterior: o refresh token enviado deixa de valer assim que a renovação é concluída. O cliente deve fazer uma renovação por vez com o mesmo token, sem janela de tolerância: renovações simultâneas com o mesmo token têm um único vencedor, as demais recebem `401`, e a sessão inteira é revogada, inclusive o refresh token do vencedor ([Renovações simultâneas](refresh-token-reuse.md#renovações-simultâneas-com-o-mesmo-token)).
 
@@ -82,7 +82,7 @@ O formato é o mesmo do [login](login.md#resposta-de-sucesso-200):
 }
 ```
 
-O código [`invalid-refresh-token`](../errors/identity.md#invalid-refresh-token) é o mesmo para token vazio, inexistente, já revogado (inclusive por uma renovação simultânea que venceu) ou expirado, para dono inativo e para dono de outro papel (sessão de `Admin` na API externa, de `Customer` no backoffice). Nenhum token é emitido. Quando o token já estava revogado, a sessão dele também é revogada ([reuso](refresh-token-reuse.md)), sem mudança na resposta. O cliente deve descartar os tokens guardados e pedir um novo login.
+O código [`invalid-refresh-token`](../errors/identity.md#invalid-refresh-token) é o mesmo para token vazio, inexistente, já revogado (inclusive por uma renovação simultânea que venceu) ou expirado, para dono inativo e para dono de outro papel (sessão de `Admin` no listener público, de `Customer` no administrativo). Nenhum token é emitido. Quando o token já estava revogado, a sessão dele também é revogada ([reuso](refresh-token-reuse.md)), sem mudança na resposta. O cliente deve descartar os tokens guardados e pedir um novo login.
 
 ### Limite de requisições (429)
 
@@ -97,12 +97,12 @@ Uma falha inesperada ao gravar o token novo responde `500` ([Respostas de erro](
 - **Busca pelo hash.** O token recebido é convertido em SHA-256 e buscado pelo índice único `ix_refresh_tokens_token_hash`; o valor em texto nunca é gravado nem comparado.
 - **Token ativo.** O token precisa existir, não estar revogado (`revoked_at` nulo) e não estar expirado (`expires_at` posterior ao momento da renovação). Um token expirado recebe `401` e não é revogado.
 - **Token revogado é reuso.** Um token encontrado e já revogado revoga todos os tokens ainda não revogados da sessão, numa transação própria, antes das checagens do dono; outras sessões do usuário não são afetadas ([Revogar a sessão ao detectar reuso](refresh-token-reuse.md#comportamento)).
-- **Dono ativo e do papel do canal.** Cada controller informa o seu `LoginChannel`, e o caso de uso exige o papel correspondente, pelo mesmo `LoginChannels.RoleOf` do login: `CustomerApp` aceita só `Customer`, e `Backoffice`, só `Admin`. Um dono inativo ou de outro papel recebe `401` sem consumir o token, que volta a funcionar se o usuário for reativado ou se for usado no host certo.
+- **Dono ativo e do papel do canal.** Cada controller informa o seu `LoginChannel`, e o caso de uso exige o papel correspondente, pelo mesmo `LoginChannels.RoleOf` do login: `CustomerApp` aceita só `Customer`, e `Backoffice`, só `Admin`. Um dono inativo ou de outro papel recebe `401` sem consumir o token, que volta a funcionar se o usuário for reativado ou se for usado no listener certo.
 - **Sessão travada.** A transação da renovação começa travando a linha da sessão (`SELECT ... FOR UPDATE`), antes de mexer nos tokens, para que renovação e revogação da mesma sessão não se cruzem ([Atomicidade e serialização por sessão](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)).
 - **Revogar e gravar na mesma transação.** Numa transação, um `UPDATE` condicional (`ExecuteUpdateAsync`, com `revoked_at IS NULL` e não expirado na cláusula `WHERE`) preenche `revoked_at` e `updated_at` do token antigo, e o token novo é inserido na mesma sessão. Se a gravação do novo falhar, a transação é desfeita e a revogação também.
 - **Uma renovação simultânea vence.** Se duas requisições trazem o mesmo token ao mesmo tempo, as duas passam pelas checagens, mas só uma atualiza a linha: a segunda espera o lock da sessão e, depois que a primeira confirma, o seu `UPDATE` não encontra mais o token ativo e afeta 0 linhas. Ela desfaz a transação e, como o token foi revogado, revoga a sessão inteira, inclusive o token novo da primeira. Ela recebe `401`, e só um par novo é emitido, com um refresh token que já não renova.
 - **Mesma sessão, par novo.** A sessão não muda: o access token novo traz o mesmo `sid`, e o refresh token novo é ligado à mesma linha de `identity.sessions`. Os tokens antigos ficam na tabela, revogados.
-- **Papel atual do banco.** O access token novo é emitido a partir do usuário lido do banco na renovação, então reflete o papel gravado; como o canal exige o papel do host, uma mudança de papel faz a renovação seguinte responder `401`.
+- **Papel atual do banco.** O access token novo é emitido a partir do usuário lido do banco na renovação, então reflete o papel gravado; como o canal exige o papel do público, uma mudança de papel faz a renovação seguinte responder `401`.
 - **Mesma resposta para toda falha.** O resultado do caso de uso não diz o motivo da falha, e o controller responde sempre o mesmo `401`.
 - **Sem segredos nos logs.** Nenhum código do projeto registra o refresh token ou o access token. O caso de uso escreve um único log, o aviso de reuso, só com os ids externos do usuário e da sessão, verificado pelos `RefreshTokenReuseTests` ([Log](refresh-token-reuse.md#log)).
 
@@ -114,7 +114,7 @@ Uma falha inesperada ao gravar o token novo responde `500` ([Respostas de erro](
 | [`RefreshSession`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/RefreshSession.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. Também orquestra a revogação por reuso (`RevokeSessionAsync`), a transação e o lock pela porta `ISessionStore`; `SessionStore`, em Infrastructure, executa o lock compartilhado com o [logout](logout.md) e as escritas. Veja [Persistência do ciclo de sessões](session-persistence.md). |
 | [`LoginChannels`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/LoginChannels.cs) | `Application/Sessions` (`internal`) | `RoleOf(channel)`: papel aceito por canal, compartilhado pelo login e pela renovação. |
 | [`RefreshToken`](../../src/Services/Identity/Ouroboros.Identity/Domain/Sessions/RefreshToken.cs) | `Domain/Sessions` (`internal`) | `RevokedAt`, `IsActiveAt(now)` (não revogado e não expirado) e `Issue(sessionId, tokenHash, expiresAt)`, que cria o token seguinte de uma sessão já gravada. |
-| [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Refresh`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Refresh)]`; o DTO `RefreshSessionBody` e o `type` do erro ficam em `SessionModels.cs`, um por host, ao lado dos DTOs do login. O mesmo DTO é o corpo da action `Logout` ([Encerrar a sessão atual](logout.md)). |
+| `SessionsController` [externo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/External/SessionsController.cs) e [administrativo](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/SessionsController.cs) | `Controllers/External` e `Controllers/Admin` da API de Identity | Action `Refresh`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Refresh)]`; o DTO `RefreshSessionBody` e o `type` do erro ficam em [`SessionModels.cs`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/SessionModels.cs), compartilhado pelos dois, ao lado dos DTOs do login. O mesmo DTO é o corpo da action `Logout` ([Encerrar a sessão atual](logout.md)). |
 
 ## Persistência
 
@@ -148,9 +148,9 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - um token expirado recebe `401` e não é revogado;
 - um usuário inativo recebe `401` sem consumir o token, que volta a renovar depois da reativação;
 - uma falha ao gravar o token novo, provocada por um trigger no banco, responde `500`, não revoga o antigo nem grava o novo; sem o trigger, o mesmo token renova;
-- o access token novo traz o papel e o `sub` do banco; com o papel alterado para `Admin`, a API externa responde `401` e não consome o token;
-- uma sessão de `Admin` não renova pela API externa (sem consumir o token) e renova pelo backoffice, com audiência `ouroboros-backoffice` e papel `Admin`;
-- uma sessão de `Customer` não renova pelo backoffice;
+- o access token novo traz o papel e o `sub` do banco; com o papel alterado para `Admin`, o listener público responde `401` e não consome o token;
+- uma sessão de `Admin` não renova pelo listener público (sem consumir o token) e renova pelo administrativo, com audiência `ouroboros-backoffice` e papel `Admin`;
+- uma sessão de `Customer` não renova pelo listener administrativo;
 - cinco renovações simultâneas com o mesmo token têm um único `200`, as demais recebem `401`, e só um token novo é gravado.
 
 Em [`RateLimitingTests`](../../tests/Ouroboros.IntegrationTests/RateLimitingTests.cs), `Refresh_has_its_own_policy` confere que, com a política `identity-refresh` limitada a 1, a segunda renovação do mesmo IP recebe `429` e o login do mesmo IP continua aceito. Como no `TestServer` todas as requisições chegam do mesmo IP, a [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) eleva também o limite da renovação para 100.000.

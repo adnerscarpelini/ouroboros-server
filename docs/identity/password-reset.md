@@ -11,22 +11,22 @@ O fluxo tem duas etapas:
 
 Até a conclusão, a senha atual continua valendo: a solicitação não altera a conta nem encerra sessões. A conclusão não faz login: o cliente entra em seguida pelo [login](login.md), com a senha nova.
 
-Serviço responsável: Identity. As regras ficam nos casos de uso `IRequestPasswordReset` e `ICompletePasswordReset` do serviço; o controller da API externa só valida a entrada, chama o caso de uso e traduz o resultado em resposta HTTP ([Controllers HTTP nos hosts](../architecture/http-controllers.md)).
+Serviço responsável: Identity. As regras ficam nos casos de uso `IRequestPasswordReset` e `ICompletePasswordReset` do serviço; o controller do listener público só valida a entrada, chama o caso de uso e traduz o resultado em resposta HTTP ([Controllers HTTP nas APIs dos serviços](../architecture/http-controllers.md)).
 
 ## Rotas
 
-| Host | Rota | Autenticação | Etapa |
+| Listener | Rota | Autenticação | Etapa |
 | --- | --- | --- | --- |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/password-resets` | Anônima (`[AllowAnonymous]`) | Solicitar |
-| API externa (`Ouroboros.Api`) | `POST /api/v1/identity/password-resets/complete` | Anônima (`[AllowAnonymous]`) | Concluir |
+| Público | `POST /api/v1/identity/password-resets` | Anônima (`[AllowAnonymous]`) | Solicitar |
+| Público | `POST /api/v1/identity/password-resets/complete` | Anônima (`[AllowAnonymous]`) | Concluir |
 
-As rotas existem só na API externa. Contas de backoffice não são recuperadas por elas (veja [Contas de backoffice](#contas-de-backoffice)).
+As rotas existem só no listener público (o administrativo as trata como rota inexistente). Contas de backoffice não são recuperadas por elas (veja [Contas de backoffice](#contas-de-backoffice)).
 
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é `identity.email_tokens`, criada por `AddEmailTokens`, e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para Identity. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
-- Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
+- Para ver o e-mail enviado em desenvolvimento, a API de Identity no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
 
 ## Configuração
 
@@ -187,7 +187,7 @@ Uma falha ao gravar responde `500` ([Respostas de erro](../architecture/error-re
 
 ### Contas de backoffice
 
-A API pública solicita recuperação somente para contas `Customer` ativas. Contas de backoffice não são recuperadas pela API pública, coerente com o login da API externa, que também aceita só `Customer` ([Fazer login com e-mail e senha](login.md)). A conclusão não confere o papel, porque só a solicitação gera tokens de redefinição. Disponibilidade da recuperação administrativa: [estado de implementação](../implementation-status.md).
+A recuperação por e-mail do listener público atende somente contas `Customer` ativas. Contas de backoffice não são recuperadas pelo listener público, coerente com o login público, que também aceita só `Customer` ([Fazer login com e-mail e senha](login.md)). A conclusão não confere o papel, porque só a solicitação gera tokens de redefinição. Disponibilidade da recuperação administrativa: [estado de implementação](../implementation-status.md).
 
 ## Casos de uso expostos
 
@@ -201,7 +201,7 @@ A API pública solicita recuperação somente para contas `Customer` ativas. Con
 | [`IPasswordResetStore`](../../src/Services/Identity/Ouroboros.Identity/Application/PasswordResets/IPasswordResetStore.cs) | `Application/PasswordResets` (`internal`) | Porta scoped de consulta, substituição atômica dos pendentes e escritas da conclusão na transação compartilhada de Identity. |
 | [`PasswordResetStore`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/PasswordResetStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped sobre `IdentityDbContext`; concentra EF, SQL e advisory lock da solicitação. Consumo e troca de senha exigem transação ativa. |
 | [`ISessionStore`](../../src/Services/Identity/Ouroboros.Identity/Application/Sessions/ISessionStore.cs) | `Application/Sessions` (`internal`) | Abre a transação da conclusão, trava usuário e sessões, relê o estado vigente e revoga os refresh tokens. Compartilha o contexto com o adaptador de reset ([persistência de sessões](session-persistence.md)). |
-| [`PasswordResetsController`](../../src/Ouroboros.Api/Controllers/Identity/PasswordResetsController.cs) | `Controllers/Identity` da API externa | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordReset)]`, e action `Complete` (`POST complete`), com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordResetCompletion)]`, ambas `[AllowAnonymous]`. Declara no mesmo arquivo o `PasswordResetRequestBody` (só `Email`) e o `CompletePasswordResetBody` (`Token` e `Password`), e reutiliza o `AcceptedResponse(Message)` do cadastro e os `type` de erro de `SessionModels.cs`. |
+| [`PasswordResetsController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/External/PasswordResetsController.cs) | `Controllers/External` da API de Identity | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordReset)]`, e action `Complete` (`POST complete`), com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordResetCompletion)]`, ambas `[AllowAnonymous]`. Declara no mesmo arquivo o `PasswordResetRequestBody` (só `Email`) e o `CompletePasswordResetBody` (`Token` e `Password`), e reutiliza o `AcceptedResponse(Message)` do cadastro e os `type` de erro de [`SessionModels.cs`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/SessionModels.cs). |
 
 ## Persistência
 

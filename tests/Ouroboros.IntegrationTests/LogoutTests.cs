@@ -136,14 +136,14 @@ public sealed class LogoutTests(PostgresFixture postgres) : IntegrationTest(post
         await AssertInvalidRefreshTokenAsync(await PostAsync(client, "/api/v1/admin/identity/sessions/refresh", token));
     }
 
-    private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>
+    private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<TimeProvider>(_time);
             services.AddSingleton<IPasswordHasher>(new AspNetCorePasswordHasher(iterationCount: 1_000));
         }));
 
-    private static async Task CreateUserAsync(WebApplicationFactory<Program> api)
+    private static async Task CreateUserAsync(ApiFactory api)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();

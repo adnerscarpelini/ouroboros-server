@@ -14,13 +14,19 @@ Exercitar API/caso de uso do proprietário e verificar seu banco. Usar migration
 
 Testes locais usam adaptadores controlados; testes de contrato verificam HTTP/mensagens; cenários distribuídos usam processos e broker reais para validar falhas e recuperação.
 
+### API de Identity e listeners
+
+Os testes de integração e de arquitetura sobem a API de Identity (`Ouroboros.Identity.Api`) com `WebApplicationFactory`, localizada pelo tipo `IdentityApiEntryPoint`. O `TestServer` não tem sockets e ignora os listeners do Kestrel; por isso a fábrica de testes substitui só o resolvedor de listener por um que lê o cabeçalho `X-Test-Listener` (`admin` ou ausente), registrado no projeto de testes. O código de produção nunca lê cabeçalho para decidir o público. Quando a separação por portas importa, o teste sobe um Kestrel real: [`KestrelListenerTests`](../../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs) usa portas livres de loopback e prova que cada porta serve só o seu público e a sua audiência, e que o listener administrativo não responde por endereço da máquina.
+
+Comportamentos que dependem do IP de origem usam um filtro de inicialização só de teste (`X-Test-Client-IP`), como em [`ForwardedHeadersTests`](../../tests/Ouroboros.IntegrationTests/ForwardedHeadersTests.cs).
+
 ## Cenários essenciais
 
 - Login, refresh, reuso, logout e reset concorrentes.
 - Cadastro único e consumo atômico de token.
 - Acesso negado a banco alheio e runtime sem superuser.
 - Outbox, rollback, recuperação e duplicatas.
-- Administração protegida sem gateway.
+- Administração protegida sem gateway: listener, rota inexistente no outro público, audiência, papel Admin sem política declarada e cabeçalhos encaminhados ([APIs e workers](hosts.md#como-verificar)).
 - Atualização de Notifications sem implantar Identity.
 - Correlação sem segredos.
 

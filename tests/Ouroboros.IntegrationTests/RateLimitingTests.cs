@@ -158,7 +158,7 @@ public sealed class RateLimitingTests(PostgresFixture postgres) : IntegrationTes
         Assert.Contains("Identity:RateLimiting:Policies:identity-login", result.FailureMessage);
     }
 
-    private WebApplicationFactory<Program> CreateApi(int loginLimit) => Api.WithWebHostBuilder(builder => Configure(builder, loginLimit));
+    private ApiFactory CreateApi(int loginLimit) => Api.WithWebHostBuilder(builder => Configure(builder, loginLimit));
 
     private void Configure(IWebHostBuilder builder, int loginLimit)
     {
