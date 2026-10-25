@@ -16,6 +16,8 @@ O [contrato e a política de entrega confiável](reliable-delivery.md), definido
 
 Notifications possui configuração e segredos próprios. Adaptador local gera .eml apenas em Development, em caminho configurável compatível com Linux. Provedor inválido falha explicitamente. Configuração disponível: [desenvolvimento](../development.md).
 
+O [worker da #72](../notifications/worker.md) já executa separadamente, lê o envelope protegido da #93 e autentica/decifra o conteúdo com privada exclusiva de Notifications. Consumo vem desabilitado e só pode ser habilitado em Development; ACK ainda ocorre depois da entrega direta ou classificação como expirado. Falha de contrato/provedor encerra com erro, sem ACK, para reentrega após correção. Não há inbox ou deduplicação persistente pronta: a #87 completa essas garantias. A origem conserva o envio local até #85/#86, sem referência de projeto a Notifications.
+
 ## Proteção e limites
 
 Links de uso único são segredos. A [política](reliable-delivery.md#proteção-acesso-e-retenção) exige proteção do payload armazenado/em transporte, acesso mínimo, descarte no estado terminal ou na confirmação de publicação e retenção limitada de metadados sanitizados. Tokens e conteúdo sensível não aparecem em logs. Expiração e substituição seguem a [regra de obsolescência](reliable-delivery.md#expiração-e-obsolescência): cancelar intenção ainda não publicada não garante impedir um envio externo em curso; Identity continua recusando o link revogado.

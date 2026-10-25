@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="../../../Ouroboros.Messaging/Ouroboros.Messaging.csproj" />
+    <InternalsVisibleTo Include="Ouroboros.IntegrationTests" />
+  </ItemGroup>
+</Project>

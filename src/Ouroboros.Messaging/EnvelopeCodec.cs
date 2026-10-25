@@ -11,6 +11,24 @@ public static class EnvelopeCodec
     public const string ProtectionAlgorithm = "RSA-OAEP-256+A256GCM";
     private static readonly JsonSerializerOptions s_json = new(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = false };
 
+    // Metadados canônicos v1 autenticados por AES-GCM, sem incluir o próprio ciphertext/tag.
+    public static byte[] AuthenticationData(MessageEnvelope message) => JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        message.MessageId,
+        message.Type,
+        message.Version,
+        message.OccurredAt,
+        message.ExpiresAt,
+        message.Producer,
+        message.CorrelationId,
+        message.CausationId,
+        message.SupersessionKey,
+        message.Traceparent,
+        message.Tracestate,
+        message.Payload.Algorithm,
+        message.Payload.KeyId,
+    }, s_json);
+
     public static byte[] EncodeFailure(MessageFailureReference reference, DateTimeOffset originalExpiresAt)
     {
         if (reference.FailureId == Guid.Empty || reference.MessageId == Guid.Empty

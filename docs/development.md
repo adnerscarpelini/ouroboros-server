@@ -13,7 +13,7 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e `Ouroboros.Messaging` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). As demais bibliotecas não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -34,7 +34,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests   # só arquitetura (sem
 dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (exige Docker)
 ```
 
-- A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string fictícia e um manifesto externo de chaves RSA efêmeras. Os testes não usam as chaves dos user-secrets.
+- A API de Identity e o worker de Notifications têm testes próprios; os testes de Notifications incluem processo filho real e RabbitMQ. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string fictícia e um manifesto externo de chaves RSA efêmeras. Os testes não usam as chaves dos user-secrets.
 - Os testes de listeners em Kestrel real ([`KestrelListenerTests`](../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs)) abrem portas livres de loopback e exigem Docker pelo banco. O teste de que o listener administrativo não responde por endereço da máquina é ignorado quando a máquina não tem endereço IPv4 fora de loopback.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`. Os testes de mensageria também baixam `rabbitmq:4.4.0-management` e exigem `pwsh`; contratos e topologia estão descritos em [RabbitMQ e contrato de mensagem](architecture/messaging.md#como-verificar).
@@ -66,7 +66,7 @@ A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio de
 
 ## RabbitMQ local
 
-O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. A API ainda não o usa nesta etapa: o fluxo distribuído depende das #72/#85–#87. [Topologia, contratos e limites](architecture/messaging.md).
+O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity ainda não publica nesta etapa. O worker da #72 tem consumo direto restrito a Development; o fluxo confiável depende das #85–#87. [Topologia, contratos e limites](architecture/messaging.md).
 
 1. Se ainda não existe `.env`, copie `.env.example` uma vez, sem sobrescrever um arquivo existente. Troque as quatro senhas do broker por valores aleatórios **distintos**, de pelo menos 32 caracteres; placeholders `troque-` são recusados pelo provisionador. Use, por exemplo, quatro valores hexadecimais gerados pelo gerenciador de segredos. Hexadecimal evita diferenças de interpretação de `$`/aspas entre o Compose e o leitor literal de `-EnvFile`. Não imprima nem registre senhas em histórico, transcript ou argumentos.
 
@@ -100,7 +100,7 @@ O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbi
 
 4. Para testar reinício local sem descartar persistência, use `docker compose restart rabbitmq` e reexecute o provisionador. Para parar somente o broker, use `docker compose stop rabbitmq`. `docker compose down` mantém os volumes, mas para todos os containers do projeto. Preserve `rabbitmq-data`, `postgres-data` e backups; os comandos documentados não removem volumes.
 
-A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. Não há consumidor ou limpeza de payload vencido ativo ainda; a #87 deve completar essas garantias antes de ativar mensagens sensíveis. A recuperação por outbox é a #86.
+A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. O consumidor inicial da #72 só funciona em Development e reconhece expiração sem persistência; limpeza/classificação durável dependem da #87 antes de habilitar o fluxo operacional. A recuperação por outbox é a #86.
 
 Testes focados, com Docker e `pwsh` disponíveis, sem usar esse broker ou `.env`:
 
@@ -478,7 +478,77 @@ Os user-secrets (connection string e caminho do manifesto de assinatura) só sã
 
 Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
 
+## Executar o worker de Notifications
+
+`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity continua usando seu adaptador local, sem publicar no broker ainda. [Comportamento e limites do worker](notifications/worker.md).
+
+### Chaves de proteção de Notifications
+
+Gere um par próprio, diferente da assinatura JWT, num diretório **novo**, externo ao checkout e ao contexto de build. O script não sobrescreve chaves nem aceita diretório existente/dentro de checkout e não imprime material de chave:
+
+```powershell
+$protectionDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para proteção de Notifications'))
+pwsh -NoProfile -File scripts/messaging/new-notification-protection-key.ps1 -Directory $protectionDirectory
+```
+
+O resultado é RSA3072, um PEM privado, `public.json` (`activeKeyId`, `keys` com `keyId`, `n`, `e`) e `private.json` (`keys` com `keyId`, `privateKeyPath`). No Windows, o diretório perde herança ampla e recebe ACL da conta que executou o gerador; no Linux, diretório `0700` e arquivos `0600`. Confira dono e permissões. Só Notifications recebe o manifesto/PEM privados; a operação entregará **somente `public.json`** ao produtor na #85. Para runtime sob outra conta, conceda leitura e travessia específicas, sem escrita ou acesso amplo. Nenhuma chave entra na imagem, Git ou logs.
+
+Rotação é operacional: gere um próximo par em outro diretório novo, com `keyId` novo, distribua a pública antes de ativá-la na origem e conserve no manifesto privado as entradas ainda necessárias para mensagens válidas. Não retire uma privada enquanto houver mensagem recuperável que precise dela, considerando prazos e a futura retenção das #85/#87. Não reutilize chaves de assinatura JWT. O leitor aceita até 16 entradas únicas e relê o manifesto; não há rotação, distribuição ou remoção automática de chaves. Os manifests atualizados devem ser substituídos atomicamente, com as mesmas permissões; o gerador não mescla arquivos existentes.
+
+### Configurar e iniciar
+
+O worker tem `UserSecretsId` próprio, `ouroboros-notifications-development`. Não recebe a configuração de Identity. Opções do [`appsettings.json`](../src/Services/Notifications/Ouroboros.Notifications.Worker/appsettings.json):
+
+| Opção em `Notifications` | Padrão e efeito |
+| --- | --- |
+| `Consumer:Enabled` | `false`; habilitar exige Development, provedor e proteção/broker válidos |
+| `Email:Provider` | `None`; `PickupDirectory` é aceito somente em Development; valor desconhecido é recusado |
+| `Email:From` | `nao-responda@ouroboros.local`; endereço único, sem CR/LF |
+| `Email:PickupDirectory` | `.local/notifications-emails`, relativa ao diretório compilado/publicado do worker; prefira pasta absoluta externa e restrita |
+| `Broker:Host` / `Broker:Port` | `localhost` / `5672` para processo local |
+| `Broker:User` / `Broker:Password` | `notifications_consumer` / externa; não usar operador nem credencial de falhas |
+| `PrivateKeyRingPath` | Caminho absoluto de `private.json`, externo e legível somente pelo receptor autorizado |
+
+`Identity:Email` no worker é erro de configuração. `None` não envia nem simula sucesso. A configuração é validada na subida; senha de broker ausente/curta, usuário incorreto ou caminho privado não absoluto impedem habilitar consumo. Arquivo privado ilegível ou conteúdo inválido suspendem a entrega quando necessários, sem expor o conteúdo.
+
+Com RabbitMQ [iniciado e provisionado](#rabbitmq-local), chaves geradas e uma pasta de pickup externa já protegida com ACL/permissões da conta do worker:
+
+```powershell
+$env:DOTNET_ENVIRONMENT = 'Development'
+$env:Notifications__Consumer__Enabled = 'true'
+$env:Notifications__Email__Provider = 'PickupDirectory'
+$env:Notifications__Email__PickupDirectory = [IO.Path]::GetFullPath((Read-Host 'Pasta externa restrita para os e-mails'))
+$env:Notifications__PrivateKeyRingPath = Join-Path $protectionDirectory 'private.json'
+# O gerenciador de segredos pode definir esta variável; a leitura abaixo não grava a senha no histórico.
+$env:Notifications__Broker__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha de notifications_consumer' -AsSecureString)).Password
+dotnet run --project src/Services/Notifications/Ouroboros.Notifications.Worker
+```
+
+O worker não publica mensagens de teste nem solicitações de Identity. Ele aguarda o contrato protegido na fila `notifications.email.v1`. `.eml` preserva link secreto em claro como artefato de entrega: não copie seu conteúdo a logs/issues, restrinja acesso e remova os arquivos quando o ensaio terminar. O arquivo estável `<messageId sem hífens>.eml` evita sobrescrita local; não constitui a deduplicação persistente futura. Após o processo encerrar, retire a senha do ambiente da sessão, se foi definida para o ensaio: `Remove-Item Env:Notifications__Broker__Password`.
+
+### Imagem Linux de Notifications
+
+Na raiz do repositório, com Docker disponível:
+
+```powershell
+docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile -t ouroboros-notifications-local:dev .
+docker run --rm --entrypoint sh ouroboros-notifications-local:dev -c 'id; test -w /app/.local/notifications-emails'
+docker run --rm --name ouroboros-notifications-local ouroboros-notifications-local:dev
+```
+
+O último comando inicia o host com consumo desabilitado; encerre com Ctrl+C. O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; o processo executa como UID 1654, com pickup padrão gravável. O Dockerfile tem ignore próprio para excluir `.env`, PEM, chaves, `.local`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
+
+Para habilitar o consumo da imagem em Development, forneça configuração de broker acessível pelo container e monte chaves externas somente de leitura. **`private.json` gerado no host contém caminhos absolutos do host**: se montar em `/keys`, prepare uma cópia operacional do manifesto com `privateKeyPath=/keys/<keyId>.pem`, um caminho absoluto válido dentro do container. O gerador não reescreve isso automaticamente. Conceda leitura dos arquivos e travessia do diretório ao UID 1654, preservando escrita exclusiva da operação; somente Notifications recebe essa montagem. Pickup externo também precisa de permissão de escrita desse UID e acesso restrito. Não há Compose de serviços ou probes nesta entrega, nem publicação automática da imagem.
+
+Teste reproduzível do worker com broker real e processo filho, sem alterar o `.env` ou broker local:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*NotificationsWorkerTests'
+```
+
 ## E-mails em desenvolvimento
+
+Esta seção descreve o adaptador legado ainda usado pela API de Identity. O worker separado tem configuração e pickup próprios, descritos [acima](#executar-o-worker-de-notifications); não recebe `Identity:Email`. A integração da origem com o broker depende das #85/#86.
 
 Não há servidor de e-mail. No ambiente `Development`, a API de Identity grava cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
 

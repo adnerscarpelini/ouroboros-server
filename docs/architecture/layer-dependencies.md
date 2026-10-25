@@ -40,6 +40,8 @@ Os projetos vêm de `src/**/*.csproj`, sem lista de hosts ou de serviços. Cada 
 
 ### Regras de projeto
 
+Para inspecionar um serviço cujos pacotes não são usados pela API referenciada nos testes, `SourceTree` resolve dependências somente nos diretórios das saídas compiladas listadas no manifesto, conferindo a identidade completa do assembly. Isso permite analisar Notifications sem criar referência à API ou relaxar regras de camada, visibilidade ou serviços.
+
 Aplicadas às `ProjectReference`: `project.cycle` e `project.service-cycle` (ciclos entre projetos e entre serviços), `project.building-blocks-leaf` (BuildingBlocks não referencia projeto algum de `src`), `project.shared-depends-on-service` (compartilhado não referencia serviço nem executável), `project.service-depends-on-executable`, `project.executable-depends-on-executable`, `project.cross-service` (serviço não referencia projeto de outro serviço) e `project.executable-foreign-service` (executável só referencia projetos do próprio serviço; um executável sem serviço próprio viola a regra para cada serviço que referencia).
 
 ### Regras de tipo

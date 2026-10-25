@@ -25,9 +25,11 @@ A biblioteca própria organiza Domain, Application, Infrastructure e contratos c
 | --- | --- |
 | `src/Services/Identity/Ouroboros.Identity` | Biblioteca do serviço Identity (Domain, Application, Infrastructure e Contracts como pastas), com os parâmetros de segurança no mesmo `IdentityDbContext` |
 | `src/Services/Identity/Ouroboros.Identity.Api` | API de Identity: controllers externos e administrativos, listeners, políticas, rate limiting, configuração e o comando `create-admin` ([APIs e workers](hosts.md)) |
+| `src/Services/Notifications/Ouroboros.Notifications` | Biblioteca do receptor de e-mail, portas, caso de uso e adaptadores de proteção/pickup; sem persistência nesta etapa |
+| `src/Services/Notifications/Ouroboros.Notifications.Worker` | Generic Host independente, consumidor RabbitMQ e imagem Linux; consumo direto habilitável somente em Development ([worker](../notifications/worker.md)) |
 | `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
 | `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
-| `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec e fábrica RabbitMQ; sem entidades ou referência a serviços, ainda sem integração no runtime ([mensageria](messaging.md)) |
+| `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec/AAD e fábrica RabbitMQ; sem entidades ou referência a serviços, usada pelo receptor Notifications ([mensageria](messaging.md)) |
 
 Não há executável agregador que componha vários serviços, nem projeto Settings: os parâmetros pertencem ao serviço que aplica a regra, e Identity é a proprietária dos seus. Accounts, Customers e Transactions não existem como projetos.
 

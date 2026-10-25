@@ -21,6 +21,8 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     internal readonly string FailuresPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     private readonly IContainer _container;
     private readonly IVolume _volume = new VolumeBuilder().Build();
+    internal string Host => _container.Hostname;
+    internal int Port => _container.GetMappedPublicPort(5672);
 
     public RabbitMqFixture()
     {

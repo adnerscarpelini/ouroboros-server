@@ -11,6 +11,9 @@
 
 As funcionalidades ficam em `<service-name>/<feature-name>.md`, na pasta do serviço proprietário:
 
+- Notifications
+  - [Worker de entrega de e-mail](notifications/worker.md): processo separado, conteúdo protegido, adaptador local, falhas e limites anteriores à aceitação durável.
+
 - Identity
   - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, preservação do histórico, procedimento com backup/restauração antes do corte e relação com a transferência do banco.
   - [Portas de leitura e escrita de parâmetros](identity/parameter-ports.md): contratos internos de Application e adaptadores locais, com leitura sem cache e valor, autor, revisão e histórico confirmados atomicamente.

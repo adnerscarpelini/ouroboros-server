@@ -19,6 +19,7 @@ internal sealed class SourceTree : ICodeLocator
         Scans = scans;
         _paths = paths;
         _projects = projects.Projects.ToDictionary(project => project.Name);
+        AssemblyLoadContext.Default.Resolving += ResolveDependency;
     }
 
     public static SourceTree Current { get; } = Load();
@@ -55,6 +56,22 @@ internal sealed class SourceTree : ICodeLocator
     {
         var loaded = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(assembly => assembly.GetName().Name == assemblyName);
         return loaded ?? AssemblyLoadContext.Default.LoadFromAssemblyPath(_paths[assemblyName]);
+    }
+
+    // Um serviço independente pode usar pacotes que a API referenciada pelos testes não usa.
+    // Resolver somente nas saídas compiladas do manifesto, sem adicionar referências entre serviços.
+    private Assembly? ResolveDependency(AssemblyLoadContext context, AssemblyName requested)
+    {
+        if (requested.Name is null) { return null; }
+        foreach (var directory in _paths.Values.Select(Path.GetDirectoryName).Distinct(StringComparer.Ordinal))
+        {
+            var path = Path.Combine(directory!, requested.Name + ".dll");
+            if (File.Exists(path) && AssemblyName.GetAssemblyName(path).FullName == requested.FullName)
+            {
+                return context.LoadFromAssemblyPath(path);
+            }
+        }
+        return null;
     }
 
     // Assemblies que o manifesto lista e que não correspondem a nenhum projeto de src, ou o contrário.

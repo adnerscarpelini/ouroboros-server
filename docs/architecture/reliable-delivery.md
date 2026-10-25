@@ -17,7 +17,7 @@ O contrato lógico `notification.email.requested`, versão inteira `1`, exige:
 | `correlationId`, `causationId` | Identificadores opacos de correlação e causa; nunca tokens ou dados pessoais. |
 | `payload` | Destinatário único, assunto, texto e finalidade (`registration` ou `password-reset`); nenhuma senha/hash de senha ou id interno. Inclui o link secreto já composto por Identity. |
 
-Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; a criptografia e sua gestão de chaves ainda precisam ser implementadas antes de ativar o fluxo.
+Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; o receptor da #72 já autentica e decifra conteúdo, mas proteção/persistência da origem e inbox ainda dependem das #85/#87 antes de ativar o fluxo confiável.
 
 ## Estado local e publicação
 
