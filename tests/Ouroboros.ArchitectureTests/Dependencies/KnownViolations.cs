@@ -12,20 +12,10 @@ internal readonly record struct KnownViolation(string Rule, string Subject, stri
 // (KnownViolations.Compare acusa as obsoletas). A refatoração de cada issue deixa a lista menor.
 internal static class KnownViolations
 {
-    private const string ApplicationLayer = "layer.application";
     private const string ForeignServiceExecutable = "project.executable-foreign-service";
-
-    private const string IdentityApplication = "Ouroboros.Modules.Identity.Application.";
-    private const string IdentityInfrastructure = "Ouroboros.Modules.Identity.Infrastructure.";
-
-    private const string EntityFramework = "[assembly] Microsoft.EntityFrameworkCore";
-    private const string EntityFrameworkRelational = "[assembly] Microsoft.EntityFrameworkCore.Relational";
 
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
-        // #77: primeiro Admin.
-        .. Group("#77", ApplicationLayer, IdentityApplication + "Administrators.CreateFirstAdmin", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
-
         // #95 e #96: hosts agregadores que compõem todos os módulos.
         .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),
         .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Backoffice.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),

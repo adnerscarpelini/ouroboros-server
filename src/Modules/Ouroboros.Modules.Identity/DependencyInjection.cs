@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
+        services.AddScoped<IFirstAdminStore, FirstAdminStore>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<ILogout, Logout>();

@@ -55,7 +55,7 @@ Toda senha nova passa por [`PasswordPolicy`](../../src/Modules/Ouroboros.Modules
 
 ## Primeiro administrador
 
-Identity executa create-admin para criar o primeiro Admin, com serialização concorrente e validação do domínio permitido em seus parâmetros locais. O comando não é endpoint HTTP; senha permanece fora de argumentos e logs. Ver [primeiro administrador](../identity/first-admin.md).
+Identity executa create-admin para criar o primeiro Admin, com validação do domínio permitido em seus parâmetros locais. A porta `IFirstAdminStore` e o adaptador `FirstAdminStore` da #77 preservam ausência de Admin, unicidade e gravação sob o advisory lock transacional global, inclusive entre processos; hash e regras ficam na Application antes da transação. O comando não é endpoint HTTP; senha permanece fora de argumentos e logs. Ver [primeiro administrador](../identity/first-admin.md).
 
 ## Tokens
 

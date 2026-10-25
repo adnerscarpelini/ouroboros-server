@@ -1,11 +1,13 @@
 extern alias backoffice;
 
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using backoffice::Ouroboros.Backoffice.Api.CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
@@ -17,6 +19,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
 {
     private const string Email = "oi@adnerscarpelini.com";
     private const string Password = "uma frase longa e única para o admin";
+    private const string ProcessPassword = "uma frase longa e exclusiva para processos";
 
     [Fact]
     public async Task Command_creates_active_admin_and_exits_with_zero()
@@ -165,6 +168,114 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
         Assert.Single(results, result => result.Succeeded);
         Assert.Single(results, result => result.Outcome == CreateFirstAdminOutcome.AdminAlreadyExists);
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.users WHERE role = 'Admin'"));
+    }
+
+    [Fact]
+    public async Task Independent_processes_wait_for_the_global_lock_and_create_one_admin()
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(TestContext.Current.CancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(TestContext.Current.CancellationToken);
+        await using (var command = new NpgsqlCommand(
+            "SELECT pg_advisory_xact_lock(hashtext('identity:create-first-admin'))", connection, transaction))
+        {
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        Process? first = null;
+        Process? second = null;
+        try
+        {
+            first = StartCommandProcess(Email);
+            second = StartCommandProcess("outro@adnerscarpelini.com");
+            var outputs = new[] { first.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken), second.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken) };
+            var errors = new[] { first.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken), second.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken) };
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            while (!await QueryScalarAsync<bool>("""
+                SELECT count(*) = 2 FROM pg_stat_activity WHERE datname = current_database()
+                    AND wait_event_type = 'Lock' AND wait_event = 'advisory'
+                    AND query LIKE '%identity:create-first-admin%'
+                """))
+            {
+                Assert.False(first.HasExited || second.HasExited, "Os dois comandos devem aguardar o advisory lock global.");
+                await Task.Delay(20, timeout.Token);
+            }
+
+            await transaction.CommitAsync(timeout.Token);
+            await Task.WhenAll(first.WaitForExitAsync(timeout.Token), second.WaitForExitAsync(timeout.Token));
+            Assert.Equal(new[] { 0, 1 }, new[] { first.ExitCode, second.ExitCode }.Order().ToArray());
+            Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.users WHERE role = 'Admin'"));
+            var text = string.Join("\n", (await Task.WhenAll(outputs)).Concat(await Task.WhenAll(errors)));
+            // A codificação de console herdada pelo processo varia no Windows; a parte ASCII é estável.
+            Assert.Contains("existe um administrador", text);
+            Assert.DoesNotContain(ProcessPassword, text);
+            Assert.DoesNotContain(ConnectionString, text);
+        }
+        finally
+        {
+            foreach (var process in new[] { first, second })
+            {
+                if (process is not null)
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+                    }
+
+                    process.Dispose();
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Failed_admin_write_rolls_back_and_allows_retry()
+    {
+        await ExecuteAsync("""
+            CREATE FUNCTION fail_admin_write() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected administrator persistence failure'; END $$;
+            CREATE TRIGGER fail_admin_write AFTER INSERT ON identity.users
+            FOR EACH ROW EXECUTE FUNCTION fail_admin_write();
+            """);
+        await Assert.ThrowsAsync<DbUpdateException>(() => ExecuteAsync(Email, Password));
+        Assert.Equal(0L, await CountUsersAsync());
+        await ExecuteAsync("DROP TRIGGER fail_admin_write ON identity.users");
+        Assert.True((await ExecuteAsync(Email, Password)).Succeeded);
+    }
+
+    [Fact]
+    public async Task Command_uses_the_identity_domain_even_if_the_legacy_value_differs()
+    {
+        await ExecuteAsync("UPDATE settings.parameters SET value = 'legacy.example' WHERE key = 'Identity:AdminInvitations:AllowedEmailDomain'");
+
+        var result = await ExecuteAsync(Email, Password);
+
+        Assert.Equal(CreateFirstAdminOutcome.Created, result.Outcome);
+        Assert.Equal(1L, await CountUsersAsync());
+    }
+
+    private Process StartCommandProcess(string email)
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = AppContext.BaseDirectory,
+        };
+        start.ArgumentList.Add(typeof(CreateAdminCommand).Assembly.Location);
+        start.ArgumentList.Add("create-admin");
+        start.ArgumentList.Add("--email");
+        start.ArgumentList.Add(email);
+        start.Environment["DOTNET_ENVIRONMENT"] = "Testing";
+        start.Environment["ASPNETCORE_ENVIRONMENT"] = "Testing";
+        start.Environment["ConnectionStrings__Ouroboros"] = ConnectionString;
+        start.Environment["Authentication__Jwt__SigningKey"] = IntegrationApiFactory.SigningKey;
+        start.Environment[CreateAdminCommand.PasswordVariable] = ProcessPassword;
+        return Process.Start(start) ?? throw new InvalidOperationException("Não foi possível iniciar o comando de teste.");
     }
 
     private async Task<CreateFirstAdminResult> ExecuteAsync(string email, string password)
