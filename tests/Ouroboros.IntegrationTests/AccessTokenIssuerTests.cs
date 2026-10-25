@@ -4,8 +4,8 @@ using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.JsonWebTokens;
+using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -17,7 +17,7 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
     {
         var user = User.Create("admin@example.com", "hash", UserRole.Admin);
         var sessionId = Guid.CreateVersion7();
-        var token = Api.Services.GetRequiredService<AccessTokenIssuer>().Issue(user, sessionId);
+        var token = Api.Services.GetRequiredService<IAccessTokenIssuer>().Issue(user.ExternalId, user.Role, sessionId);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/integration-probe/claims");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
@@ -34,8 +34,8 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
     [Fact]
     public void Issued_token_uses_host_audience_and_access_token_lifetime()
     {
-        var token = Api.Services.GetRequiredService<AccessTokenIssuer>()
-            .Issue(User.Create("cliente@example.com", "hash", UserRole.Customer), Guid.CreateVersion7());
+        var token = Api.Services.GetRequiredService<IAccessTokenIssuer>()
+            .Issue(Guid.CreateVersion7(), UserRole.Customer, Guid.CreateVersion7());
 
         var jwt = new JsonWebToken(token.Token);
         Assert.Equal("HS256", jwt.Alg);

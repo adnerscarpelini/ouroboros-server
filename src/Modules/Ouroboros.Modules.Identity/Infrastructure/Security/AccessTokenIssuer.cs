@@ -2,20 +2,19 @@ using System.Security.Claims;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Domain.Users;
 
 namespace Ouroboros.Modules.Identity.Infrastructure.Security;
 
-internal sealed record AccessToken(string Token, DateTimeOffset ExpiresAt);
-
 // Emite o access token (JWT HS256) com sub (ExternalId do usuário), role e sid (ExternalId da
 // sessão), para a audiência do host em que o login foi feito.
-internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvider timeProvider)
+internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvider timeProvider) : IAccessTokenIssuer
 {
     private readonly JsonWebTokenHandler _handler = new();
 
-    public AccessToken Issue(User user, Guid sessionId)
+    public AccessToken Issue(Guid userId, UserRole role, Guid sessionId)
     {
         var jwt = options.Value;
         var now = timeProvider.GetUtcNow();
@@ -30,8 +29,8 @@ internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvid
             Expires = expiresAt.UtcDateTime,
             Subject = new ClaimsIdentity(
             [
-                new Claim(JwtRegisteredClaimNames.Sub, user.ExternalId.ToString()),
-                new Claim(IdentityClaims.Role, user.Role.ToString()),
+                new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
+                new Claim(IdentityClaims.Role, role.ToString()),
                 new Claim(JwtRegisteredClaimNames.Sid, sessionId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.CreateVersion7().ToString()),
             ]),

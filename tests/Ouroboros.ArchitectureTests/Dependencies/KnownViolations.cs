@@ -27,10 +27,6 @@ internal static class KnownViolations
 
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
-        // #71: emissão do token de acesso por porta local.
-        .. Group("#71", ApplicationLayer, IdentityApplication + "Sessions.Login", IdentityInfrastructure + "Security.AccessToken", IdentityInfrastructure + "Security.AccessTokenIssuer", IdentityInfrastructure + "Security.JwtOptions"),
-        .. Group("#71", ApplicationLayer, IdentityApplication + "Sessions.RefreshSession", IdentityInfrastructure + "Security.AccessToken", IdentityInfrastructure + "Security.AccessTokenIssuer", IdentityInfrastructure + "Security.JwtOptions"),
-
         // #73: portas de parâmetros em Settings.
         .. Group("#73", ApplicationLayer, SettingsApplication + "Parameters.ParameterWriter", SettingsInfrastructure + "Persistence.SettingsDbContext", EntityFramework),
         .. Group("#73", ApplicationLayer, SettingsApplication + "Parameters.SystemParameters", SettingsInfrastructure + "Persistence.SettingsDbContext", EntityFramework),
