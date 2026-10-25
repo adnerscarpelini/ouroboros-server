@@ -1,8 +1,6 @@
 using System.Globalization;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 using Ouroboros.Modules.Settings.Contracts;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
@@ -10,7 +8,7 @@ namespace Ouroboros.Modules.Identity.Application.Sessions;
 // Bloqueio da conta após falhas seguidas de senha. O limite e a duração vêm dos parâmetros do sistema,
 // lidos no início de todo login.
 internal sealed partial class AccountLockout(
-    IdentityDbContext context,
+    ISessionStore store,
     ISystemParameters parameters,
     ILogger<AccountLockout> logger)
 {
@@ -27,20 +25,8 @@ internal sealed partial class AccountLockout(
     // bloqueia a conta e zera o contador na mesma instrução.
     public async Task RegisterFailureAsync(User user, LockoutPolicy policy, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var maxFailedAttempts = policy.MaxFailedAttempts;
         var lockedUntil = now.Add(policy.Duration);
-
-        // Sem operadores LINQ depois do SqlQuery, o EF não envolve o UPDATE numa subconsulta.
-        var results = await context.Database.SqlQuery<bool>($"""
-            UPDATE identity.users
-            SET failed_login_count = CASE WHEN failed_login_count + 1 >= {maxFailedAttempts} THEN 0 ELSE failed_login_count + 1 END,
-                locked_until = CASE WHEN failed_login_count + 1 >= {maxFailedAttempts} THEN {lockedUntil} ELSE locked_until END,
-                updated_at = {now}
-            WHERE id = {user.Id}
-            RETURNING failed_login_count = 0 AS "Value"
-            """).ToListAsync(cancellationToken);
-
-        if (results is [true])
+        if (await store.RegisterFailureAsync(user.Id, policy.MaxFailedAttempts, lockedUntil, now, cancellationToken))
         {
             LogLocked(user.ExternalId, lockedUntil);
         }

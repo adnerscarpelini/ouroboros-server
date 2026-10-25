@@ -1,14 +1,12 @@
-using Microsoft.EntityFrameworkCore;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Sessions;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
 
 internal sealed class Login(
-    IdentityDbContext context,
+    ISessionStore store,
     UserPasswordVerifier passwordVerifier,
     AccountLockout accountLockout,
     IAccessTokenIssuer accessTokenIssuer,
@@ -22,7 +20,7 @@ internal sealed class Login(
         var lockoutPolicy = await accountLockout.ReadPolicyAsync(cancellationToken);
         var user = string.IsNullOrWhiteSpace(request.Email)
             ? null
-            : await context.Users.SingleOrDefaultAsync(user => user.Email == User.NormalizeEmail(request.Email), cancellationToken);
+            : await store.FindUserAsync(User.NormalizeEmail(request.Email), cancellationToken);
 
         // Sem usuário ou com a conta bloqueada, a senha real não é verificada, mas uma verificação contra
         // um hash fictício roda mesmo assim, para o tempo de resposta não indicar se o e-mail existe.
@@ -51,13 +49,9 @@ internal sealed class Login(
         // foi desativada ou bloqueada entre a verificação e agora, o login é recusado: sem isso, um login com
         // a senha antiga abriria uma sessão depois de a redefinição revogar as outras, ou o rehash gravaria o
         // hash antigo por cima do novo.
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await context.LockUserAsync(user.Id, cancellationToken);
-        var current = await context.Users
-            .AsNoTracking()
-            .Where(stored => stored.Id == user.Id)
-            .Select(stored => new { stored.PasswordHash, stored.IsActive, stored.LockedUntil })
-            .SingleAsync(cancellationToken);
+        await using var transaction = await store.BeginTransactionAsync(cancellationToken);
+        await store.LockUserAsync(user.Id, cancellationToken);
+        var current = await store.ReadUserStateAsync(user.Id, cancellationToken);
         if (current.PasswordHash != verifiedHash || !current.IsActive || current.LockedUntil > now)
         {
             return LoginResult.InvalidCredentials;
@@ -67,10 +61,10 @@ internal sealed class Login(
         var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
         var refreshTokenExpiresAt = now.Add(tokenOptions.RefreshTokenLifetime);
         var session = Session.Open(user.Id, refreshTokenHash, refreshTokenExpiresAt);
-        context.Sessions.Add(session);
+        store.AddSession(session);
 
         // Grava a sessão, o contador zerado e, se a verificação refez o hash da senha, o hash novo.
-        await context.SaveChangesAsync(cancellationToken);
+        await store.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         var accessToken = accessTokenIssuer.Issue(user.ExternalId, user.Role, session.ExternalId);

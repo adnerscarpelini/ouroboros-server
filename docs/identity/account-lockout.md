@@ -39,7 +39,7 @@ Com os valores iniciais dos parâmetros (5 falhas, 15 minutos):
 
 ### Contagem atômica
 
-`AccountLockout.RegisterFailureAsync` registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio módulo, sem tocar outro schema.
+`AccountLockout.RegisterFailureAsync` delega a gravação à porta `ISessionStore`; o adaptador `SessionStore`, em Infrastructure, registra a falha com um único `UPDATE identity.users ... RETURNING`: soma 1 ao contador e, se o resultado atingir o limite, grava `locked_until` e zera o contador na mesma instrução, além de atualizar `updated_at`. Falhas simultâneas para a mesma conta não se perdem, porque o incremento é feito pelo banco sobre o valor atual da linha, e não lido e regravado pela aplicação. O `UPDATE` é SQL direto sobre a tabela do próprio módulo, sem tocar outro schema.
 
 ### Log do bloqueio
 
@@ -76,7 +76,7 @@ Colunas acrescentadas a `identity.users` pela migration `AddAccountLockout`, map
 | `failed_login_count` | `integer not null`, padrão `0` | Falhas de senha seguidas desde o último login bem-sucedido ou o último bloqueio. Propriedade `User.FailedLoginCount`. |
 | `locked_until` | `timestamptz`, nulo | Fim do bloqueio; nulo quando a conta nunca foi bloqueada ou já foi liberada por um login ou por uma [redefinição de senha](password-reset.md). Um valor no passado não bloqueia. Propriedade `User.LockedUntil`. |
 
-No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao instante informado, e `User.ResetFailedLogins()` zera o contador e limpa `LockedUntil`; o login bem-sucedido grava essa mudança no mesmo `SaveChanges` da sessão. A redefinição de senha não passa pela entidade: grava `failed_login_count = 0` e `locked_until = NULL` num `UPDATE` explícito, junto com o hash novo. O incremento não passa pela entidade: é feito pelo `UPDATE` atômico do `AccountLockout`.
+No domínio, `User.IsLockedAt(now)` indica se `LockedUntil` é posterior ao instante informado, e `User.ResetFailedLogins()` zera o contador e limpa `LockedUntil`; o login bem-sucedido grava essa mudança no mesmo `SaveChanges` da sessão. A redefinição de senha não passa pela entidade: grava `failed_login_count = 0` e `locked_until = NULL` num `UPDATE` explícito, junto com o hash novo. O incremento não passa pela entidade: o `AccountLockout` solicita o registro à porta, e o `SessionStore` executa o `UPDATE` atômico. Os limites da unidade de trabalho estão em [Persistência do ciclo de sessões](session-persistence.md).
 
 ## Limitações
 

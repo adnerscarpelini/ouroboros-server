@@ -1,14 +1,12 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Sessions;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
 
 internal sealed partial class RefreshSession(
-    IdentityDbContext context,
+    ISessionStore store,
     IAccessTokenIssuer accessTokenIssuer,
     SessionTokenOptions tokenOptions,
     TimeProvider timeProvider,
@@ -23,13 +21,7 @@ internal sealed partial class RefreshSession(
 
         // O token é buscado pelo hash; o valor recebido nunca é gravado nem comparado em texto.
         var hash = OpaqueTokens.Hash(request.RefreshToken);
-        var found = await (
-            from token in context.RefreshTokens
-            join session in context.Sessions on token.SessionId equals session.Id
-            join user in context.Users on session.UserId equals user.Id
-            where token.TokenHash == hash
-            select new { Token = token, SessionId = session.ExternalId, User = user })
-            .SingleOrDefaultAsync(cancellationToken);
+        var found = await store.FindRefreshTokenAsync(hash, cancellationToken);
 
         if (found is null)
         {
@@ -59,23 +51,17 @@ internal sealed partial class RefreshSession(
         }
 
         // Revogar o antigo e gravar o novo na mesma transação, com a sessão travada (veja
-        // IdentityDbContext.LockSessionAsync).
+        // ISessionStore.LockSessionAsync).
         // O UPDATE condicional garante que só uma renovação simultânea com o mesmo token vence.
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await context.LockSessionAsync(found.Token.SessionId, cancellationToken);
-        var revoked = await context.RefreshTokens
-            .Where(token => token.Id == found.Token.Id && token.RevokedAt == null && token.ExpiresAt > now)
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(token => token.RevokedAt, now)
-                    .SetProperty(token => token.UpdatedAt, now),
-                cancellationToken);
+        await using var transaction = await store.BeginTransactionAsync(cancellationToken);
+        await store.LockSessionAsync(found.Token.SessionId, cancellationToken);
+        var revoked = await store.RevokeTokenAsync(found.Token.Id, now, cancellationToken);
         if (revoked == 0)
         {
             // Outra renovação revogou o token primeiro (reuso) ou ele acabou de expirar. A revogação da
             // sessão roda depois do rollback, numa transação própria, para não ser desfeita.
             await transaction.RollbackAsync(cancellationToken);
-            if (await context.RefreshTokens.AnyAsync(token => token.Id == found.Token.Id && token.RevokedAt != null, cancellationToken))
+            if (await store.IsTokenRevokedAsync(found.Token.Id, cancellationToken))
             {
                 await RevokeSessionAsync(reuse, cancellationToken);
             }
@@ -85,8 +71,8 @@ internal sealed partial class RefreshSession(
 
         var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
         var refreshTokenExpiresAt = now.Add(tokenOptions.RefreshTokenLifetime);
-        context.RefreshTokens.Add(RefreshToken.Issue(found.Token.SessionId, refreshTokenHash, refreshTokenExpiresAt));
-        await context.SaveChangesAsync(cancellationToken);
+        store.AddRefreshToken(RefreshToken.Issue(found.Token.SessionId, refreshTokenHash, refreshTokenExpiresAt));
+        await store.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         // O papel vem do banco, então o access token novo reflete o papel atual do usuário.
@@ -98,16 +84,10 @@ internal sealed partial class RefreshSession(
     // sessões do usuário não são afetadas.
     private async Task RevokeSessionAsync(ReusedToken reuse, CancellationToken cancellationToken)
     {
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await context.LockSessionAsync(reuse.SessionDatabaseId, cancellationToken);
+        await using var transaction = await store.BeginTransactionAsync(cancellationToken);
+        await store.LockSessionAsync(reuse.SessionDatabaseId, cancellationToken);
         var now = timeProvider.GetUtcNow();
-        var revoked = await context.RefreshTokens
-            .Where(token => token.SessionId == reuse.SessionDatabaseId && token.RevokedAt == null)
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(token => token.RevokedAt, now)
-                    .SetProperty(token => token.UpdatedAt, now),
-                cancellationToken);
+        var revoked = await store.RevokeSessionTokensAsync(reuse.SessionDatabaseId, now, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         // Só registra quando a sessão ainda tinha tokens ativos; reapresentações seguintes não repetem o aviso.
