@@ -29,7 +29,7 @@ public static class IdentityApiHost
             ApplicationName = typeof(IdentityApiEntryPoint).Assembly.GetName().Name,
         });
         configure?.Invoke(builder);
-        builder.AddOuroborosHost(HostAudience.Service);
+        builder.AddOuroborosHost();
         builder.Services.AddIdentityModule();
         AddListeners(builder);
         ForwardedHeadersSetup.Add(builder.Services);

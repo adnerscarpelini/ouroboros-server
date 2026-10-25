@@ -1,4 +1,7 @@
+extern alias identityapi;
+
 using System.Reflection;
+using identityapi::Ouroboros.Identity.Api;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,7 +17,7 @@ internal static class ModuleDbContexts
         [.. Types().Select(type => services.GetService(type)).OfType<DbContext>()];
 
     private static IEnumerable<Type> Types() =>
-        typeof(Program).Assembly.GetReferencedAssemblies()
+        typeof(IdentityApiEntryPoint).Assembly.GetReferencedAssemblies()
             .Where(reference => reference.Name?.StartsWith(AssemblyPrefix, StringComparison.Ordinal) == true)
             .Select(Assembly.Load)
             .SelectMany(assembly => assembly.GetTypes())

@@ -18,7 +18,7 @@ Não usar JOIN, FDW, dblink ou credenciais alheias para contornar a fronteira. C
 
 ## Roles e privilégios por serviço
 
-O procedimento `scripts/database`, executado pela credencial administrativa da instância (`POSTGRES_USER`), cria para cada serviço persistente (Identity e Notifications) um banco e duas roles de login. Customers, Accounts e Transactions não têm banco, pois não existem como serviços. Comando e operação: [Provisionar bancos e roles por serviço](../development.md#provisionar-bancos-e-roles-por-serviço).
+O procedimento `scripts/database`, executado pela credencial administrativa da instância (`POSTGRES_USER`), cria para cada serviço persistente (Identity e Notifications) um banco e duas roles de login. Customers, Accounts e Transactions não têm banco, pois não existem como serviços; cada um receberá banco, credencial, connection string e migrations próprios quando for criado ([estrutura dos serviços](module-structure.md#criação-de-novos-serviços)). Comando e operação: [Provisionar bancos e roles por serviço](../development.md#provisionar-bancos-e-roles-por-serviço).
 
 | Serviço | Banco | Role de runtime | Role de migration |
 | --- | --- | --- | --- |
@@ -59,7 +59,7 @@ Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento de 
 
 ## Connection strings de Identity
 
-A API de Identity lê `ConnectionStrings:Identity`, a connection string do banco próprio com a role de runtime (`identity_runtime`). `ConnectionStrings:Ouroboros`, a do banco original da instância, só vale quando a primeira não está definida (ou está em branco). Remover `ConnectionStrings:Identity` é, portanto, o retorno à origem; uma variável de ambiente `ConnectionStrings__Identity` esquecida continua valendo e deve ser conferida. Sem nenhuma das duas, a API não sobe e a mensagem cita as duas chaves. O contexto legado de Settings, registrado pelos hosts agregadores, segue lendo `ConnectionStrings:Ouroboros`.
+A API de Identity lê `ConnectionStrings:Identity`, a connection string do banco próprio com a role de runtime (`identity_runtime`). `ConnectionStrings:Ouroboros`, a do banco original da instância, só vale quando a primeira não está definida (ou está em branco). Remover `ConnectionStrings:Identity` é, portanto, o retorno à origem; uma variável de ambiente `ConnectionStrings__Identity` esquecida continua valendo e deve ser conferida. Sem nenhuma das duas, a API não sobe e a mensagem cita as duas chaves. O schema `settings` do banco original fica retido, sem projeto que o acesse; seu destino é a #97.
 
 A troca de uma para a outra é ação do operador, liberada pelo `cutover` da transferência. As migrations do banco próprio usam outra connection string, a da role de migration, passada ao comando `dotnet ef database update --connection`; a role de runtime não executa DDL, e o comando é recusado pelo PostgreSQL (`42501`). Passo a passo em [desenvolvimento](../development.md#banco-de-dados-local).
 

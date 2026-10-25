@@ -4,7 +4,7 @@
 
 Conter força bruta, credential stuffing e consumo de CPU pelos endpoints anônimos de autenticação. O [bloqueio de conta](account-lockout.md) protege uma conta; o limite por IP protege o servidor contra tentativas espalhadas por muitas contas a partir do mesmo endereço.
 
-Serviço responsável: Identity. O serviço registra o rate limiter e as políticas em `AddIdentityModule`; a API ativa o middleware ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e aplicam a política em cada action com `[EnableRateLimiting]`. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
+Serviço responsável: Identity. O serviço registra o rate limiter e as políticas em `AddIdentityModule`; a API ativa o middleware pelo pipeline comum ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e os controllers da API aplicam a política em cada action com `[EnableRateLimiting]`. Os limites ficam em `Identity:RateLimiting:Policies` no [`appsettings.json`](../../src/Services/Identity/Ouroboros.Identity.Api/appsettings.json) da API. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
 
 ## Comportamento
 
@@ -107,7 +107,7 @@ Cada política configurada vira uma política nomeada com o próprio contador; n
 | [`OuroborosHostExtensions.UseOuroborosHost`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs) | `Ouroboros.Hosting` | `app.UseRateLimiter()` depois de `UseStatusCodePages()` e antes de `UseAuthentication()`. |
 | [`IdentityHttpItems.RateLimitScope`](../../src/Services/Identity/Ouroboros.Identity/Contracts/IdentityHttpItems.cs) | `Contracts` (`public`) | Chave de `HttpContext.Items` com o público do listener, definida pelo pipeline da API ([`IdentityApiHost.UsePipeline`](../../src/Services/Identity/Ouroboros.Identity.Api/IdentityApiHost.cs)) antes do rate limiter e usada na partição do contador. |
 
-Como o `AddRateLimiter` vem do Identity e o `UseRateLimiter` está na configuração comum dos hosts, todo host que use `UseOuroborosHost` precisa registrar o Identity; sem ele, o host não sobe.
+Como o `AddRateLimiter` vem do Identity e o `UseRateLimiter` está no pipeline comum de `Ouroboros.Hosting`, todo executável que use `UseOuroborosHost` precisa registrar o Identity; sem ele, o executável não sobe.
 
 ## Limitações
 

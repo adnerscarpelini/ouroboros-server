@@ -23,7 +23,7 @@ A [#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69) define as
 | #94 | #69, #80 | Identity em src/Services, sem mudança de comportamento |
 | #95 | #69, #94, #80 | APIs externa e administrativa no processo de Identity, com listeners, audiências e política padrão preservados |
 | #82 | #69, #81, #92, #80 | Transferência validada do banco de Identity, com rollback e reconciliação |
-| #96 | #69, #95, #81 | Retirada dos agregadores, revisão do Hosting e remoção do scaffolding sem uso |
+| #96 | #69, #95, #81 | Retirada dos agregadores e do projeto Settings, revisão do Hosting e remoção do scaffolding sem uso |
 | #97 | #82, #96 | Decisão de retenção e desativação do banco original, sem exclusão automática |
 | #84 | #69, #71 | Assinatura assimétrica e rotação |
 | #85 | #79, #75, #76 | Estado e intenção de e-mail na mesma transação |
@@ -43,12 +43,12 @@ Uma ordem válida é #69 → (#70, #71, #73, #78, #79, #80, #28, #92) → (#74, 
 
 ## Administração e segurança
 
-- #34 depende de #69, #73, #81 e #87: Identity reautentica o Admin, verifica a política `settings:parameters.write`, resolve destinatários ativos e grava valor, revisão, histórico e intenção de aviso sensível na mesma transação. O comando preserva PUT, `value`/`description` e respostas 400/401/404/409; não há Settings → Identity → Settings. Notifications recebe destinatário e conteúdo sem senha nem valores sensíveis.
+- #34 depende de #69, #73, #81 e #87: Identity reautentica o Admin, verifica a política `settings:parameters.write`, resolve destinatários ativos e grava valor, revisão, histórico e intenção de aviso sensível na mesma transação. O comando preserva PUT, `value`/`description` e respostas 400/401/404/409; não há ciclo de dependência entre serviços. Notifications recebe destinatário e conteúdo sem senha nem valores sensíveis.
 - #35 depende de #30, #69, #73 e #81: leitura e histórico por cursor no proprietário, com Admin e `settings:parameters.read`. Uma visão administrativa de outros proprietários usa APIs, sem DbContext central.
 - #39 depende de #37, #9, #14, #69, #71 e #84: principal de integração distinto, audiência explícita e nenhum refresh token.
 - #38 depende de #37, #39, #69, #84 e #87: desativação local e aviso recuperável não se desfazem em falha de transporte. A próxima validação do integrador consulta estado autoritativo; timeout ou indisponibilidade recusam acesso.
 
-Rotas públicas são preservadas quando aplicável; mudança de endereço/versão precisa ser explícita. A #95 transfere controllers, políticas, audiências, rate limiting, configuração, create-admin e testes ao proprietário, separando os públicos por listener e por política padrão verificável; a #96 remove os agregadores depois disso. Ouroboros.Hosting conserva somente mecanismos técnicos com consumidores reais. A organização não cria serviços vazios de Customers, Accounts ou Transactions nem define regras financeiras por nomes de pastas.
+Rotas públicas são preservadas quando aplicável; mudança de endereço/versão precisa ser explícita. A #95 transfere controllers, políticas, audiências, rate limiting, configuração, create-admin e testes ao proprietário, separando os públicos por listener e por política padrão verificável; a #96 remove os agregadores e o projeto Settings depois disso, sem excluir dados. Ouroboros.Hosting conserva somente mecanismos técnicos com consumidores reais. A organização não cria serviços vazios de Customers, Accounts ou Transactions nem define regras financeiras por nomes de pastas; cada um só será criado, em `src/Services`, com funcionalidade e fronteira financeira aprovadas.
 
 ## Garantias durante cada entrega
 

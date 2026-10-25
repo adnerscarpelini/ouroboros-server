@@ -10,9 +10,9 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Modules`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; Accounts, Customers, Settings e Transactions são projetos em `src/Modules`. Cada projeto de biblioteca é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks` e `Ouroboros.Hosting` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Os hosts agregadores `Ouroboros.Api` e `Ouroboros.Backoffice.Api` ainda existem ([estado de implementação](implementation-status.md)), mas usam as mesmas portas; não os execute ao mesmo tempo que a API de Identity. As bibliotecas de Identity e dos módulos não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). As demais bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -21,10 +21,7 @@ dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
 dotnet build src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj
 dotnet build src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj
-dotnet build src/Modules/Ouroboros.Modules.Customers/Ouroboros.Modules.Customers.csproj
 ```
-
-Os arquivos `.gitkeep` preservam as pastas vazias no Git; os itens `Folder` nos projetos explicitam sua organização para o Visual Studio.
 
 ## Testes
 
@@ -36,7 +33,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests   # só arquitetura (sem
 dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (exige Docker)
 ```
 
-- Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string e uma chave de assinatura fictícias. Os testes não usam a chave dos user-secrets.
+- A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string e uma chave de assinatura fictícias. Os testes não usam a chave dos user-secrets.
 - Os testes de listeners em Kestrel real ([`KestrelListenerTests`](../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs)) abrem portas livres de loopback e exigem Docker pelo banco. O teste de que o listener administrativo não responde por endereço da máquina é ignorado quando a máquina não tem endereço IPv4 fora de loopback.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
@@ -64,11 +61,11 @@ O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFix
 
 [IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) inicia a API de Identity (`Ouroboros.Identity.Api`) em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. `CreateClient()` fala com o listener público e `CreateAdminClient()`, com o administrativo; `BackofficeIntegrationApiFactory`, declarada no mesmo arquivo, faz todas as requisições do cliente chegarem ao listener administrativo. Como o `TestServer` não tem sockets, o listener é escolhido pelo cabeçalho de teste `X-Test-Listener` (`admin`), lido só por um resolvedor registrado no projeto de testes; a produção ignora o cabeçalho. A separação por portas é verificada em `KestrelListenerTests`, com Kestrel real. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios; `ForwardedHeadersTests` usa o cabeçalho de teste `X-Test-Client-IP` para definir o IP da conexão.
 
-Os hosts agregadores têm fábricas próprias, [LegacyExternalHostFactory](../tests/Ouroboros.IntegrationTests/LegacyExternalHostFactory.cs) e [LegacyBackofficeHostFactory](../tests/Ouroboros.IntegrationTests/LegacyBackofficeHostFactory.cs), usadas pela `PostgresFixture` para aplicar as migrations do modelo, pelos testes de migração e de fronteira de dados e pela fumaça [LegacyHostsSmokeTests](../tests/Ouroboros.IntegrationTests/LegacyHostsSmokeTests.cs) (login e consulta do próprio usuário em cada host). O comportamento completo é verificado na API de Identity. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
+A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
 
 ## Banco de dados local
 
-A API de Identity (e os hosts agregadores, que carregam a mesma biblioteca) lê a connection string de `ConnectionStrings:Identity`, o banco próprio do serviço (`ouroboros_identity`, role `identity_runtime`). Quando essa chave não está definida, usa `ConnectionStrings:Ouroboros`, o banco original da instância: é o caso até o operador fazer a troca liberada pelo [cutover da transferência](#transferir-o-banco-de-identity) ou configurar uma instalação nova diretamente no banco próprio. Sem nenhuma das duas, falha ao subir com `OptionsValidationException` e uma mensagem que cita as duas chaves. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
+A API de Identity lê a connection string de `ConnectionStrings:Identity`, o banco próprio do serviço (`ouroboros_identity`, role `identity_runtime`). Quando essa chave não está definida, usa `ConnectionStrings:Ouroboros`, o banco original da instância: é o caso até o operador fazer a troca liberada pelo [cutover da transferência](#transferir-o-banco-de-identity) ou configurar uma instalação nova diretamente no banco próprio. Sem nenhuma das duas, falha ao subir com `OptionsValidationException` e uma mensagem que cita as duas chaves. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
 
 1. Crie o `.env` a partir do modelo e troque a senha de `POSTGRES_PASSWORD`, além das quatro senhas por serviço quando for [provisionar os bancos](#provisionar-bancos-e-roles-por-serviço) (o `.env` fica fora do Git):
 
@@ -82,7 +79,7 @@ A API de Identity (e os hosts agregadores, que carregam a mesma biblioteca) lê 
    docker compose up -d --wait
    ```
 
-3. Grave a connection string do **banco original** nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env` (credencial administrativa da instância; uso restrito ao desenvolvimento local). Os hosts agregadores `Ouroboros.Api` e `Ouroboros.Backoffice.Api` usam o mesmo `UserSecretsId`, então leem a mesma connection string e a mesma chave de assinatura; quem já gravou os segredos por um deles não precisa repeti-los. Os hosts agregadores continuam precisando de `ConnectionStrings:Ouroboros` para o contexto legado de Settings, mesmo depois que Identity passar a usar o banco próprio:
+3. Grave a connection string do **banco original** nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env` (credencial administrativa da instância; uso restrito ao desenvolvimento local). Os segredos ficam no `UserSecretsId` do `Ouroboros.Identity.Api.csproj`:
 
    ```powershell
    dotnet user-secrets set "ConnectionStrings:Ouroboros" "Host=localhost;Port=5432;Database=ouroboros;Username=ouroboros;Password=<a senha do .env>" --project src/Services/Identity/Ouroboros.Identity.Api
@@ -90,7 +87,7 @@ A API de Identity (e os hosts agregadores, que carregam a mesma biblioteca) lê 
 
    Para usar o banco próprio e a role de runtime, [provisione](#provisionar-bancos-e-roles-por-serviço) a instância e defina `ConnectionStrings:Identity`, que tem precedência sobre `ConnectionStrings:Ouroboros`. Em ambiente com dados, essa troca só vale depois da [transferência](#transferir-o-banco-de-identity); em instalação nova, veja o passo 4.
 
-4. Para **instalação nova**, sem tabelas legadas de parâmetros, restaure a ferramenta local `dotnet-ef` e aplique as migrations de Identity. Para **banco existente**, antes de qualquer atualização siga o [procedimento de backup restaurado, janela sem escrita e migração dos parâmetros](identity/parameters.md#upgrade-de-banco-existente) e, em seguida, a [transferência do banco de Identity](#transferir-o-banco-de-identity). Se migrations antigas de Settings precisarem ser aplicadas, faça isso antes de Identity; nunca depois do corte.
+4. Para **instalação nova**, sem tabelas legadas de parâmetros, restaure a ferramenta local `dotnet-ef` e aplique as migrations de Identity. Para **banco existente**, antes de qualquer atualização siga o [procedimento de backup restaurado, janela sem escrita e migração dos parâmetros](identity/parameters.md#upgrade-de-banco-existente) e, em seguida, a [transferência do banco de Identity](#transferir-o-banco-de-identity). O projeto Settings não existe mais: o banco legado conserva o schema `settings`, que a migration `OwnIdentityParameters` copia, e este checkout não aplica migrations de Settings. Ambientes que nunca aplicaram as migrations antigas de Settings usam a instalação limpa ou, para aplicá-las, o histórico do Git anterior à #96.
 
    Com a connection string do banco original (passo 3):
 
@@ -107,11 +104,11 @@ A API de Identity (e os hosts agregadores, que carregam a mesma biblioteca) lê 
 
    Uma senha com `;` ou aspas exige aspas no valor da connection string (formato do Npgsql), por exemplo `Password="a;b"`. Depois de migrar o banco próprio, reexecute o [provisionamento](#provisionar-bancos-e-roles-por-serviço) para que o histórico de migrations seja negado ao runtime.
 
-   `OwnIdentityParameters` cria sementes com `uuidv7()` em instalação limpa, exigindo PostgreSQL 18 (a versão do `compose.yaml`). No upgrade, copia e valida os parâmetros e histórico de Settings na mesma transação. A migration não faz backup automaticamente nem exclui a origem; não ative a versão nova se ela falhar.
+   `OwnIdentityParameters` cria sementes com `uuidv7()` em instalação limpa, exigindo PostgreSQL 18 (a versão do `compose.yaml`). No upgrade, copia e valida os parâmetros e o histórico do schema `settings` na mesma transação. A migration não faz backup automaticamente nem exclui a origem; não ative a versão nova se ela falhar.
 
    No primeiro `database update` em um banco vazio, o log mostra `Failed executing DbCommand` sobre `__EFMigrationsHistory` antes de criar a tabela. É um comportamento conhecido do EF Core: o comando termina com `Done.`. Repetir o comando não altera nada.
 
-5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua preservado, sem novas escritas; não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
+5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua retido, sem novas escritas e sem projeto que o acesse (seu destino é a #97); não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
 
    ```powershell
    docker compose exec postgres psql -U ouroboros -d ouroboros -c "\dn"
@@ -123,7 +120,7 @@ Para gerar uma nova migration do Identity:
 dotnet ef migrations add <Nome> --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
-`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros serviços estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
 
 ## Provisionar bancos e roles por serviço
 
@@ -182,7 +179,7 @@ Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_
 
 - Banco e roles [provisionados](#provisionar-bancos-e-roles-por-serviço) (sem eles, `copy` recusa o destino) e as quatro senhas por serviço no `.env`: o `copy` reexecuta o provisionamento, que reaplica as quatro senhas.
 - Migrations de Identity já aplicadas na origem, inclusive os parâmetros locais (veja o [upgrade de banco existente](identity/parameters.md#upgrade-de-banco-existente)). O histórico de migrations é transferido junto.
-- Todos os escritores parados: API de Identity, hosts agregadores, workers, `create-admin` e comandos de migration. O procedimento não os para.
+- Todos os escritores parados: API de Identity, workers, `create-admin` e comandos de migration. O procedimento não os para.
 - Docker Compose. Os clientes PostgreSQL (`pg_dump`, `pg_restore`, `psql`) rodam no container `transfer-identity`, com a credencial **administrativa** do `.env`; não há o que instalar na máquina.
 
 **Comando.** Todos têm a forma abaixo, na raiz do repositório; `<id>` é o identificador impresso pelo `backup`:
@@ -242,7 +239,7 @@ A troca é ação do operador e só é liberada pelo `cutover`. Com as APIs de I
 dotnet user-secrets set "ConnectionStrings:Identity" "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=<IDENTITY_RUNTIME_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity.Api
 ```
 
-Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Os hosts agregadores seguem lendo `ConnectionStrings:Ouroboros` para o contexto legado de Settings. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação da credencial antiga não fazem parte deste procedimento (#97).
+Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação da credencial antiga não fazem parte deste procedimento (#97).
 
 ### Voltar ao banco original
 
@@ -287,7 +284,7 @@ Detalhes em [Criar o primeiro administrador](identity/first-admin.md). Com o `Ad
 
 ## Chave de assinatura dos tokens
 
-A API de Identity (e os hosts agregadores) exige a chave `Authentication:Jwt:SigningKey`, que assina e valida os access tokens JWT (HS256). Sem ela, ou com uma chave vazia ou menor que 32 bytes (256 bits) em UTF-8, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. A chave nunca vai para o Git nem para o `appsettings.json`.
+A API de Identity exige a chave `Authentication:Jwt:SigningKey`, que assina e valida os access tokens JWT (HS256). Sem ela, ou com uma chave vazia ou menor que 32 bytes (256 bits) em UTF-8, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. A chave nunca vai para o Git nem para o `appsettings.json`.
 
 1. Gere uma chave aleatória. Por exemplo, com OpenSSL:
 
@@ -303,7 +300,7 @@ A API de Identity (e os hosts agregadores) exige a chave `Authentication:Jwt:Sig
 
    Os dois geram 64 caracteres, acima do mínimo de 32 bytes.
 
-2. Grave a chave nos user-secrets do projeto `Ouroboros.Identity.Api` (o mesmo `UserSecretsId` dos hosts agregadores, que leem a mesma chave):
+2. Grave a chave nos user-secrets do projeto `Ouroboros.Identity.Api` (`UserSecretsId` do `Ouroboros.Identity.Api.csproj`):
 
    ```powershell
    dotnet user-secrets set "Authentication:Jwt:SigningKey" "<a chave gerada>" --project src/Services/Identity/Ouroboros.Identity.Api
@@ -322,7 +319,7 @@ Os valores de `Authentication:Jwt` disponíveis são:
 | RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
 | SigningKey | Externa ao Git, pelo menos 32 bytes UTF-8; Base64 é usado como texto, sem decodificação |
 
-Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. Os hosts agregadores usam só `Audience` (`ouroboros-api` na API externa, `ouroboros-backoffice` no backoffice) e não definem `AdminAudience`. O checkout valida HS256 com tolerância de relógio de 30 segundos e sem consulta à sessão a cada chamada; rotação assimétrica é uma entrega da #84, conforme o [estado de implementação](implementation-status.md).
+Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. O checkout valida HS256 com tolerância de relógio de 30 segundos e sem consulta à sessão a cada chamada; rotação assimétrica é uma entrega da #84, conforme o [estado de implementação](implementation-status.md).
 
 ## Executar a API de Identity
 
@@ -347,29 +344,20 @@ Para pôr a API atrás de um proxy, configure `Identity:ForwardedHeaders:KnownPr
 
 Os user-secrets (connection string e chave de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string nem a chave de assinatura, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__SigningKey`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
 
-### Hosts agregadores
-
-`Ouroboros.Api` e `Ouroboros.Backoffice.Api` continuam funcionais, sem mudança de contrato, até a retirada pela #96 ([estado de implementação](implementation-status.md)). Usam as mesmas portas de desenvolvimento da API de Identity, então não execute os dois ao mesmo tempo:
-
-```powershell
-dotnet run --project src/Ouroboros.Api              # API externa: http://localhost:5141 (https://localhost:7135 no perfil https)
-dotnet run --project src/Ouroboros.Backoffice.Api   # backoffice: http://localhost:5142 (https://localhost:7136 no perfil https)
-```
-
 ### Endpoints e limites
 
 Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. Os únicos endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
 
 ## E-mails em desenvolvimento
 
-Não há servidor de e-mail. No ambiente `Development`, a API de Identity (e os hosts agregadores) grava cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
+Não há servidor de e-mail. No ambiente `Development`, a API de Identity grava cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
 
 A configuração fica na seção `Identity:Email` dos `appsettings.Development.json`. O adaptador local só é aceito em `Development`: em outro ambiente, o host não sobe. Sem provedor configurado (o padrão fora de `Development`), o host sobe, mas qualquer envio falha com erro explícito. Detalhes em [Envio de e-mail por porta com adaptador local](architecture/email.md).
 
 | Chave em Identity:Email | Configuração disponível |
 | --- | --- |
 | Provider | `PickupDirectory` em Development; `None` por padrão |
-| PickupDirectory | `../../../../.local/emails` na API de Identity (`../../.local/emails` nos hosts agregadores), resolvido a partir do content root do projeto; obrigatório para PickupDirectory |
+| PickupDirectory | `../../../../.local/emails`, resolvido a partir do content root do projeto; obrigatório para PickupDirectory |
 | From | `nao-responda@ouroboros.local` por padrão |
 
 Cada arquivo usa nome com instante/UUID, texto UTF-8 sem BOM, quebras CRLF, cabeçalhos MIME e assunto não ASCII codificado. O link é segredo: não copie seu conteúdo para logs ou issues. A solicitação responde 202 mesmo se o envio após commit falhar, preservando proteção contra enumeração; o checkout não recupera automaticamente a intenção perdida entre commit e envio.

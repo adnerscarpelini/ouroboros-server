@@ -68,7 +68,7 @@ A [consulta do próprio usuário](../identity/me.md) aplica o passo 5: `MeRespon
 - Todo DbContext do proprietário com entidades precisa registrar o `AuditTimestampsInterceptor` e chamar `SnakeCaseNaming.Apply` por último, conforme [Persistência](persistence.md).
 - Mapear uma entidade exige herdar `EntityConfiguration<TEntity>`; uma configuração que não herde dela fica sem o índice único e os tipos de coluna da convenção.
 - O teste que protege a exposição do `Id` depende de nomes. Ele falha se uma propriedade `long` ou `long?` com nome terminado em `Id` aparecer num tipo de `Contracts` ou num tipo cujo nome termine em `Response`. Não detecta campos, propriedades terminadas em `ID` ou `Key`, nem DTOs com outro sufixo; por isso, DTOs de resposta devem terminar em `Response`.
-- Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, as bibliotecas dos serviços concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca aos hosts (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
+- Os testes usam a base e a configuração, que são `public` em BuildingBlocks, com uma entidade de teste. Para usar as entidades e os DbContexts reais, que são internos, as bibliotecas dos serviços concedem `InternalsVisibleTo` a `Ouroboros.IntegrationTests`, nunca às APIs (veja [Visibilidade dos tipos](module-structure.md#visibilidade-dos-tipos)).
 
 ## Testes
 

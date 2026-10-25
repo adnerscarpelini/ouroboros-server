@@ -75,7 +75,7 @@ Os testes de persistência da #77 no mesmo arquivo também verificam:
 
 - dois processos reais do comando (o executável da API de Identity com `create-admin`) aguardam o advisory lock global, observados no PostgreSQL antes de liberá-lo; depois, saem com códigos `0` e `1` e deixam exatamente um Admin;
 - falha por trigger na inserção desfaz a criação, e uma nova execução cria normalmente após remover a falha;
-- valor divergente no schema legado de Settings não altera o domínio permitido lido localmente de Identity.
+- valor divergente no schema `settings` retido não altera o domínio permitido lido localmente de Identity.
 
 A regra estrita de e-mail não tem teste próprio no `create-admin`; os casos recusados estão nos testes da [solicitação de cadastro](registration.md#como-verificar), que usa a mesma regra. A execução concorrente deve criar um único `Admin`; o hash usa o formato V3 (HMAC-SHA512, 210.000 iterações).
 

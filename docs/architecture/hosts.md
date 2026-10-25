@@ -4,7 +4,7 @@
 
 Cada serviço HTTP possui API própria. Identity executa em [`Ouroboros.Identity.Api`](../../src/Services/Identity/Ouroboros.Identity.Api), um processo com dois públicos (clientes e administradores) que delega aos casos de uso locais. Notifications pode executar como worker; saúde operacional não obriga criar API de negócio.
 
-Executáveis compõem apenas seu proprietário, sem carregar outros serviços como bibliotecas ou acessar seus bancos. Disponibilidade dos executáveis e dos agregadores no [estado de implementação](../implementation-status.md); comandos e URLs no [guia de desenvolvimento](../development.md#executar-a-api-de-identity).
+Executáveis compõem apenas seu proprietário, sem carregar outros serviços como bibliotecas ou acessar seus bancos. Disponibilidade dos executáveis no [estado de implementação](../implementation-status.md); comandos e URLs no [guia de desenvolvimento](../development.md#executar-a-api-de-identity).
 
 ## API de Identity: um processo, dois públicos
 
@@ -70,7 +70,7 @@ Os dois esquemas JWT ([`IdentityAuthenticationSchemes`](../../src/Services/Ident
 
 ### Política padrão
 
-A configuração comum (`HostAudience.Service`) define como política de fallback "usuário autenticado". O papel `Admin` dos endpoints administrativos vem da convenção de rota, não do controller. Requisição sem rota correspondente, que não tem metadado de público, só passa pela autenticação do listener: autenticada, recebe `404`; sem token, `401`.
+A configuração comum de `Ouroboros.Hosting` define como política de fallback "usuário autenticado", sem conhecer papéis ou públicos. O papel `Admin` dos endpoints administrativos vem da convenção de rota, não do controller. Requisição sem rota correspondente, que não tem metadado de público, só passa pela autenticação do listener: autenticada, recebe `404`; sem token, `401`.
 
 ### Rate limiting e cabeçalhos encaminhados
 
@@ -84,7 +84,7 @@ create-admin pertence a Identity e roda na própria API, sem subir o servidor HT
 
 ## Configuração comum
 
-Ouroboros.Hosting conserva apenas mecanismos técnicos reutilizados: versionamento por URL, ProblemDetails, política padrão e pipeline de erros, rate limiter e autenticação. Não conhece serviços, banco ou regras de negócio. Removê-lo se não houver consumidores; não é agregador central.
+[`Ouroboros.Hosting`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs) conserva apenas mecanismos técnicos HTTP reutilizáveis pelas APIs dos serviços: controllers, versionamento por URL, ProblemDetails com `traceId`, a política padrão "usuário autenticado" e a ordem do pipeline (tratamento de exceções, páginas de status, rate limiter, autenticação, autorização e controllers). Não conhece serviços, banco, papéis, públicos nem regras de negócio: cada API registra o próprio serviço e define suas políticas, e o rate limiter e a autenticação são registrados pelo serviço. Seu consumidor é `Ouroboros.Identity.Api`. Não é agregador central.
 
 ## Gateways
 
@@ -119,6 +119,6 @@ Comandos em [Testes](../development.md#testes).
 
 ## Origem
 
-[#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69) (decisão de arquitetura) e [#95](https://github.com/adnerscarpelini/ouroboros-server/issues/95) (APIs externa e administrativa no processo de Identity).
+[#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69) (decisão de arquitetura), [#95](https://github.com/adnerscarpelini/ouroboros-server/issues/95) (APIs externa e administrativa no processo de Identity) e [#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96) (Ouroboros.Hosting reduzido a mecanismos técnicos; checklist de comportamentos no [estado de implementação](../implementation-status.md#retirada-dos-hosts-agregadores-e-do-scaffolding-96)).
 
 [Voltar à arquitetura](README.md)

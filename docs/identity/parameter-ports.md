@@ -1,6 +1,6 @@
 # Portas de leitura e escrita de parâmetros
 
-A [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) introduziu em Settings as portas usadas por `SystemParameters` e `ParameterWriter`. A [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) transferiu esses tipos, regras e dados para Identity, preservando a semântica descrita abaixo. O contrato vigente é `Ouroboros.Identity.Contracts.ISystemParameters`; o contexto de runtime é `IdentityDbContext`. Consulte [parâmetros locais de Identity](../identity/parameters.md) para os caminhos atuais, migração, backup e recuperação. O projeto e o schema legados de Settings permanecem preservados, sem leitores/escritores registrados em runtime.
+Identity lê e escreve seus parâmetros por portas de Application, implementadas por adaptadores em Infrastructure. O contrato público é `Ouroboros.Identity.Contracts.ISystemParameters`; o contexto de runtime é `IdentityDbContext`. Consulte [parâmetros locais de Identity](parameters.md) para os caminhos, a migração, o backup e a recuperação. Origem: a [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) introduziu as portas e a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) transferiu esses tipos, regras e dados para Identity; o schema `settings` do banco original fica retido, sem leitores nem escritores em runtime.
 
 ## Leitura
 
@@ -23,7 +23,7 @@ O adaptador `ParameterPersistence` adiciona o histórico e confirma a operação
 
 Chave ausente na alteração produz `ParameterNotFoundException`. Conflitos de concorrência do EF e violações de unicidade do PostgreSQL são reconhecidos em Infrastructure e convertidos em `ParameterConflictException`, interna de Application, com a chave envolvida. Uma revisão concorrente recusada não sobrescreve o valor nem o autor da alteração vencedora.
 
-As portas não expõem `DbContext`, `IQueryable`, transações do provedor ou operações SQL individuais. EF Core e reconhecimento de erros PostgreSQL ficam nos adaptadores. Após a #81, `AddIdentityModule` registra os casos de uso e as portas/adaptadores como scoped; `AddSettingsModule` mantém somente o contexto legado para migrations e inspeção.
+As portas não expõem `DbContext`, `IQueryable`, transações do provedor ou operações SQL individuais. EF Core e reconhecimento de erros PostgreSQL ficam nos adaptadores. `AddIdentityModule` registra os casos de uso e as portas/adaptadores como scoped.
 
 ## Verificação
 
@@ -38,7 +38,7 @@ Restaure as dependências antes do build em um checkout novo, conforme o [guia d
 
 - [SystemParametersTests](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs): leitura vigente, autor e revisão, criação/alteração com histórico, rollback por falha do histórico, chave ausente, valores inválidos e conflito de duas cópias da mesma revisão.
 - [ParameterRulesTests](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs): tipos, padrão, sensibilidade e regras de alteração.
-- [Testes de dependência](../../tests/Ouroboros.ArchitectureTests/Dependencies/SourceTreeDependencyTests.cs): Application sem EF ou Infrastructure, mantendo as regras da #70 após retirar as exceções obsoletas de Settings.
+- [Testes de dependência](../../tests/Ouroboros.ArchitectureTests/Dependencies/SourceTreeDependencyTests.cs): Application sem EF ou Infrastructure, mantendo as regras da #70.
 
 O QA executou esses cenários em Windows com PostgreSQL real. O conflito usa intercalação determinística de dois escopos; não é ensaio de carga nem execução da CI Linux.
 

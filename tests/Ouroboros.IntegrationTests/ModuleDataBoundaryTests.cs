@@ -26,15 +26,12 @@ public sealed class ModuleDataBoundaryTests(PostgresFixture postgres) : Integrat
     }
 
     [Fact]
-    public async Task Identity_api_registers_only_the_identity_context_and_the_legacy_host_also_settings()
+    public void Identity_context_is_discovered()
     {
         using var scope = Api.Services.CreateScope();
-        Assert.Equal(["IdentityDbContext"], ModuleDbContexts.Resolve(scope.ServiceProvider).Select(context => context.GetType().Name));
 
-        await using var legacy = new LegacyExternalHostFactory(ConnectionString);
-        using var legacyScope = legacy.Services.CreateScope();
-        var names = ModuleDbContexts.Resolve(legacyScope.ServiceProvider).Select(context => context.GetType().Name);
-        Assert.Contains("IdentityDbContext", names);
-        Assert.Contains("SettingsDbContext", names);
+        var names = ModuleDbContexts.Resolve(scope.ServiceProvider).Select(context => context.GetType().Name);
+
+        Assert.Equal(["IdentityDbContext"], names);
     }
 }

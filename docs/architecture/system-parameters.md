@@ -18,7 +18,7 @@ Valor e descrição podem ser alterados juntos ou separados; nulo mantém o camp
 
 O histórico guarda chave, revisão, valores e descrições anteriores/novos, tipo, padrão, sensibilidade, autor (ExternalId) e instante UTC. Na inclusão, anteriores são nulos e autor pode ser nulo quando vier de migration. Cada par (chave, revisão) é único; uma colisão desfaz toda a escrita concorrente. O histórico é cópia ligada pela chave, sem depender de FK para o parâmetro. Valores sensíveis de negócio podem constar do histórico sob autorização; senhas, tokens e chaves privadas nunca são parâmetros.
 
-O fluxo administrativo da #34 exige Admin, `settings:parameters.write` e senha atual. Identity resolve os administradores ativos e grava a intenção de aviso na transação local, sem ciclo com Settings ou consulta de Notifications aos usuários. A #35 exige `settings:parameters.read` e histórico por cursor. Preservar contratos de erro e revisão descritos no [plano](migration-plan.md#administração-e-segurança).
+O fluxo administrativo da #34 exige Admin, `settings:parameters.write` e senha atual. Identity resolve os administradores ativos e grava a intenção de aviso na transação local, sem serviço de parâmetros intermediário nem consulta de Notifications aos usuários. A #35 exige `settings:parameters.read` e histórico por cursor. Preservar contratos de erro e revisão descritos no [plano](migration-plan.md#administração-e-segurança).
 
 ## Regras de validação
 
@@ -60,6 +60,6 @@ Verificar atomicidade, revisão, acesso administrativo, leitura posterior e avis
 
 Referências de cenários: [SystemParametersTests](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) cobre leitura, sementes, histórico, rollback e concorrência; [ParameterRulesTests](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs) cobre tipos, padrão, revisão e alteração sem diferença. Cobertura disponível e funcionalidades pendentes: [estado de implementação](../implementation-status.md).
 
-Contratos internos, unidade de trabalho e migração: [parâmetros locais de Identity](../identity/parameters.md). A [nota das portas da #73](../settings/parameter-ports.md) conserva a origem do desenho.
+Contratos internos, unidade de trabalho e migração: [parâmetros locais de Identity](../identity/parameters.md). A [nota das portas da #73](../identity/parameter-ports.md) conserva a origem do desenho.
 
 [Voltar à arquitetura](README.md)

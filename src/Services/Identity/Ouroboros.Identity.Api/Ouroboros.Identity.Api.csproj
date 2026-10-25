@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <!-- Mesmo UserSecretsId dos hosts atuais: a connection string e a chave de assinatura de desenvolvimento são as mesmas. -->
+    <!-- Preserva os user-secrets de desenvolvimento já configurados (connection string e chave de assinatura). -->
     <UserSecretsId>155afeb0-58c8-4e4a-860f-ff6dfd9ac463</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>

@@ -66,7 +66,7 @@ internal sealed class HeaderListenerRoleResolver : IListenerRoleResolver
 
 internal static class TestConfiguration
 {
-    // Mesma configuração para a API de Identity e para os hosts agregadores legados.
+    // Configuração comum aos testes da API de Identity.
     internal static void Apply(IWebHostBuilder builder, string connectionString)
     {
         builder.UseEnvironment("Testing");

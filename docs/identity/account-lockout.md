@@ -65,7 +65,7 @@ As migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-d
 - `AddAccountLockout`, do Identity: as colunas do contador e do bloqueio em `identity.users`.
 - `OwnIdentityParameters`: os dois parâmetros e seu histórico no proprietário, copiados do legado ou criados com revisão 0 numa instalação limpa. Banco legado exige o [procedimento com backup e validação](parameters.md#upgrade-de-banco-existente).
 
-Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback para Settings.
+Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback para o schema `settings`.
 
 ## Persistência
 

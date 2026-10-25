@@ -248,6 +248,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Command_uses_the_identity_domain_even_if_the_legacy_value_differs()
     {
+        await ApplyLegacySettingsSchemaAsync();
         await ExecuteAsync("UPDATE settings.parameters SET value = 'legacy.example' WHERE key = 'Identity:AdminInvitations:AllowedEmailDomain'");
 
         var result = await ExecuteAsync(Email, Password);

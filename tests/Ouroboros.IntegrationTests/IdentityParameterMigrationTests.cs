@@ -5,9 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Ouroboros.Identity.Contracts;
 using Ouroboros.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Settings.Infrastructure.Persistence;
-using LegacyPersistence = Ouroboros.Modules.Settings.Infrastructure.Persistence.ParameterPersistence;
-using LegacyWriter = Ouroboros.Modules.Settings.Application.Parameters.ParameterWriter;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -30,7 +27,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await postgres.BackupAndRestoreAsync(source, restored);
             Assert.Equal(before, await SnapshotAsync(restored, "settings"));
 
-            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(source));
+            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(source));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
             await context.Database.MigrateAsync(Cancellation);
@@ -61,7 +58,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await PrepareLegacyAsync(database);
             await ExecuteAsync(database, $"UPDATE settings.parameters SET revision = revision + 1 WHERE key = '{Key}'");
             var before = await SnapshotAsync(database, "settings");
-            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
+            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
 
@@ -88,7 +85,7 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
         var database = await postgres.CreateDatabaseAsync(useTemplate: false);
         try
         {
-            await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
+            await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
             await using var scope = factory.Services.CreateAsyncScope();
             var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
             await context.Database.MigrateAsync(Cancellation);
@@ -107,16 +104,31 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
         }
     }
 
+    // Banco que ainda tem os parâmetros em settings (esquema legado versionado em Resources) e o Identity migrado até a
+    // migration anterior à que assume os parâmetros. O valor alterado reproduz a escrita do antigo módulo Settings: nova
+    // revisão no parâmetro e uma linha de histórico.
     private async Task PrepareLegacyAsync(string database)
     {
-        await using var factory = new LegacyExternalHostFactory(postgres.ConnectionStringFor(database));
+        await ExecuteAsync(database, await File.ReadAllTextAsync(RepositoryRoot.Resolve("tests", "Ouroboros.IntegrationTests", "Resources", "settings-legacy-schema.sql"), Cancellation));
+
+        await using var factory = new IntegrationApiFactory(postgres.ConnectionStringFor(database));
         await using var scope = factory.Services.CreateAsyncScope();
-        var legacy = scope.ServiceProvider.GetRequiredService<SettingsDbContext>();
-        await legacy.Database.MigrateAsync(Cancellation);
         await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().GetService<IMigrator>()
             .MigrateAsync(PreviousMigration, Cancellation);
-        var writer = new LegacyWriter(new LegacyPersistence(legacy), TimeProvider.System);
-        await writer.ChangeAsync(Key, "migrated.example", "Descrição alterada antes da transferência.", Guid.CreateVersion7(), Cancellation);
+
+        var author = Guid.CreateVersion7();
+        await ExecuteAsync(database, $"""
+            INSERT INTO settings.parameter_history
+                (parameter_key, revision, previous_value, new_value, previous_description, new_description, data_type,
+                 validation_pattern, is_sensitive, changed_by, changed_at, external_id, created_at, updated_at)
+            SELECT key, revision + 1, value, 'migrated.example', description, 'Descrição alterada antes da transferência.',
+                   data_type, validation_pattern, is_sensitive, '{author}', now(), gen_random_uuid(), now(), now()
+            FROM settings.parameters WHERE key = '{Key}';
+            UPDATE settings.parameters
+            SET value = 'migrated.example', description = 'Descrição alterada antes da transferência.',
+                revision = revision + 1, updated_by = '{author}', updated_at = now()
+            WHERE key = '{Key}';
+            """);
     }
 
     private Task<string?> SnapshotAsync(string database, string schema) => ScalarAsync(database, $"""

@@ -36,11 +36,11 @@ A [#70](https://github.com/adnerscarpelini/ouroboros-server/issues/70) automatiz
 
 ### Descoberta
 
-Os projetos vêm de `src/**/*.csproj`, sem lista de hosts ou de módulos. Cada um é classificado como serviço (`src/Services/<Serviço>/…` ou, no legado, `src/Modules/Ouroboros.Modules.<Serviço>`), executável (SDK Web/Worker ou `OutputType` Exe) ou compartilhado (os demais, como `Ouroboros.BuildingBlocks` e `Ouroboros.Hosting`). O projeto de testes compila todo projeto de `src` e registra seus assemblies em `architecture-assemblies.txt`, ao lado dos testes; por isso um serviço, API ou worker novo, inclusive Notifications, é analisado sem editar os testes. Projeto de `src` fora de `Ouroboros.slnx`, entrada da solution sem projeto e `ProjectReference` para projeto inexistente falham, o que cobre a ausência de referências aos executáveis retirados pela [#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96). A API de Identity (`src/Services/Identity/Ouroboros.Identity.Api`) é um executável do serviço Identity: referencia apenas a biblioteca `Ouroboros.Identity` e o projeto compartilhado `Ouroboros.Hosting`, sem exceção na lista de transição.
+Os projetos vêm de `src/**/*.csproj`, sem lista de hosts ou de serviços. Cada um é classificado como serviço (`src/Services/<Serviço>/<projeto>`; o serviço é a pasta logo abaixo de `Services`), executável (SDK Web/Worker ou `OutputType` Exe) ou compartilhado (os demais, como `Ouroboros.BuildingBlocks` e `Ouroboros.Hosting`). O projeto de testes compila todo projeto de `src` e registra seus assemblies em `architecture-assemblies.txt`, ao lado dos testes; por isso um serviço, API ou worker novo, inclusive Notifications, é analisado sem editar os testes. Projeto de `src` fora de `Ouroboros.slnx`, entrada da solution sem projeto e `ProjectReference` para projeto inexistente falham, o que cobre referências a projetos retirados. A API de Identity (`src/Services/Identity/Ouroboros.Identity.Api`) é um executável do serviço Identity: referencia apenas a biblioteca `Ouroboros.Identity` e o projeto compartilhado `Ouroboros.Hosting`, sem exceção na lista de transição.
 
 ### Regras de projeto
 
-Aplicadas às `ProjectReference`: `project.cycle` e `project.service-cycle` (ciclos entre projetos e entre serviços), `project.building-blocks-leaf` (BuildingBlocks não referencia projeto algum de `src`), `project.shared-depends-on-service` (compartilhado não referencia serviço nem executável), `project.service-depends-on-executable`, `project.executable-depends-on-executable`, `project.cross-service` (serviço não referencia projeto de outro serviço) e `project.executable-foreign-service` (executável só referencia projetos do próprio serviço; um agregador sem serviço próprio viola a regra para cada serviço que referencia).
+Aplicadas às `ProjectReference`: `project.cycle` e `project.service-cycle` (ciclos entre projetos e entre serviços), `project.building-blocks-leaf` (BuildingBlocks não referencia projeto algum de `src`), `project.shared-depends-on-service` (compartilhado não referencia serviço nem executável), `project.service-depends-on-executable`, `project.executable-depends-on-executable`, `project.cross-service` (serviço não referencia projeto de outro serviço) e `project.executable-foreign-service` (executável só referencia projetos do próprio serviço; um executável sem serviço próprio viola a regra para cada serviço que referencia).
 
 ### Regras de tipo
 
@@ -57,13 +57,13 @@ O scanner lê metadados e IL com `System.Reflection.Metadata`. Para cada tipo de
 
 ### Lista de transição
 
-As violações legadas ficam em [`KnownViolations.cs`](../../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs). Cada linha nomeia a regra, o tipo ou projeto, a dependência proibida e a issue que a remove; não há exceção por namespace ou por tipo inteiro. Para bibliotecas externas, a dependência nomeada é o assembly (por exemplo, `Microsoft.EntityFrameworkCore`); para tipos de `src`, o nome completo.
+[`KnownViolations.cs`](../../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs) está vazia: nenhuma violação é tolerada. Uma linha, se for admitida por uma issue, nomeia a regra, o tipo ou projeto, a dependência proibida e a issue que a remove; não há exceção por namespace ou por tipo inteiro. Para bibliotecas externas, a dependência nomeada é o assembly (por exemplo, `Microsoft.EntityFrameworkCore`); para tipos de `src`, o nome completo.
 
 - Nova violação falha, inclusive em tipo já listado, se a dependência não estiver nomeada.
 - Dependência removida exige apagar a linha: a suíte acusa a exceção obsoleta.
-- A lista só diminui, nas issues que nela constam. Ampliá-la para fazer a suíte passar contraria a regra; corrija o código.
+- Ampliar a lista para fazer a suíte passar contraria a regra; corrija o código.
 
-O [inventário do checkout](../implementation-status.md#inventário-de-dependências-a-isolar) identifica as fatias a corrigir; o [plano de entregas](migration-plan.md) estabelece sua ordem.
+O [inventário do checkout](../implementation-status.md#inventário-de-dependências-a-isolar) identifica as fatias de isolamento pendentes; o [plano de entregas](migration-plan.md) estabelece sua ordem.
 
 ### Limitações conhecidas
 

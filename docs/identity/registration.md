@@ -199,7 +199,7 @@ Acima de 10 conclusões por minuto do mesmo IP, a resposta é `429` com `Retry-A
 
 ### Vínculo futuro com o Customers
 
-Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao módulo Customers, ainda sem análise própria. O vínculo será feito pelo id externo do usuário, o claim `sub` do access token (o `ExternalId` do `User`), sem referência entre os módulos no banco nem transação conjunta.
+Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao serviço Customers, que ainda não existe e não tem análise própria. O vínculo será feito pelo id externo do usuário, o claim `sub` do access token (o `ExternalId` do `User`), sem referência entre os serviços no banco nem transação conjunta.
 
 ## Casos de uso expostos
 
@@ -247,7 +247,7 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 - **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; sem provedor, todo envio falha (com o mesmo `202`) e vai para o log, e ninguém consegue concluir um cadastro nesses ambientes.
 - **Log `fail` do EF Core na corrida pelo e-mail.** A violação de unicidade tratada como token inválido ainda gera um log de nível `Error` (`fail`) do EF Core ao salvar, sem dado sensível. Na operação, esse log isolado na conclusão do cadastro é uma corrida esperada, não uma falha do sistema.
 - **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório; em desenvolvimento, o token é copiado do `.eml` ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
-- **Dados de cliente** (módulo Customers) estão fora do escopo.
+- **Dados de cliente** (serviço Customers, ainda inexistente) estão fora do escopo.
 
 ## Como verificar
 

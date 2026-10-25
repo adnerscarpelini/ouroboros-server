@@ -36,6 +36,7 @@ public sealed class SystemParametersTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Runtime_reads_and_changes_parameters_without_the_settings_schema()
     {
+        await ApplyLegacySettingsSchemaAsync();
         await ExecuteAsync("ALTER SCHEMA settings RENAME TO retained_settings");
         await using var scope = Api.Services.CreateAsyncScope();
         var reader = scope.ServiceProvider.GetRequiredService<ISystemParameters>();

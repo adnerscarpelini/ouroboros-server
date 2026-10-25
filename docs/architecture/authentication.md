@@ -22,7 +22,7 @@ A API de Identity atende dois públicos com audiências distintas, na seção `A
 - **Emissão.** O emissor escolhe a audiência pelo papel do usuário: `Customer` recebe `Audience`; `Admin`, `AdminAudience`.
 - **Validação.** Os dois esquemas JWT compartilham emissor, chave e algoritmo e diferem na audiência aceita. Um esquema de política escolhe `Bearer.Admin` quando a requisição chegou ao listener administrativo e `Bearer` nos demais casos; o listener vem da conexão ([Listeners](hosts.md#listeners)), não de cabeçalho.
 - **Recusa cruzada.** O token de um canal usado no outro é recusado com o `401` genérico (`WWW-Authenticate: Bearer`, sem motivo), mesmo com papel adequado ao destino.
-- **Configuração.** Na API, `AdminAudience` é obrigatória e deve ser diferente de `Audience`; sem isso, os dois canais emitiriam e aceitariam a mesma audiência e a separação dependeria só dos papéis, e o processo não sobe. Na biblioteca de Identity ela é opcional, para um host com um só público: ausente, vale `Audience`; presente, não pode ser igual a ela.
+- **Configuração.** Na API, `AdminAudience` é obrigatória e deve ser diferente de `Audience`; sem isso, os dois canais emitiriam e aceitariam a mesma audiência e a separação dependeria só dos papéis, e o processo não sobe. Na biblioteca de Identity ela é opcional: ausente, vale `Audience`; presente, não pode ser igual a ela.
 - **Login e renovação.** Cada canal só aceita o papel do canal ([login](../identity/login.md)).
 
 ## Autorização

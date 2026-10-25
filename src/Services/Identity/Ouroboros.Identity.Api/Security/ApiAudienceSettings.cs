@@ -3,7 +3,7 @@ using Microsoft.Extensions.Options;
 namespace Ouroboros.Identity.Api.Security;
 
 // A API atende dois públicos com audiências distintas (Authentication:Jwt:Audience e AdminAudience). Na biblioteca a
-// audiência de administrador é opcional, para um host com um só público; aqui ela é obrigatória, senão os dois
+// audiência de administrador é opcional; aqui ela é obrigatória, senão os dois
 // canais emitiriam e aceitariam a mesma audiência e a separação dependeria só dos papéis.
 internal sealed class ApiAudienceSettings
 {
