@@ -1,4 +1,4 @@
-using Ouroboros.Modules.Settings.Domain.Parameters;
+using Ouroboros.Modules.Identity.Domain.Parameters;
 
 namespace Ouroboros.IntegrationTests;
 

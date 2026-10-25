@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Domain.EmailTokens;
+using Ouroboros.Modules.Identity.Domain.Parameters;
 using Ouroboros.Modules.Identity.Domain.Sessions;
 using Ouroboros.Modules.Identity.Domain.Users;
 
@@ -9,6 +10,10 @@ namespace Ouroboros.Modules.Identity.Infrastructure.Persistence;
 internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : DbContext(options)
 {
     public const string Schema = "identity";
+
+    public DbSet<Parameter> Parameters => Set<Parameter>();
+
+    public DbSet<ParameterHistory> ParameterHistory => Set<ParameterHistory>();
 
     public DbSet<User> Users => Set<User>();
 

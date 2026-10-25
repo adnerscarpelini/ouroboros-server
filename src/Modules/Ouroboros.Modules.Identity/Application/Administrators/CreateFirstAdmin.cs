@@ -1,22 +1,16 @@
-using Microsoft.EntityFrameworkCore;
 using Ouroboros.Modules.Identity.Application.Security;
+using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Settings.Contracts;
 
 namespace Ouroboros.Modules.Identity.Application.Administrators;
 
 internal sealed class CreateFirstAdmin(
-    IdentityDbContext context,
+    IFirstAdminStore store,
     IPasswordHasher passwordHasher,
     ISystemParameters parameters) : ICreateFirstAdmin
 {
     public const string AllowedEmailDomainParameter = "Identity:AdminInvitations:AllowedEmailDomain";
-
-    // Serializa execuções simultâneas do comando: sem isso, duas execuções poderiam passar pela
-    // verificação "não existe Admin" ao mesmo tempo e criar dois.
-    private const string LockSql = "SELECT pg_advisory_xact_lock(hashtext('identity:create-first-admin'))";
 
     public async Task<CreateFirstAdminResult> ExecuteAsync(CreateFirstAdminRequest request, CancellationToken cancellationToken)
     {
@@ -28,14 +22,14 @@ internal sealed class CreateFirstAdmin(
         string allowedDomain;
         try
         {
-            // O Settings já valida o domínio em minúsculas; a normalização aqui protege a comparação.
+            // O Identity já valida o domínio em minúsculas; a normalização aqui protege a comparação.
             allowedDomain = (await parameters.GetAsync(AllowedEmailDomainParameter, cancellationToken)).Trim().ToLowerInvariant();
         }
         catch (ParameterNotFoundException)
         {
             return new(
                 CreateFirstAdminOutcome.ConfigurationMissing,
-                $"O parâmetro do sistema '{AllowedEmailDomainParameter}' não existe; aplique as migrations do Settings.");
+                $"O parâmetro do sistema '{AllowedEmailDomainParameter}' não existe; aplique as migrations do Identity.");
         }
 
         if (!string.Equals(host, allowedDomain, StringComparison.Ordinal))
@@ -50,27 +44,18 @@ internal sealed class CreateFirstAdmin(
             return new(CreateFirstAdminOutcome.PasswordRejected, rule);
         }
 
-        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-        await context.Database.ExecuteSqlRawAsync(LockSql, cancellationToken);
-
-        if (await context.Users.AnyAsync(user => user.Role == UserRole.Admin, cancellationToken))
-        {
-            return new(
-                CreateFirstAdminOutcome.AdminAlreadyExists,
-                "Já existe um administrador. Novos administradores entram por convite.");
-        }
-
-        if (await context.Users.AnyAsync(user => user.Email == email, cancellationToken))
-        {
-            return new(CreateFirstAdminOutcome.EmailAlreadyInUse, "Esse e-mail já pertence a outro usuário.");
-        }
-
+        // Hash fora da transação de persistência; a porta serializa a verificação e a criação.
         var admin = User.Create(email, passwordHasher.Hash(request.Password), UserRole.Admin);
-        context.Users.Add(admin);
-        await context.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-
-        return new(CreateFirstAdminOutcome.Created, $"Administrador {email} criado.", admin.ExternalId);
+        var outcome = await store.TryCreateAsync(admin, cancellationToken);
+        return outcome switch
+        {
+            FirstAdminCreationOutcome.Created => new(CreateFirstAdminOutcome.Created, $"Administrador {email} criado.", admin.ExternalId),
+            FirstAdminCreationOutcome.AdminAlreadyExists => new(
+                CreateFirstAdminOutcome.AdminAlreadyExists,
+                "Já existe um administrador. Novos administradores entram por convite."),
+            FirstAdminCreationOutcome.EmailAlreadyInUse => new(CreateFirstAdminOutcome.EmailAlreadyInUse, "Esse e-mail já pertence a outro usuário."),
+            _ => throw new InvalidOperationException("Resultado de persistência do primeiro administrador desconhecido."),
+        };
     }
 
     private static bool IsEmail(string normalized, out string email, out string host)

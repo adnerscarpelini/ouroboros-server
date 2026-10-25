@@ -7,11 +7,11 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
+using Ouroboros.Modules.Identity.Application.Parameters;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
 using Ouroboros.Modules.Identity.Infrastructure.Security;
-using Ouroboros.Modules.Settings.Application.Parameters;
 
 namespace Ouroboros.IntegrationTests;
 
@@ -128,7 +128,7 @@ public sealed class AccountLockoutTests(PostgresFixture postgres) : IntegrationT
         await using var api = CreateApi();
         using var client = api.CreateClient();
         await CreateUserAsync(api);
-        await ExecuteAsync("DELETE FROM settings.parameters WHERE key = 'Identity:Lockout:MaxFailedAttempts'");
+        await ExecuteAsync("DELETE FROM identity.parameters WHERE key = 'Identity:Lockout:MaxFailedAttempts'");
 
         var existing = await LoginAsync(client, Password);
         var unknown = await client.PostAsJsonAsync(Route, new { Email = "ninguem@example.com", Password }, TestContext.Current.CancellationToken);

@@ -4,8 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Ouroboros.BuildingBlocks.Persistence;
-using Ouroboros.Modules.Settings.Application.Parameters;
-using Ouroboros.Modules.Settings.Contracts;
 using Ouroboros.Modules.Settings.Infrastructure.Persistence;
 
 namespace Ouroboros.Modules.Settings;
@@ -34,10 +32,7 @@ public static class DependencyInjection
                 npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", SettingsDbContext.Schema))
             .AddInterceptors(provider.GetRequiredService<AuditTimestampsInterceptor>()));
 
-        services.AddScoped<ISystemParameters, SystemParameters>();
-        services.AddScoped<IParameterReader, ParameterReader>();
-        services.AddScoped<IParameterPersistence, ParameterPersistence>();
-        services.AddScoped<ParameterWriter>();
+        // Contexto legado somente para aplicar/inspecionar migrations; runtime usa parâmetros de Identity.
 
         return services;
     }

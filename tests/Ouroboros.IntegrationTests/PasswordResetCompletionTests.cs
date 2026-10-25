@@ -195,20 +195,24 @@ public sealed class PasswordResetCompletionTests(PostgresFixture postgres) : Int
         Assert.Equal(HttpStatusCode.OK, (await LoginAsync(client, passwords[winner])).StatusCode);
     }
 
-    // Uma falha em qualquer escrita (aqui, provocada por um trigger na troca da senha) desfaz tudo.
-    [Fact]
-    public async Task Failure_in_any_write_keeps_everything_as_it_was()
+    // Falha antes ou depois da troca de senha deve desfazer inclusive consumo e desbloqueio.
+    [Theory]
+    [InlineData("identity.users", "password_hash")]
+    [InlineData("identity.refresh_tokens", "revoked_at")]
+    public async Task Failure_in_any_write_keeps_everything_as_it_was(string table, string column)
     {
         await using var api = CreateApi();
         using var client = api.CreateClient();
         await CreateUserAsync(api);
         var session = await RefreshTokenOfLoginAsync(client);
         var token = await RequestTokenAsync(client);
-        await ExecuteAsync("""
+        await ExecuteAsync("UPDATE identity.users SET failed_login_count = 3, locked_until = now() + interval '1 hour'");
+        var originalHash = await QueryScalarAsync<string>("SELECT password_hash FROM identity.users");
+        await ExecuteAsync($"""
             CREATE FUNCTION identity.fail_update() RETURNS trigger AS $$
             BEGIN RAISE EXCEPTION 'falha simulada ao trocar a senha'; END;
             $$ LANGUAGE plpgsql;
-            CREATE TRIGGER fail_update BEFORE UPDATE OF password_hash ON identity.users
+            CREATE TRIGGER fail_update BEFORE UPDATE OF {column} ON {table}
             FOR EACH ROW EXECUTE FUNCTION identity.fail_update();
             """);
 
@@ -217,8 +221,12 @@ public sealed class PasswordResetCompletionTests(PostgresFixture postgres) : Int
         Assert.Equal(HttpStatusCode.InternalServerError, failed.StatusCode);
         Assert.Null(await QueryScalarAsync<DateTime?>("SELECT used_at FROM identity.email_tokens"));
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.refresh_tokens WHERE revoked_at IS NULL"));
+        Assert.Equal(originalHash, await QueryScalarAsync<string>("SELECT password_hash FROM identity.users"));
+        Assert.Equal(3, await QueryScalarAsync<int>("SELECT failed_login_count FROM identity.users"));
+        Assert.NotNull(await QueryScalarAsync<DateTime?>("SELECT locked_until FROM identity.users"));
 
-        await ExecuteAsync("DROP TRIGGER fail_update ON identity.users");
+        await ExecuteAsync($"DROP TRIGGER fail_update ON {table}");
+        await ExecuteAsync("UPDATE identity.users SET locked_until = NULL");
         Assert.Equal(HttpStatusCode.OK, (await LoginAsync(client, OldPassword)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await RefreshAsync(client, session)).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(client, token, NewPassword)).StatusCode);

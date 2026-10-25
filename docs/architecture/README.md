@@ -14,6 +14,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Autenticação e autorização](authentication.md).
 - [Domínio de identidade](identity.md).
 - [Entrega de e-mail por Notifications](email.md).
+- [Contrato e política de entrega confiável](reliable-delivery.md).
 - [Testes de integração](integration-tests.md).
 - [Versionamento HTTP](api-versioning.md).
 - [ProblemDetails](error-responses.md).

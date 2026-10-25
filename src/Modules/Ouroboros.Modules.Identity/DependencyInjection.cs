@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Modules.Identity.Application.Administrators;
 using Ouroboros.Modules.Identity.Application.Notifications;
+using Ouroboros.Modules.Identity.Application.Parameters;
 using Ouroboros.Modules.Identity.Application.PasswordResets;
 using Ouroboros.Modules.Identity.Application.Registrations;
 using Ouroboros.Modules.Identity.Application.Security;
@@ -48,6 +49,7 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
+        services.AddScoped<IFirstAdminStore, FirstAdminStore>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<ILogout, Logout>();
@@ -60,6 +62,12 @@ public static class DependencyInjection
         services.AddScoped<ICompletePasswordReset, CompletePasswordReset>();
         services.AddScoped<AccountLockout>();
         services.AddScoped<ISessionStore, SessionStore>();
+        services.AddScoped<IRegistrationStore, RegistrationStore>();
+        services.AddScoped<IPasswordResetStore, PasswordResetStore>();
+        services.AddScoped<ISystemParameters, SystemParameters>();
+        services.AddScoped<IParameterReader, ParameterReader>();
+        services.AddScoped<IParameterPersistence, ParameterPersistence>();
+        services.AddScoped<ParameterWriter>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();

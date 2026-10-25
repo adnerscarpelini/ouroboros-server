@@ -6,14 +6,18 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | --- | --- | --- |
 | Login, sessões, cadastro e recuperação | Implementados; controllers ainda em Ouroboros.Api e Ouroboros.Backoffice.Api | #95 migra os comportamentos; #96 remove os executáveis |
 | Portas de persistência de sessões | Implementadas em Application de Identity (`ISessionStore`/`ISessionTransaction`), com adaptador EF em Infrastructure e a mesma unidade de trabalho local; contagem atômica, rehash, locks e integração com reset preservados ([detalhes](identity/session-persistence.md)) | [#74](https://github.com/adnerscarpelini/ouroboros-server/issues/74) |
+| Porta de persistência do cadastro | Implementada em Application de Identity (`IRegistrationStore`), com adaptador scoped em Infrastructure; substituição de token sob advisory lock e conclusão com consumo/conta atômicos, rollback em conflito e transporte local após commit ([detalhes](identity/registration.md#persistência)) | [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75) |
+| Porta de persistência da redefinição | Implementada em Application de Identity (`IPasswordResetStore`), com adaptador scoped em Infrastructure e transação compartilhada com `ISessionStore`; consumo, senha, desbloqueio e revogação atômicos, ordem de locks preservada e transporte local após commit na solicitação ([detalhes](identity/password-reset.md#persistência)) | [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76) |
+| Porta de persistência do primeiro administrador | Implementada em Application de Identity (`IFirstAdminStore`), com adaptador scoped em Infrastructure; advisory lock global, ausência de Admin, unicidade e gravação na mesma transação, com parâmetros locais e hash calculado antes dela ([detalhes](identity/first-admin.md#persistência)) | [#77](https://github.com/adnerscarpelini/ouroboros-server/issues/77) |
 | Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; HS256 e contratos preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
 | Porta de projeção do usuário autenticado | Implementada em Application de Identity, com consulta e projeção EF em Infrastructure; preserva ExternalId, campos de resposta e recusa de usuário inexistente, inativo ou sem o papel do canal nos dois hosts ([detalhes](identity/me.md#caso-de-uso-exposto)) | [#78](https://github.com/adnerscarpelini/ouroboros-server/issues/78) |
-| Portas de parâmetros | Implementadas em Application de Settings, com adaptadores locais em Infrastructure, leitura sem cache e escrita de parâmetro/histórico atômica; contrato público preservado ([detalhes](settings/parameter-ports.md)) | [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) |
+| Portas e propriedade de parâmetros | Portas da #73 transferidas para Identity pela #81, com `Identity.Contracts.ISystemParameters`, regras e adaptadores locais no mesmo `IdentityDbContext`; leitura sem cache, escrita/histórico atômicos e migração validada com origem preservada ([detalhes e operação](identity/parameters.md)) | [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73), [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) |
 | Serviços em src/Services | Organização definida; projetos ainda em src/Modules | #94, #72 e #96 |
-| Banco e parâmetros próprios de Identity | Parâmetros e histórico continuam em Settings, consumidos localmente por Identity; Identity e Settings têm DbContexts, schemas e migrations distintos, mas usam ConnectionStrings:Ouroboros e credencial/banco comuns no Compose; a credencial da aplicação é a administrativa da instância | #81 (parâmetros), #92 (provisionamento), #82 (transferência do banco), #97 (banco original) |
+| Banco próprio de Identity e legado de Settings | Parâmetros/histórico já estão em `identity`; Settings conserva contexto/migrations e dados legados, sem leitores/escritores de runtime. O banco e a credencial continuam os atuais (`ConnectionStrings:Ouroboros`); a credencial da aplicação ainda é a administrativa da instância. Ambientes existentes exigem execução manual com backup/restauração prévios; migrations não são aplicadas na subida | #92 (provisionamento), #82 (transferência do banco), #96 (projeto legado), #97 (dados antigos) |
 | Administração de parâmetros e integrações | Modelo/histórico e leitura de parâmetros implementados; endpoints administrativos, reautenticação, avisos e clients de integração pendentes | #34, #35, #37–#39 |
-| Notifications e entrega confiável | Envio local em Identity, sem outbox | #72, #79, #85–#87 |
-| Broker e contrato de mensagem | Inexistentes no checkout; sem RabbitMQ no Compose | #93 |
+| Contrato e política de entrega confiável | Decisão documentada: contrato lógico v1, recuperação, duplicatas, retries, expiração, proteção e retenção; não implementa o transporte ([detalhes](architecture/reliable-delivery.md)) | [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79) |
+| Notifications e entrega confiável | Envio local em Identity, sem outbox; processos e entrega confiável pendentes | #72, #85–#87 |
+| Broker e schema executável de mensagem | Inexistentes no checkout; sem RabbitMQ no Compose. Contrato lógico definido pela #79; envelope executável, compatibilidade e topologia pendentes | #93 |
 | Assinatura assimétrica | Checkout utiliza HS256 | #84 |
 | Observabilidade | Pendente | #66–#68, #88 |
 | Imagens, Compose dos serviços e validação independente | Pendentes; o Compose atual só executa o PostgreSQL | #98, #89 |
@@ -37,14 +41,10 @@ As premissas substituídas não autorizam novas violações. A #69 altera docume
 
 ## Inventário de dependências a isolar
 
-Este inventário descreve o código disponível, sem conceder exceções por namespace. Caminhos relativos a `src/Modules/`; cada dependência listada abaixo consta nominalmente na [lista de transição](../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs) da #70 até sua remoção. A [matriz normativa](architecture/layer-dependencies.md) define o destino.
+Este inventário descreve as entregas de isolamento ainda pendentes, sem conceder exceções por namespace. Caminhos relativos a `src/Modules/`. A [lista de transição](../tests/Ouroboros.ArchitectureTests/Dependencies/KnownViolations.cs) da #70 contém somente as exceções dos hosts agregadores para #95/#96; não resta exceção de Application. A [matriz normativa](architecture/layer-dependencies.md) define o destino.
 
 | Tipos e localização | Dependência atual a remover | Entrega |
 | --- | --- | --- |
-| Identity/Application/Registrations: RequestRegistration, CompleteRegistration | IdentityDbContext, EF, SQL advisory lock, PersistenceErrors/erros do provedor | #75 |
-| Identity/Application/PasswordResets: RequestPasswordReset, CompletePasswordReset | IdentityDbContext, EF, SQL e coordenação de locks/tokens/sessões | #76 |
-| Identity/Application/Administrators: CreateFirstAdmin | IdentityDbContext, EF e SQL advisory lock | #77 |
-| Identity/Application: CreateFirstAdmin, AccountLockout, RequestRegistration, RequestPasswordReset | Settings.Contracts.ISystemParameters; CreateFirstAdmin também usa ParameterNotFoundException | #73, #81 |
 | Identity/Infrastructure/Email: PickupDirectoryEmailSender, UnconfiguredEmailSender; DependencyInjection | Transporte/configuração de e-mail locais em Identity | #72, #85–#87 |
 | Ouroboros.Api, Ouroboros.Backoffice.Api e Ouroboros.Hosting | Composição agregada e proteção HTTP acopladas aos hosts | #95, #96 |
 
@@ -54,6 +54,6 @@ Não são verificados isolamento por credencial ou banco, mensageria confiável,
 
 ## Preservação e próximos passos
 
-O [plano de entregas](architecture/migration-plan.md) relaciona dependências e garantias de segurança, locks, atomicidade e recuperação. Cada issue conserva sua fatia: #79 define a política de entrega; #72 cria consumidor/adaptador; #85–#87 completam o fluxo confiável, sobre o broker e o contrato da #93. #94 organiza os projetos; #95 migra as APIs; #96 remove os agregadores depois disso; #92 e #82 provisionam e transferem o banco de Identity; #98 entrega imagens e Compose; #97 decide o destino do banco original; #83 aguarda #89.
+O [plano de entregas](architecture/migration-plan.md) relaciona dependências e garantias de segurança, locks, atomicidade e recuperação. Cada issue conserva sua fatia: a #79 definiu a [política de entrega](architecture/reliable-delivery.md); #72 cria consumidor/adaptador; #85–#87 completam o fluxo confiável, sobre o broker e o contrato executável da #93. #94 organiza os projetos; #95 migra as APIs; #96 remove os agregadores depois disso; #92 e #82 provisionam e transferem o banco de Identity; #98 entrega imagens e Compose; #97 decide o destino do banco original; #83 aguarda #89.
 
 Não excluir dados como efeito da reorganização. Comandos disponíveis no [guia de desenvolvimento](development.md). Acompanhar entregas no [Project](https://github.com/users/adnerscarpelini/projects/1).

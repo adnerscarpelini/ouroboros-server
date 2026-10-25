@@ -1,6 +1,6 @@
 # Portas de leitura e escrita de parâmetros
 
-A [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) isola a persistência usada por `SystemParameters` e `ParameterWriter` em portas internas de Application. O contrato público `ISystemParameters.GetAsync` e as regras de domínio permanecem os mesmos. A propriedade dos parâmetros e as próximas entregas estão no [estado de implementação](../implementation-status.md).
+A [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) introduziu em Settings as portas usadas por `SystemParameters` e `ParameterWriter`. A [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) transferiu esses tipos, regras e dados para Identity, preservando a semântica descrita abaixo. O contrato vigente é `Ouroboros.Modules.Identity.Contracts.ISystemParameters`; o contexto de runtime é `IdentityDbContext`. Consulte [parâmetros locais de Identity](../identity/parameters.md) para os caminhos atuais, migração, backup e recuperação. O projeto e o schema legados de Settings permanecem preservados, sem leitores/escritores registrados em runtime.
 
 ## Leitura
 
@@ -23,7 +23,7 @@ O adaptador `ParameterPersistence` adiciona o histórico e confirma a operação
 
 Chave ausente na alteração produz `ParameterNotFoundException`. Conflitos de concorrência do EF e violações de unicidade do PostgreSQL são reconhecidos em Infrastructure e convertidos em `ParameterConflictException`, interna de Application, com a chave envolvida. Uma revisão concorrente recusada não sobrescreve o valor nem o autor da alteração vencedora.
 
-As portas não expõem `DbContext`, `IQueryable`, transações do provedor ou operações SQL individuais. EF Core e reconhecimento de erros PostgreSQL ficam nos adaptadores. `AddSettingsModule` registra os casos de uso e as portas/adaptadores como scoped.
+As portas não expõem `DbContext`, `IQueryable`, transações do provedor ou operações SQL individuais. EF Core e reconhecimento de erros PostgreSQL ficam nos adaptadores. Após a #81, `AddIdentityModule` registra os casos de uso e as portas/adaptadores como scoped; `AddSettingsModule` mantém somente o contexto legado para migrations e inspeção.
 
 ## Verificação
 

@@ -28,7 +28,7 @@ public sealed class PostgresFixture : IAsyncLifetime
         await using (var factory = new IntegrationApiFactory(ConnectionStringFor(TemplateDatabase)))
         {
             using var scope = factory.Services.CreateScope();
-            foreach (var context in ModuleDbContexts.Resolve(scope.ServiceProvider))
+            foreach (var context in ModuleDbContexts.Resolve(scope.ServiceProvider).OrderBy(context => context.GetType().Name == "SettingsDbContext" ? 0 : 1))
             {
                 await context.Database.MigrateAsync();
             }
@@ -38,13 +38,14 @@ public sealed class PostgresFixture : IAsyncLifetime
         NpgsqlConnection.ClearAllPools();
     }
 
-    public async Task<string> CreateDatabaseAsync()
+    public async Task<string> CreateDatabaseAsync(bool useTemplate = true)
     {
         var name = $"ouroboros_test_{Guid.NewGuid():N}";
         await _createLock.WaitAsync();
         try
         {
-            await ExecuteAsync($"""CREATE DATABASE "{name}" TEMPLATE "{TemplateDatabase}" """);
+            var template = useTemplate ? TemplateDatabase : "template0";
+            await ExecuteAsync($"""CREATE DATABASE "{name}" TEMPLATE "{template}" """);
         }
         finally
         {
@@ -59,6 +60,23 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public string ConnectionStringFor(string database) =>
         new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = database }.ConnectionString;
+
+    // Backup e restauração reais, somente dos bancos isolados que a fixture criou.
+    public async Task BackupAndRestoreAsync(string source, string destination)
+    {
+        if (!source.StartsWith("ouroboros_test_", StringComparison.Ordinal)
+            || !destination.StartsWith("ouroboros_test_", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Backup de teste exige bancos da fixture.");
+        }
+
+        var path = $"/tmp/{Guid.NewGuid():N}.dump";
+        var username = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()).Username!;
+        var backup = await _container.ExecAsync(["pg_dump", "--username", username, "--format=custom", "--no-owner", "--no-acl", "--file", path, source]);
+        Assert.Equal(0, backup.ExitCode);
+        var restore = await _container.ExecAsync(["pg_restore", "--username", username, "--exit-on-error", "--no-owner", "--no-acl", "--dbname", destination, path]);
+        Assert.Equal(0, restore.ExitCode);
+    }
 
     public async ValueTask DisposeAsync()
     {

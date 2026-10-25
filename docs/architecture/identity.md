@@ -55,7 +55,7 @@ Toda senha nova passa por [`PasswordPolicy`](../../src/Modules/Ouroboros.Modules
 
 ## Primeiro administrador
 
-Identity executa create-admin para criar o primeiro Admin, com serialização concorrente e validação do domínio permitido em seus parâmetros locais. O comando não é endpoint HTTP; senha permanece fora de argumentos e logs. Ver [primeiro administrador](../identity/first-admin.md).
+Identity executa create-admin para criar o primeiro Admin, com validação do domínio permitido em seus parâmetros locais. A porta `IFirstAdminStore` e o adaptador `FirstAdminStore` da #77 preservam ausência de Admin, unicidade e gravação sob o advisory lock transacional global, inclusive entre processos; hash e regras ficam na Application antes da transação. O comando não é endpoint HTTP; senha permanece fora de argumentos e logs. Ver [primeiro administrador](../identity/first-admin.md).
 
 ## Tokens
 
@@ -87,9 +87,11 @@ A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules
 | `locked_until` | `timestamptz`, nulo | Fim do bloqueio.  |
 | `created_at`, `updated_at` | `timestamptz` | Preenchidas pelo interceptor. |
 
-Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens` e `DbSet<EmailToken> EmailTokens` e aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)).
+Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens`, `DbSet<EmailToken> EmailTokens`, `DbSet<Parameter> Parameters` e `DbSet<ParameterHistory> ParameterHistory`; aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)). Parâmetros e histórico pertencem ao mesmo contexto desde a #81, com [portas locais, backup e migração validada no mesmo banco](../identity/parameters.md).
 
 Os casos de uso de sessões coordenam a persistência pelas portas internas `ISessionStore` e `ISessionTransaction`, com adaptador `SessionStore` em Infrastructure. O adaptador compartilha o `IdentityDbContext` e os métodos de lock com a redefinição de senha, preservando a mesma transação local. A [nota de persistência de sessões](../identity/session-persistence.md) descreve os limites e a verificação.
+
+Na redefinição, `IPasswordResetStore`/`PasswordResetStore` concentra consultas e escritas específicas; a conclusão abre a transação pela porta de sessões da #74 e compartilha o mesmo contexto scoped. Consumo, senha, desbloqueio e revogação só confirmam juntos, na ordem de locks abaixo. A Application não depende de EF ou SQL. Ver [persistência da redefinição](../identity/password-reset.md#persistência), entregue na #76.
 
 ## Ordem dos locks
 
