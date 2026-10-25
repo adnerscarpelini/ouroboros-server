@@ -25,13 +25,6 @@ internal static class KnownViolations
 
     public static IReadOnlyList<KnownViolation> All { get; } =
     [
-        // #74: persistência de sessões e locks por portas.
-        .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.AccountLockout", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
-        .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.Login", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
-        .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.Logout", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
-        .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.LogoutAll", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
-        .. Group("#74", ApplicationLayer, IdentityApplication + "Sessions.RefreshSession", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
-
         // #75: persistência de cadastro.
         .. Group("#75", ApplicationLayer, IdentityApplication + "Registrations.CompleteRegistration", IdentityInfrastructure + "Persistence.IdentityDbContext", IdentityInfrastructure + "Persistence.PersistenceErrors", EntityFramework),
         .. Group("#75", ApplicationLayer, IdentityApplication + "Registrations.RequestRegistration", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),

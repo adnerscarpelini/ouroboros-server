@@ -89,7 +89,7 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 - **Logout não é reuso.** Apresentar ao logout um token já revogado não revoga a sessão, ao contrário da renovação ([Revogar a sessão ao detectar reuso](refresh-token-reuse.md)). Já a renovação com um token encerrado por logout é tratada como reuso e revoga os tokens ainda ativos da sessão, se houver.
 - **Só o token informado.** O logout revoga só o refresh token recebido, que, na sessão em uso, é o único ativo dela. As outras sessões do usuário não são afetadas.
 - **Sem checagem do dono nem do canal.** O caso de uso não confere se o usuário está ativo nem o papel dele; basta o token existir.
-- **Sessão travada.** A transação do logout começa travando a linha da sessão (`IdentityDbContext.LockSessionAsync`, `SELECT ... FOR UPDATE`), antes do `UPDATE` do token, como toda escrita em `identity.refresh_tokens` ([Atomicidade e serialização por sessão](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)). Um logout simultâneo a uma renovação da mesma sessão espera a outra operação terminar.
+- **Sessão travada.** A transação do logout começa travando a linha da sessão (pela porta `ISessionStore.LockSessionAsync`, com `SELECT ... FOR UPDATE` em Infrastructure), antes do `UPDATE` do token, como toda escrita em `identity.refresh_tokens` ([Atomicidade e serialização por sessão](refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)). Um logout simultâneo a uma renovação da mesma sessão espera a outra operação terminar.
 - **Sem logs.** O caso de uso não escreve log; o refresh token nunca é registrado.
 
 ## Caso de uso exposto
@@ -97,7 +97,7 @@ Acima de 30 requisições do mesmo IP na mesma janela fixa de 1 minuto, o logout
 | Tipo | Local | Papel |
 | --- | --- | --- |
 | [`ILogout`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/Sessions/ILogout.cs) | `Contracts/Sessions` (`public`) | `ExecuteAsync(LogoutRequest(RefreshToken))`, que retorna `LogoutResult`: `SessionEnded` (o token não vale mais, revogado agora ou antes, ou expirado) ou `InvalidToken` (vazio ou inexistente). |
-| [`Logout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Implementação, registrada como scoped em `AddIdentityModule`. |
+| [`Logout`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/Logout.cs) | `Application/Sessions` (`internal`) | Orquestra a transação e a revogação por `ISessionStore`, registrada como scoped em `AddIdentityModule` ([persistência](session-persistence.md)). |
 | [`IdentityDbContext.LockSessionAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha da sessão até o fim da transação atual. É compartilhado pela renovação, pela revogação por reuso e pelo logout. O [logout-all](logout-all.md) (#18) usa o `LockUserSessionsAsync`, que trava todas as sessões do usuário em ordem de id. |
 | [`SessionsController` da API externa](../../src/Ouroboros.Api/Controllers/Identity/SessionsController.cs) e [do backoffice](../../src/Ouroboros.Backoffice.Api/Controllers/Identity/SessionsController.cs) | `Controllers/Identity` de cada host | Action `Logout`, com `[EnableRateLimiting(IdentityRateLimitPolicies.Logout)]`, ao lado do login e da renovação; reutiliza o DTO `RefreshSessionBody` de `SessionModels.cs`. |
 

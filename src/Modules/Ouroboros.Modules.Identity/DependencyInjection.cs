@@ -59,6 +59,7 @@ public static class DependencyInjection
         services.AddScoped<IRequestPasswordReset, RequestPasswordReset>();
         services.AddScoped<ICompletePasswordReset, CompletePasswordReset>();
         services.AddScoped<AccountLockout>();
+        services.AddScoped<ISessionStore, SessionStore>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();

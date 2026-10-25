@@ -104,7 +104,7 @@ O código [`invalid-credentials`](../errors/identity.md#invalid-credentials) é 
 
 ### Transação com o usuário travado
 
-A sessão é aberta numa transação que trava a linha do usuário (`IdentityDbContext.LockUserAsync`, `SELECT ... FOR NO KEY UPDATE` em `identity.users`) e relê, sob o lock, o hash da senha, `is_active` e `locked_until`. O login é recusado com o mesmo `401` se:
+A sessão é aberta numa transação que trava a linha do usuário (pela porta `ISessionStore.LockUserAsync`, com `SELECT ... FOR NO KEY UPDATE` em `identity.users` no adaptador de Infrastructure) e relê, sob o lock, o hash da senha, `is_active` e `locked_until`. O login é recusado com o mesmo `401` se:
 
 - o hash armazenado não é mais o que foi verificado (a senha mudou, por exemplo, numa [redefinição de senha](password-reset.md#concluir-a-redefinição));
 - a conta foi desativada; ou
@@ -118,6 +118,8 @@ A verificação da senha, que é cara, continua fora da transação; só a abert
 - e um login que refizesse o hash da senha antiga gravaria esse hash por cima do novo, trazendo a senha antiga de volta.
 
 Com o lock, ou o login confirma primeiro (e a redefinição, que espera por ele, revoga a sessão aberta), ou a redefinição confirma primeiro (e o login, que espera por ela, encontra outro hash e responde `401`). O porquê do `FOR NO KEY UPDATE` e a ordem dos locks do módulo estão em [Domínio de identidade](../architecture/identity.md#ordem-dos-locks).
+
+A coordenação da transação permanece em `Login`, por `ISessionStore` e `ISessionTransaction`; EF, consultas e locks são implementados por `SessionStore` em Infrastructure. Veja [Persistência do ciclo de sessões](session-persistence.md).
 
 ## Caso de uso exposto
 

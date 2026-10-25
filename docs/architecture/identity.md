@@ -89,6 +89,8 @@ A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules
 
 Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens` e `DbSet<EmailToken> EmailTokens` e aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)).
 
+Os casos de uso de sessões coordenam a persistência pelas portas internas `ISessionStore` e `ISessionTransaction`, com adaptador `SessionStore` em Infrastructure. O adaptador compartilha o `IdentityDbContext` e os métodos de lock com a redefinição de senha, preservando a mesma transação local. A [nota de persistência de sessões](../identity/session-persistence.md) descreve os limites e a verificação.
+
 ## Ordem dos locks
 
 O serviço trava linhas numa ordem única, sempre dentro de uma transação:
@@ -144,7 +146,7 @@ Os testes das corridas estão em [`PasswordResetRaceTests`](../../tests/Ouroboro
 - O login (#12) usa o `UserPasswordVerifier` e salva o usuário junto com a sessão, persistindo um eventual rehash e o contador de falhas zerado; numa transação com o usuário travado e só se o hash armazenado ainda for o verificado. Outros fluxos que verifiquem senha devem fazer o mesmo.
 - A revogação do refresh token na renovação também é um `UPDATE` condicional (`ExecuteUpdateAsync`), e não uma alteração da entidade, para que só uma renovação simultânea com o mesmo token vença ([Renovar o access token](../identity/refresh-session.md#regras)).
 - Toda escrita em `identity.refresh_tokens` de uma sessão trava antes a linha da sessão (`SELECT ... FOR UPDATE`), na mesma transação e na ordem sessão, depois tokens. Em READ COMMITTED, sem esse lock, a revogação da sessão não enxergaria o token inserido por uma renovação ainda não confirmada. O lock é o método `IdentityDbContext.LockSessionAsync`, usado pela renovação, pela revogação por reuso e pelo logout; novos fluxos devem usá-lo. O logout-all trava todas as sessões do usuário de uma vez, sempre em ordem de id (`IdentityDbContext.LockUserSessionsAsync`), para não haver deadlock entre chamadas simultâneas ([Atomicidade e serialização por sessão](../identity/refresh-token-reuse.md#atomicidade-e-serialização-por-sessão)). Login e redefinição de senha também travam a linha do usuário, antes de qualquer sessão ([Ordem dos locks](#ordem-dos-locks)).
-- O contador de falhas é incrementado por SQL direto (`UPDATE ... RETURNING`) na tabela do próprio serviço, e não pela entidade, para que falhas simultâneas não se percam ([Bloquear a conta](../identity/account-lockout.md#contagem-atômica)).
+- O contador de falhas é incrementado por SQL direto (`UPDATE ... RETURNING`) no adaptador `SessionStore`, na tabela do próprio serviço, e não pela entidade, para que falhas simultâneas não se percam ([Bloquear a conta](../identity/account-lockout.md#contagem-atômica)).
 - Fluxos de credencial (conclusão do cadastro, redefinição e troca de senha) validam a senha com `PasswordPolicy` e geram o hash por `IPasswordHasher.Hash`; nunca recebem o hash de fora do serviço.
 - O e-mail é guardado em minúsculas; a grafia original digitada pelo usuário não é preservada.
 - Papéis são fixos no enum; mudar para vários papéis por usuário ou papéis dinâmicos exigiria nova decisão e migration.

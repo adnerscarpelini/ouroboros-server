@@ -5,6 +5,7 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | Entrega | Disponibilidade no checkout | Issue |
 | --- | --- | --- |
 | Login, sessões, cadastro e recuperação | Implementados; controllers ainda em Ouroboros.Api e Ouroboros.Backoffice.Api | #95 migra os comportamentos; #96 remove os executáveis |
+| Portas de persistência de sessões | Implementadas em Application de Identity (`ISessionStore`/`ISessionTransaction`), com adaptador EF em Infrastructure e a mesma unidade de trabalho local; contagem atômica, rehash, locks e integração com reset preservados ([detalhes](identity/session-persistence.md)) | [#74](https://github.com/adnerscarpelini/ouroboros-server/issues/74) |
 | Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; HS256 e contratos preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
 | Porta de projeção do usuário autenticado | Implementada em Application de Identity, com consulta e projeção EF em Infrastructure; preserva ExternalId, campos de resposta e recusa de usuário inexistente, inativo ou sem o papel do canal nos dois hosts ([detalhes](identity/me.md#caso-de-uso-exposto)) | [#78](https://github.com/adnerscarpelini/ouroboros-server/issues/78) |
 | Portas de parâmetros | Implementadas em Application de Settings, com adaptadores locais em Infrastructure, leitura sem cache e escrita de parâmetro/histórico atômica; contrato público preservado ([detalhes](settings/parameter-ports.md)) | [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) |
@@ -40,7 +41,6 @@ Este inventário descreve o código disponível, sem conceder exceções por nam
 
 | Tipos e localização | Dependência atual a remover | Entrega |
 | --- | --- | --- |
-| Identity/Application/Sessions: Login, AccountLockout, RefreshSession, Logout, LogoutAll | IdentityDbContext, EF, consultas/escritas e coordenação de persistência | #74 |
 | Identity/Application/Registrations: RequestRegistration, CompleteRegistration | IdentityDbContext, EF, SQL advisory lock, PersistenceErrors/erros do provedor | #75 |
 | Identity/Application/PasswordResets: RequestPasswordReset, CompletePasswordReset | IdentityDbContext, EF, SQL e coordenação de locks/tokens/sessões | #76 |
 | Identity/Application/Administrators: CreateFirstAdmin | IdentityDbContext, EF e SQL advisory lock | #77 |
