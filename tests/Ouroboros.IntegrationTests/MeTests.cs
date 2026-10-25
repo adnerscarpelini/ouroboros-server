@@ -106,8 +106,68 @@ public sealed class MeTests(PostgresFixture postgres) : IntegrationTest(postgres
 
         var body = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
         Assert.Equal(adminId, body.GetProperty("id").GetGuid());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("oi@adnerscarpelini.com", body.GetProperty("email").GetString());
         Assert.Equal("Admin", body.GetProperty("role").GetString());
         Assert.Equal(AllowedFields, body.EnumerateObject().Select(property => property.Name).Order(StringComparer.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false, "missing")]
+    [InlineData(true, "missing")]
+    [InlineData(false, "inactive")]
+    [InlineData(true, "inactive")]
+    [InlineData(false, "wrong-role")]
+    [InlineData(true, "wrong-role")]
+    public async Task Host_rechecks_user_state_with_a_valid_token(bool isBackoffice, string state)
+    {
+        var role = isBackoffice ? UserRole.Admin : UserRole.Customer;
+        var userId = state == "missing"
+            ? Guid.CreateVersion7()
+            : await CreateUserAsync(Api, "user@example.com", role);
+
+        await using var backoffice = new BackofficeIntegrationApiFactory(ConnectionString);
+        var services = isBackoffice ? backoffice.Services : Api.Services;
+        var token = services.GetRequiredService<IAccessTokenIssuer>()
+            .Issue(userId, role, Guid.CreateVersion7()).Token;
+
+        if (state == "inactive")
+        {
+            await ExecuteAsync("UPDATE identity.users SET is_active = false WHERE email = 'user@example.com'");
+        }
+        else if (state == "wrong-role")
+        {
+            var changedRole = isBackoffice ? "Customer" : "Admin";
+            await ExecuteAsync($"UPDATE identity.users SET role = '{changedRole}' WHERE email = 'user@example.com'");
+        }
+
+        using var client = isBackoffice ? backoffice.CreateClient() : Api.CreateClient();
+        var route = isBackoffice ? "/api/v1/admin/identity/me" : "/api/v1/identity/me";
+        using var response = await GetMeAsync(client, route, token);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer", response.Headers.WwwAuthenticate.Single().Scheme);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Me_rejects_token_from_the_other_host(bool targetBackoffice)
+    {
+        var role = targetBackoffice ? UserRole.Admin : UserRole.Customer;
+        var userId = await CreateUserAsync(Api, "user@example.com", role);
+        await using var backoffice = new BackofficeIntegrationApiFactory(ConnectionString);
+        var issuerServices = targetBackoffice ? Api.Services : backoffice.Services;
+        var token = issuerServices.GetRequiredService<IAccessTokenIssuer>()
+            .Issue(userId, role, Guid.CreateVersion7()).Token;
+
+        using var client = targetBackoffice ? backoffice.CreateClient() : Api.CreateClient();
+        var route = targetBackoffice ? "/api/v1/admin/identity/me" : "/api/v1/identity/me";
+        using var response = await GetMeAsync(client, route, token);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer", response.Headers.WwwAuthenticate.Single().Scheme);
     }
 
     private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>

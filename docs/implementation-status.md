@@ -6,6 +6,7 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | --- | --- | --- |
 | Login, sessões, cadastro e recuperação | Implementados; controllers ainda em Ouroboros.Api e Ouroboros.Backoffice.Api | #95 migra os comportamentos; #96 remove os executáveis |
 | Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; HS256 e contratos preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
+| Porta de projeção do usuário autenticado | Implementada em Application de Identity, com consulta e projeção EF em Infrastructure; preserva ExternalId, campos de resposta e recusa de usuário inexistente, inativo ou sem o papel do canal nos dois hosts ([detalhes](identity/me.md#caso-de-uso-exposto)) | [#78](https://github.com/adnerscarpelini/ouroboros-server/issues/78) |
 | Portas de parâmetros | Implementadas em Application de Settings, com adaptadores locais em Infrastructure, leitura sem cache e escrita de parâmetro/histórico atômica; contrato público preservado ([detalhes](settings/parameter-ports.md)) | [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73) |
 | Serviços em src/Services | Organização definida; projetos ainda em src/Modules | #94, #72 e #96 |
 | Banco e parâmetros próprios de Identity | Parâmetros e histórico continuam em Settings, consumidos localmente por Identity; Identity e Settings têm DbContexts, schemas e migrations distintos, mas usam ConnectionStrings:Ouroboros e credencial/banco comuns no Compose; a credencial da aplicação é a administrativa da instância | #81 (parâmetros), #92 (provisionamento), #82 (transferência do banco), #97 (banco original) |
@@ -43,7 +44,6 @@ Este inventário descreve o código disponível, sem conceder exceções por nam
 | Identity/Application/Registrations: RequestRegistration, CompleteRegistration | IdentityDbContext, EF, SQL advisory lock, PersistenceErrors/erros do provedor | #75 |
 | Identity/Application/PasswordResets: RequestPasswordReset, CompletePasswordReset | IdentityDbContext, EF, SQL e coordenação de locks/tokens/sessões | #76 |
 | Identity/Application/Administrators: CreateFirstAdmin | IdentityDbContext, EF e SQL advisory lock | #77 |
-| Identity/Application/Users: GetCurrentUser | IdentityDbContext e projeção EF | #78 |
 | Identity/Application: CreateFirstAdmin, AccountLockout, RequestRegistration, RequestPasswordReset | Settings.Contracts.ISystemParameters; CreateFirstAdmin também usa ParameterNotFoundException | #73, #81 |
 | Identity/Infrastructure/Email: PickupDirectoryEmailSender, UnconfiguredEmailSender; DependencyInjection | Transporte/configuração de e-mail locais em Identity | #72, #85–#87 |
 | Ouroboros.Api, Ouroboros.Backoffice.Api e Ouroboros.Hosting | Composição agregada e proteção HTTP acopladas aos hosts | #95, #96 |

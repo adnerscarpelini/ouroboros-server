@@ -43,9 +43,6 @@ internal static class KnownViolations
         // #77: primeiro Admin.
         .. Group("#77", ApplicationLayer, IdentityApplication + "Administrators.CreateFirstAdmin", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
 
-        // #78: projeção do usuário autenticado.
-        .. Group("#78", ApplicationLayer, IdentityApplication + "Users.GetCurrentUser", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework),
-
         // #73 e #81: Identity lê parâmetros de Settings; passam a ser locais ao serviço.
         .. Group("#73, #81", CrossServiceProject, "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings"),
         .. Group("#73, #81", CrossServiceType, IdentityApplication + "Administrators.CreateFirstAdmin", "Ouroboros.Modules.Settings.Contracts.ISystemParameters", "Ouroboros.Modules.Settings.Contracts.ParameterNotFoundException"),
