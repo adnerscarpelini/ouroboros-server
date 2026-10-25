@@ -1,6 +1,6 @@
 # Parâmetros locais de Identity
 
-Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. Esta entrega não troca banco ou credencial; o [provisionamento de bancos e roles](../development.md#provisionar-bancos-e-roles-por-serviço) é da #92 e a transferência do banco, da #82.
+Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. A migração de propriedade acontece dentro do banco em uso; o [provisionamento de bancos e roles](../development.md#provisionar-bancos-e-roles-por-serviço) é da [#92](https://github.com/adnerscarpelini/ouroboros-server/issues/92) e a [transferência do banco inteiro de Identity](../development.md#transferir-o-banco-de-identity), da [#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82); os parâmetros e o histórico seguem junto com o restante do schema `identity` nessa transferência.
 
 ## Leitura e escrita
 
@@ -80,11 +80,15 @@ O procedimento é manual e deve ser ensaiado em cópia isolada. Os exemplos usam
 
 Se qualquer validação falhar, mantenha a versão anterior e a origem preservada, investigue a causa e repita o ensaio com backup conferido. Não habilite o leitor novo sobre migration incompleta.
 
+### Relação com a transferência do banco
+
+Este upgrade acontece no banco original e precede a [transferência do banco de Identity](../development.md#transferir-o-banco-de-identity): a transferência exige que as migrations de Identity, inclusive `OwnIdentityParameters`, já estejam aplicadas na origem, e leva `identity.parameters`, `identity.parameter_history` e o histórico de migrations para `ouroboros_identity`. A validação da transferência compara valores, revisões e histórico completo entre origem e destino. Depois da troca da connection string, o schema `settings` legado continua no banco original, que permanece intacto e somente leitura; seu destino é decisão da #97. As migrations do banco próprio rodam só com a role de migration, e a de runtime é recusada.
+
 ## Rollback
 
 O `Down` da migration recusa reversão automática com `NotSupportedException`, evitando excluir dados após novas escritas. Antes de novas escritas, a versão anterior pode continuar usando o legado preservado, depois de confirmar sua equivalência e a configuração da versão anterior. Não executar esse retorno enquanto a versão nova ainda escreve.
 
-Depois de novas escritas em Identity, voltar somente a imagem perde alterações de parâmetros. Pare escritores, faça novos backups recuperáveis de ambos os schemas e reconcilie valores, descrições, ids públicos, revisões, autores, instantes e todas as linhas de histórico novas com o destino de retorno. Resolva colisões de revisão explicitamente, valide equivalência e somente então reative a versão anterior. O procedimento não automatiza essa reconciliação nem autoriza apagar tabelas, bancos ou volumes.
+Depois de novas escritas em Identity, voltar somente a imagem perde alterações de parâmetros. Pare escritores, faça novos backups recuperáveis de ambos os schemas e reconcilie valores, descrições, ids públicos, revisões, autores, instantes e todas as linhas de histórico novas com o destino de retorno. Resolva colisões de revisão explicitamente, valide equivalência e somente então reative a versão anterior. O procedimento não automatiza essa reconciliação nem autoriza apagar tabelas, bancos ou volumes. Para o retorno depois da transferência do banco de Identity, o `rollback` e o `reconcile` preservam e aplicam na origem as linhas novas ou alteradas de `identity.parameters` e `identity.parameter_history`, entre as demais; veja [Voltar ao banco original](../development.md#voltar-ao-banco-original).
 
 ## Como verificar
 

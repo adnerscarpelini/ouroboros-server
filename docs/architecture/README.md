@@ -8,7 +8,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Plano de entregas e preservação das garantias](migration-plan.md).
 - [APIs e workers, listeners e camadas de proteção](hosts.md).
 - [Controllers HTTP](http-controllers.md).
-- [Persistência e instância PostgreSQL local](persistence.md).
+- [Persistência e instância PostgreSQL local](persistence.md): roles por serviço, connection strings de Identity e transferência do banco com rollback e reconciliação.
 - [Parâmetros por serviço](system-parameters.md).
 - [Código técnico compartilhado](building-blocks.md).
 - [Autenticação e autorização](authentication.md).

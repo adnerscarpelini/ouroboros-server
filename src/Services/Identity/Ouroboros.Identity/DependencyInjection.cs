@@ -35,11 +35,19 @@ public static class DependencyInjection
         // Validada na subida da API, depois que todas as fontes de configuração foram carregadas.
         services.AddOptions<IdentityDatabaseOptions>()
             .Configure<IConfiguration>((options, configuration) =>
-                options.ConnectionString = configuration.GetConnectionString(IdentityDatabaseOptions.ConnectionStringName))
+            {
+                // O banco próprio tem precedência; sem ele, vale o banco original (antes da transferência, ou depois de
+                // voltar a ele). Remover ConnectionStrings:Identity é, portanto, o retorno à connection string anterior.
+                var own = configuration.GetConnectionString(IdentityDatabaseOptions.ConnectionStringName);
+                options.ConnectionString = string.IsNullOrWhiteSpace(own)
+                    ? configuration.GetConnectionString(IdentityDatabaseOptions.LegacyConnectionStringName)
+                    : own;
+            })
             .Validate(
                 options => !string.IsNullOrWhiteSpace(options.ConnectionString),
-                $"A connection string 'ConnectionStrings:{IdentityDatabaseOptions.ConnectionStringName}' não foi configurada. " +
-                "Em desenvolvimento, defina-a com dotnet user-secrets (veja o README).")
+                $"A connection string 'ConnectionStrings:{IdentityDatabaseOptions.ConnectionStringName}' não foi configurada " +
+                $"(nem a 'ConnectionStrings:{IdentityDatabaseOptions.LegacyConnectionStringName}' do banco original). " +
+                "Em desenvolvimento, defina-a com dotnet user-secrets (veja docs/development.md).")
             .ValidateOnStart();
 
         AddTokenAuthentication(services);

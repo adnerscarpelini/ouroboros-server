@@ -41,6 +41,8 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
 - Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
+- Os testes da transferência do banco de Identity (`IdentityDatabaseTransferTests` e `IdentityDatabaseTransferHardeningTests`) também exigem o Docker e usam a mesma `ProvisionedInstance`, que copia `scripts/database` para o container e executa `transfer-identity.sh` com a credencial administrativa da instância de teste. Cobrem backup restaurado e comparado, janela sem escrita, equivalência de origem e destino, falha de validação sem troca e com origem intacta, recusas do `copy`, privilégios da role de runtime (sem DDL, sem banco alheio, sem `public`), migrations só pela role de migration, rollback sem e com novas escritas, reconciliação (idempotência, conflito, sequências nunca usadas) e login, renovação e `me` com a API real na role de runtime após a troca. Não substituem o ensaio em cópia do ambiente real.
+- `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
 - `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
@@ -66,7 +68,7 @@ Os hosts agregadores têm fábricas próprias, [LegacyExternalHostFactory](../te
 
 ## Banco de dados local
 
-A API de Identity (e os hosts agregadores) exige a connection string `ConnectionStrings:Ouroboros`: sem ela, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
+A API de Identity (e os hosts agregadores, que carregam a mesma biblioteca) lê a connection string de `ConnectionStrings:Identity`, o banco próprio do serviço (`ouroboros_identity`, role `identity_runtime`). Quando essa chave não está definida, usa `ConnectionStrings:Ouroboros`, o banco original da instância: é o caso até o operador fazer a troca liberada pelo [cutover da transferência](#transferir-o-banco-de-identity) ou configurar uma instalação nova diretamente no banco próprio. Sem nenhuma das duas, falha ao subir com `OptionsValidationException` e uma mensagem que cita as duas chaves. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
 
 1. Crie o `.env` a partir do modelo e troque a senha de `POSTGRES_PASSWORD`, além das quatro senhas por serviço quando for [provisionar os bancos](#provisionar-bancos-e-roles-por-serviço) (o `.env` fica fora do Git):
 
@@ -80,18 +82,30 @@ A API de Identity (e os hosts agregadores) exige a connection string `Connection
    docker compose up -d --wait
    ```
 
-3. Grave a connection string nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env`. Os hosts agregadores `Ouroboros.Api` e `Ouroboros.Backoffice.Api` usam o mesmo `UserSecretsId`, então leem a mesma connection string e a mesma chave de assinatura; quem já gravou os segredos por um deles não precisa repeti-los:
+3. Grave a connection string do **banco original** nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env` (credencial administrativa da instância; uso restrito ao desenvolvimento local). Os hosts agregadores `Ouroboros.Api` e `Ouroboros.Backoffice.Api` usam o mesmo `UserSecretsId`, então leem a mesma connection string e a mesma chave de assinatura; quem já gravou os segredos por um deles não precisa repeti-los. Os hosts agregadores continuam precisando de `ConnectionStrings:Ouroboros` para o contexto legado de Settings, mesmo depois que Identity passar a usar o banco próprio:
 
    ```powershell
    dotnet user-secrets set "ConnectionStrings:Ouroboros" "Host=localhost;Port=5432;Database=ouroboros;Username=ouroboros;Password=<a senha do .env>" --project src/Services/Identity/Ouroboros.Identity.Api
    ```
 
-4. Para **instalação nova**, sem tabelas legadas de parâmetros, restaure a ferramenta local `dotnet-ef` e aplique as migrations de Identity. Para **banco existente**, antes de qualquer atualização siga o [procedimento de backup restaurado, janela sem escrita e transferência](identity/parameters.md#upgrade-de-banco-existente). Se migrations antigas de Settings precisarem ser aplicadas, faça isso antes de Identity; nunca depois do corte.
+   Para usar o banco próprio e a role de runtime, [provisione](#provisionar-bancos-e-roles-por-serviço) a instância e defina `ConnectionStrings:Identity`, que tem precedência sobre `ConnectionStrings:Ouroboros`. Em ambiente com dados, essa troca só vale depois da [transferência](#transferir-o-banco-de-identity); em instalação nova, veja o passo 4.
+
+4. Para **instalação nova**, sem tabelas legadas de parâmetros, restaure a ferramenta local `dotnet-ef` e aplique as migrations de Identity. Para **banco existente**, antes de qualquer atualização siga o [procedimento de backup restaurado, janela sem escrita e migração dos parâmetros](identity/parameters.md#upgrade-de-banco-existente) e, em seguida, a [transferência do banco de Identity](#transferir-o-banco-de-identity). Se migrations antigas de Settings precisarem ser aplicadas, faça isso antes de Identity; nunca depois do corte.
+
+   Com a connection string do banco original (passo 3):
 
    ```powershell
    dotnet tool restore
    dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
    ```
+
+   No **banco próprio**, as migrations só rodam por comando explícito com a role de migration, passada em `--connection`; com a role de runtime o comando é recusado pelo PostgreSQL (`42501`). O projeto de inicialização ainda precisa de uma connection string válida na configuração (`ConnectionStrings:Identity` ou `ConnectionStrings:Ouroboros`) para carregar a API:
+
+   ```powershell
+   dotnet ef database update --connection "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
+   ```
+
+   Uma senha com `;` ou aspas exige aspas no valor da connection string (formato do Npgsql), por exemplo `Password="a;b"`. Depois de migrar o banco próprio, reexecute o [provisionamento](#provisionar-bancos-e-roles-por-serviço) para que o histórico de migrations seja negado ao runtime.
 
    `OwnIdentityParameters` cria sementes com `uuidv7()` em instalação limpa, exigindo PostgreSQL 18 (a versão do `compose.yaml`). No upgrade, copia e valida os parâmetros e histórico de Settings na mesma transação. A migration não faz backup automaticamente nem exclui a origem; não ative a versão nova se ela falhar.
 
@@ -109,7 +123,7 @@ Para gerar uma nova migration do Identity:
 dotnet ef migrations add <Nome> --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
-`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
 
 ## Provisionar bancos e roles por serviço
 
@@ -158,7 +172,99 @@ Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;P
 Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>
 ```
 
-O provisionamento não altera nenhuma API nem host e não aplica migrations: a API de Identity e os hosts agregadores seguem lendo `ConnectionStrings:Ouroboros`, configurada em [Banco de dados local](#banco-de-dados-local). A disponibilidade de cada etapa está no [estado de implementação](implementation-status.md).
+O provisionamento não altera nenhuma API nem host e não aplica migrations: nenhum processo passa a usar as roles novas por causa dele. A API de Identity só lê `ConnectionStrings:Identity` quando o operador a define, o que a [transferência do banco](#transferir-o-banco-de-identity) libera no `cutover`; enquanto ela não existir, vale `ConnectionStrings:Ouroboros`, configurada em [Banco de dados local](#banco-de-dados-local). As migrations do banco próprio rodam só com a role de migration (veja o passo 4 de [Banco de dados local](#banco-de-dados-local)). A disponibilidade de cada etapa está no [estado de implementação](implementation-status.md).
+
+## Transferir o banco de Identity
+
+Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters`, `parameter_history` e `__EFMigrationsHistory`) do banco original da instância (`POSTGRES_DB`) para `ouroboros_identity`, em um único procedimento, sem estado intermediário com dois bancos. Está em `scripts/database/transfer-identity.sh` (com `identity-digest.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão, a validação e os limites do rollback estão em [Persistência](architecture/persistence.md#transferência-do-banco-de-identity).
+
+**Pré-requisitos**
+
+- Banco e roles [provisionados](#provisionar-bancos-e-roles-por-serviço) (sem eles, `copy` recusa o destino) e as quatro senhas por serviço no `.env`: o `copy` reexecuta o provisionamento, que reaplica as quatro senhas.
+- Migrations de Identity já aplicadas na origem, inclusive os parâmetros locais (veja o [upgrade de banco existente](identity/parameters.md#upgrade-de-banco-existente)). O histórico de migrations é transferido junto.
+- Todos os escritores parados: API de Identity, hosts agregadores, workers, `create-admin` e comandos de migration. O procedimento não os para.
+- Docker Compose. Os clientes PostgreSQL (`pg_dump`, `pg_restore`, `psql`) rodam no container `transfer-identity`, com a credencial **administrativa** do `.env`; não há o que instalar na máquina.
+
+**Comando.** Todos têm a forma abaixo, na raiz do repositório; `<id>` é o identificador impresso pelo `backup`:
+
+```powershell
+docker compose --profile transfer run --rm transfer-identity <comando> [id]
+```
+
+| Comando | O que faz |
+| --- | --- |
+| `freeze` | Inicia a janela sem escrita na origem. |
+| `backup` | Backup completo da origem (formato custom), restaurado em um banco de verificação `identity_transfer_check_<id>` e comparado com a origem. Imprime `Transferência: <id>`. |
+| `copy <id>` | Restaura só o schema `identity` no destino `ouroboros_identity`, que deve estar vazio, com a role `identity_migrator` como dona; converge os privilégios reexecutando o provisionamento; executa a validação. |
+| `validate <id>` | Compara origem e destino e grava a linha de base das linhas copiadas. Pode ser repetido. |
+| `cutover <id>` | Valida de novo, confere os privilégios das roles e libera a troca da connection string. |
+| `rollback <id>` | Avalia o retorno e preserva em disco as escritas feitas no destino depois da troca. |
+| `reconcile <id>` | Aplica na origem as escritas preservadas pelo `rollback`. |
+| `unfreeze` | Encerra a janela sem escrita da origem. |
+| `help` | Mostra a ajuda do script. |
+
+**Ordem da transferência**
+
+```powershell
+docker compose --profile transfer run --rm transfer-identity freeze
+docker compose --profile transfer run --rm transfer-identity backup
+docker compose --profile transfer run --rm transfer-identity copy <id>
+docker compose --profile transfer run --rm transfer-identity cutover <id>
+```
+
+1. `freeze` com as APIs e os workers parados.
+2. `backup` imprime o `<id>`. Se a restauração do backup divergir da origem, o comando falha, nada é copiado e a origem segue na janela sem escrita.
+3. `copy <id>` e, em seguida, a validação. Em divergência, não troque a connection string.
+4. `cutover <id>` repete a validação e confere que a role de runtime lê o destino, não executa DDL, não cria objetos em `public`, não alcança o banco original nem o de Notifications, e que a role de migration conecta. Só então grava a liberação e imprime as instruções da troca.
+5. Faça a [troca da connection string](#trocar-a-connection-string-de-identity) e inicie as APIs. A origem permanece intacta e somente leitura até o `unfreeze`.
+
+**Janela sem escrita.** `freeze` exige que não haja sessões ativas no banco (pare as APIs e os workers; `FORCE_TERMINATE=1` as encerra) e executa `ALTER DATABASE ... SET default_transaction_read_only = on`, que vale para as novas sessões. É proteção de padrão de transação: quem executa `SET default_transaction_read_only = off`, como a credencial administrativa, ainda consegue escrever. Para encerrar sessões, passe a variável ao container:
+
+```powershell
+docker compose --profile transfer run --rm -e FORCE_TERMINATE=1 transfer-identity freeze
+```
+
+**Backups.** Ficam em `./backups/identity-<id>/`, pasta ignorada pelo Git, montada no container como `/backups`: `source.dump`, os resumos comparados em cada etapa, a linha de base (`baseline.tsv`) e as marcas de etapa. O procedimento cria a pasta com permissão `700` e os arquivos com `600`; em host Linux eles pertencem ao `root` do container, e a leitura exige `sudo`. Os arquivos contêm hashes de senha e de token: trate-os como segredo e não os copie para logs, issues nem o repositório. Nada os remove.
+
+**Validação.** O resumo comparado entre origem e destino tem 20 facetas: contagens e linhas inteiras de `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`; identificadores públicos de usuários e sessões; hashes de senha; `token_hash` dos refresh tokens e dos tokens de e-mail; revisões dos parâmetros e do histórico; histórico de migrations; e a estrutura (colunas com tipos e defaults, índices, constraints, gatilhos, comentários e sequências). Qualquer diferença reprova a validação.
+
+**Falha e repetição.** A falha de validação impede a troca e a origem fica intacta. Nada é excluído: nem a origem, nem volumes, nem a credencial antiga; o único banco removido é o de verificação criado pelo próprio `backup`. O `copy` recusa destino que já tem o schema `identity`, origem alterada depois do backup e senhas de runtime e de migration iguais; se falhar no meio, remove o schema parcial que ele mesmo criou no destino vazio. Para repetir depois de uma validação que falhou, avalie o destino e, conscientemente, esvazie-o antes de rodar o `copy` de novo (o comando aparece na recusa; ajuste usuário e banco se mudou o `.env`):
+
+```powershell
+docker compose exec postgres psql -U ouroboros -d ouroboros_identity -c "DROP SCHEMA identity CASCADE"
+```
+
+### Trocar a connection string de Identity
+
+A troca é ação do operador e só é liberada pelo `cutover`. Com as APIs de Identity paradas, defina a connection string da role de runtime, que tem precedência sobre `ConnectionStrings:Ouroboros`, e inicie-as:
+
+```powershell
+dotnet user-secrets set "ConnectionStrings:Identity" "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=<IDENTITY_RUNTIME_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Os hosts agregadores seguem lendo `ConnectionStrings:Ouroboros` para o contexto legado de Settings. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação da credencial antiga não fazem parte deste procedimento (#97).
+
+### Voltar ao banco original
+
+Pare as APIs de Identity antes de qualquer passo: voltar a imagem ou o executável não recupera dados escritos no destino. A ordem é parar as APIs, `rollback`, `reconcile` (se necessário), remover `ConnectionStrings:Identity` e `unfreeze`:
+
+```powershell
+docker compose --profile transfer run --rm transfer-identity rollback <id>
+```
+
+- **Sem novas escritas.** A saída informa `Sem novas escritas no destino`. Basta remover `ConnectionStrings:Identity` (inclusive a variável `ConnectionStrings__Identity`, se houver) para a origem voltar a valer e executar `unfreeze`.
+- **Com novas escritas.** O `rollback` exporta e preserva em `./backups/identity-<id>/reconcile/*.csv` as linhas novas ou alteradas do destino, que não é alterado. Aplique-as na origem e conclua:
+
+  ```powershell
+  docker compose --profile transfer run --rm transfer-identity reconcile <id>
+  docker compose --profile transfer run --rm transfer-identity unfreeze
+  ```
+
+  O `reconcile` reabre a escrita da origem para aplicar as linhas numa transação, em ordem de chaves estrangeiras, ajusta as sequências (inclusive as nunca usadas) e confere a equivalência com o destino. Mantenha as APIs paradas até remover `ConnectionStrings:Identity`. Se a origem foi escrita depois da linha de base, o `reconcile` recusa o conflito, mantém a janela sem escrita e nada é aplicado; reexecutá-lo depois de reconciliar não altera nada.
+
+Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+
+O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na origem (`FORCE_TERMINATE=1` as encerra, como no `freeze`). Os testes do procedimento estão descritos em [Testes](#testes).
 
 ## Criar o primeiro administrador
 
@@ -239,7 +345,7 @@ Um token é aceito só no listener do seu público: o de `Customer` (audiência 
 
 Para pôr a API atrás de um proxy, configure `Identity:ForwardedHeaders:KnownProxies` (IPs) ou `KnownNetworks` (CIDR, por exemplo `10.0.0.0/8`). Sem isso, `X-Forwarded-For` é ignorado e o rate limit por IP usa o endereço da conexão; um IP ou CIDR inválido impede a subida.
 
-Os user-secrets (connection string e chave de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string nem a chave de assinatura, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Ouroboros` e `Authentication__Jwt__SigningKey`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
+Os user-secrets (connection string e chave de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string nem a chave de assinatura, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__SigningKey`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
 
 ### Hosts agregadores
 

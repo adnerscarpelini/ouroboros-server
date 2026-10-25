@@ -55,16 +55,44 @@ Histórico pertence ao serviço. Aplicar migrations explicitamente por comando, 
 
 As migrations de Identity ficam em `src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations`. O modelo de dados não depende do caminho, do assembly nem do namespace da biblioteca: `IdentityDbContext`, o schema `identity`, a tabela de histórico, os ids das migrations e o snapshot são os mesmos de bancos já migrados, e o EF não encontra mudanças pendentes no modelo. [`IdentityModelStabilityTests`](../../tests/Ouroboros.IntegrationTests/IdentityModelStabilityTests.cs) verifica ids, schema e ausência de mudanças pendentes; reorganizar pastas ou namespaces não deve gerar migration.
 
-Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento de bancos e roles: [#92](https://github.com/adnerscarpelini/ouroboros-server/issues/92). Parâmetros: #81. Transferência do banco de Identity: #82. Destino do banco original: #97.
+Comandos disponíveis: [desenvolvimento](../development.md). Provisionamento de bancos e roles: [#92](https://github.com/adnerscarpelini/ouroboros-server/issues/92). Parâmetros: [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). Transferência do banco de Identity: [#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82). Destino do banco original: #97.
+
+## Connection strings de Identity
+
+A API de Identity lê `ConnectionStrings:Identity`, a connection string do banco próprio com a role de runtime (`identity_runtime`). `ConnectionStrings:Ouroboros`, a do banco original da instância, só vale quando a primeira não está definida (ou está em branco). Remover `ConnectionStrings:Identity` é, portanto, o retorno à origem; uma variável de ambiente `ConnectionStrings__Identity` esquecida continua valendo e deve ser conferida. Sem nenhuma das duas, a API não sobe e a mensagem cita as duas chaves. O contexto legado de Settings, registrado pelos hosts agregadores, segue lendo `ConnectionStrings:Ouroboros`.
+
+A troca de uma para a outra é ação do operador, liberada pelo `cutover` da transferência. As migrations do banco próprio usam outra connection string, a da role de migration, passada ao comando `dotnet ef database update --connection`; a role de runtime não executa DDL, e o comando é recusado pelo PostgreSQL (`42501`). Passo a passo em [desenvolvimento](../development.md#banco-de-dados-local).
 
 ## Transações e recuperação
 
 Transações locais protegem parâmetro e histórico, senha e sessões, estado e outbox. Não usar transação distribuída.
 
-Transferência exige backup, janela sem escrita, cópia e validação de identificadores, hashes, sessões e histórico antes da troca. Não excluir origem ou volume automaticamente. Depois de novas escritas, rollback precisa preservá-las ou reconciliá-las; voltar apenas a imagem não basta.
+## Transferência do banco de Identity
+
+**Decisão.** O banco de Identity é transferido uma única vez, inteiro, do banco original para `ouroboros_identity`, mantendo o schema `identity` dentro do banco novo. Não há estado intermediário com dois bancos em uso: ou a API usa a origem, ou o destino. O procedimento é `scripts/database/transfer-identity.sh`, versionado, executado por comando explícito com a credencial administrativa da instância e dividido em etapas: janela sem escrita, backup restaurado e comparado, cópia, validação, `cutover`, e `rollback` e `reconcile` quando for preciso voltar. Comandos e ordem em [Transferir o banco de Identity](../development.md#transferir-o-banco-de-identity).
+
+**Janela sem escrita.** O banco original recebe `default_transaction_read_only = on` para novas sessões, sob a condição de não haver sessões ativas. É proteção de padrão de transação, não de privilégio: quem tem `SET` (a credencial administrativa) consegue escrever. A garantia depende de as APIs e os workers estarem parados.
+
+**Backup verificável.** O backup completo da origem, em formato custom, é restaurado num banco de verificação e comparado com a origem pelo mesmo resumo da validação. Só então a cópia é permitida, e a cópia recusa uma origem alterada depois do backup. O banco de verificação, criado pelo `backup`, é o único removido pelo procedimento. Os arquivos ficam em `./backups`, fora do Git, com permissões restritas, e contêm hashes de senha e de token.
+
+**Cópia e validação.** A cópia restaura só o schema `identity`, num destino vazio, com a role de migration como dona dos objetos, e reexecuta o provisionamento para convergir privilégios. A validação compara origem e destino em 20 facetas (contagens e linhas inteiras, identificadores públicos, hashes de senha, `token_hash`, sessões, tokens de e-mail, parâmetros, revisões, histórico e histórico de migrations, e a estrutura: colunas, defaults, índices, constraints, gatilhos, comentários e sequências) e grava a linha de base (id e hash de cada linha copiada). O `cutover` repete a validação e confere que a role de runtime lê, não executa DDL, não cria objetos em `public`, não alcança o banco original nem o de Notifications, e que a role de migration conecta. Só então libera a troca. A falha de qualquer verificação impede a troca e deixa a origem intacta.
+
+**Sem exclusão.** Nenhum comando exclui a origem, volumes, bancos ou credenciais antigas. Para repetir a cópia depois de uma validação que falhou, o operador esvazia o destino de forma consciente. O destino do banco original e a revogação da credencial antiga são decisão da #97.
+
+**Rollback e reconciliação.** Voltar a imagem ou o executável não recupera dados escritos no destino. Por isso a ordem é parar as APIs, `rollback`, `reconcile` e, só então, remover `ConnectionStrings:Identity` (e liberar a origem com `unfreeze`). Antes de novas escritas, o `rollback` apenas informa que não há diferença e basta remover a chave. Depois delas, o `rollback` compara o destino com a linha de base, exporta e preserva as linhas novas ou alteradas em `./backups/identity-<id>/reconcile/*.csv`, sem alterar o destino, e o `reconcile` as aplica na origem numa única transação, em ordem de chaves estrangeiras, ajustando as sequências (inclusive as nunca usadas) e verificando a equivalência com o destino. Ele recusa o conflito, quando a origem foi escrita depois da linha de base, mantendo a janela, e é idempotente.
+
+**Limites.**
+
+- Linhas excluídas no destino não são reconciliadas: o `rollback` aborta se linhas copiadas deixaram de existir.
+- Há um único ciclo de `rollback` e `reconcile`; depois dele a origem difere da linha de base, e novas escritas no destino exigem avaliação manual dos arquivos preservados.
+- Se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+- A janela sem escrita não impede quem tem a credencial administrativa; o `reconcile` reabre a escrita da origem para aplicar as linhas.
+- Os backups e os arquivos de reconciliação contêm hashes e são dados sensíveis; o procedimento não os apaga.
+
+**Alternativa descartada.** Transferir por partes (por exemplo, os parâmetros antes do restante) deixaria Identity dividida entre dois bancos durante a transição, com transações locais e consistência entre tabelas comprometidas. A transferência única do banco inteiro evita esse estado.
 
 ## Testes
 
-Usar PostgreSQL real para constraints, locks e concorrência. Verificar acesso negado a banco alheio, permissões runtime, migrations e restauração. `DatabaseProvisioningTests` cobre o provisionamento em PostgreSQL real: idempotência sobre dados existentes, conexão negada a banco alheio, DDL e administração negados ao runtime, DDL da migration restrito ao próprio banco, histórico de migrations negado após reexecução e ausência das senhas na saída e no log.
+Usar PostgreSQL real para constraints, locks e concorrência. Verificar acesso negado a banco alheio, permissões runtime, migrations e restauração. `DatabaseProvisioningTests` cobre o provisionamento em PostgreSQL real: idempotência sobre dados existentes, conexão negada a banco alheio, DDL e administração negados ao runtime, DDL da migration restrito ao próprio banco, histórico de migrations negado após reexecução e ausência das senhas na saída e no log. [`IdentityDatabaseTransferTests`](../../tests/Ouroboros.IntegrationTests/IdentityDatabaseTransferTests.cs) e [`IdentityDatabaseTransferHardeningTests`](../../tests/Ouroboros.IntegrationTests/IdentityDatabaseTransferHardeningTests.cs) cobrem a transferência com a API real na role de runtime: equivalência, backup restaurado, falha de validação sem troca, privilégios, migrations pela role de migration, rollback com e sem novas escritas e reconciliação. [`IdentityConnectionStringTests`](../../tests/Ouroboros.IntegrationTests/IdentityConnectionStringTests.cs) cobre a precedência das connection strings.
 
 [Voltar à arquitetura](README.md)

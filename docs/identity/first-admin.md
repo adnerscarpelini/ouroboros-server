@@ -8,7 +8,7 @@ Serviço responsável: Identity. O comando fica na API [`Ouroboros.Identity.Api`
 
 ## Pré-requisitos
 
-- O banco local configurado, com a connection string `ConnectionStrings:Ouroboros` nos user-secrets ([Desenvolvimento](../development.md#banco-de-dados-local)).
+- O banco local configurado, com a connection string `ConnectionStrings:Identity` (ou `ConnectionStrings:Ouroboros`, quando a anterior não existe) nos user-secrets ([Desenvolvimento](../development.md#banco-de-dados-local)).
 - As migrations de Identity aplicadas, incluindo `OwnIdentityParameters`. O parâmetro local `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`) define o domínio aceito para o e-mail. Para banco legado, execute antes a [transferência de parâmetros](parameters.md#upgrade-de-banco-existente).
 
 ## Como usar

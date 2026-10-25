@@ -61,6 +61,67 @@ public sealed class ProvisionedInstance : IAsyncLifetime
         return new ScriptResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
     }
 
+    // Executa scripts/database/transfer-identity.sh no container, com a credencial administrativa da instância.
+    public async Task<ScriptResult> TransferAsync(string source, string command, string? id = null, IReadOnlyDictionary<string, string>? extra = null)
+    {
+        await _container.CopyAsync(RepositoryRoot.Resolve("scripts", "database"), "/scripts");
+        var variables = new Dictionary<string, string>
+        {
+            ["SOURCE_DATABASE"] = source,
+            ["POSTGRES_DB"] = LegacyDatabase,
+            ["TRANSFER_DIR"] = "/tmp/transfers",
+            ["IDENTITY_RUNTIME_PASSWORD"] = Passwords[IdentityRuntime],
+            ["IDENTITY_MIGRATION_PASSWORD"] = Passwords[IdentityMigrator],
+            ["NOTIFICATIONS_RUNTIME_PASSWORD"] = Passwords[NotificationsRuntime],
+            ["NOTIFICATIONS_MIGRATION_PASSWORD"] = Passwords[NotificationsMigrator],
+            ["PGUSER"] = "postgres",
+            ["PGDATABASE"] = "postgres",
+        };
+        foreach (var (key, value) in extra ?? new Dictionary<string, string>())
+        {
+            variables[key] = value;
+        }
+
+        var arguments = new List<string> { "env" };
+        arguments.AddRange(variables.Select(pair => $"{pair.Key}={pair.Value}"));
+        arguments.AddRange(["bash", "/scripts/transfer-identity.sh", command]);
+        if (id is not null)
+        {
+            arguments.Add(id);
+        }
+
+        var result = await _container.ExecAsync(arguments);
+        return new ScriptResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
+    }
+
+    // Comando qualquer no container (por exemplo, test -f), para conferir arquivos preservados.
+    public async Task<ScriptResult> ExecAsync(params string[] command)
+    {
+        var result = await _container.ExecAsync(command);
+        return new ScriptResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
+    }
+
+    // O mesmo resumo que o procedimento compara, para provar que a origem ficou intacta.
+    public async Task<string> DigestAsync(string database)
+    {
+        await _container.CopyAsync(RepositoryRoot.Resolve("scripts", "database"), "/scripts");
+        var result = await ExecAsync("psql", "-X", "-q", "-U", "postgres", "-d", database, "-f", "/scripts/identity-digest.sql");
+        Assert.Equal(0, result.ExitCode);
+        return result.Stdout;
+    }
+
+    public string ConnectionStringFor(string role, string database)
+    {
+        var builder = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = database };
+        if (role != "postgres")
+        {
+            builder.Username = role;
+            builder.Password = Passwords[role];
+        }
+
+        return builder.ConnectionString;
+    }
+
     public async Task<string> LogsAsync()
     {
         var (stdout, stderr) = await _container.GetLogsAsync();
