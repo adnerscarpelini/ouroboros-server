@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Extensions.Logging;
+using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Settings.Contracts;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
 

@@ -24,12 +24,12 @@ As rotas existem só na API externa: o backoffice não tem cadastro, porque admi
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a `AddEmailTokens` (Identity) cria a tabela dos tokens, e a `AddRegistrationParameters` (Settings) inclui os parâmetros abaixo. A conclusão não tem migration própria.
+- O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): `AddEmailTokens` cria a tabela dos tokens e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para o proprietário. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova. A conclusão não tem migration própria.
 - Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202` (veja [Regras da solicitação](#regras-da-solicitação)).
 
 ## Configuração
 
-Dois [parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves), lidos do Settings a cada solicitação:
+Dois [parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves), lidos localmente de Identity a cada solicitação pelo seu `ISystemParameters`, sem cache:
 
 | Chave | Valor inicial | Uso |
 | --- | --- | --- |
@@ -221,7 +221,7 @@ Desde a [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75), `R
 
 Cada operação de escrita da porta preserva a unidade de trabalho inteira. `ReplacePendingTokenAsync` confirma advisory lock por e-mail, revogação dos pendentes e inserção do novo token juntos. `CompleteAsync` confirma consumo condicional e inserção do usuário juntos; devolve `false` para consumo perdido ou conflito de e-mail, com rollback por descarte sem commit. Outras falhas propagam e também desfazem a transação. O hash da senha é calculado antes de chamar a escrita; senha recusada não chega a ela.
 
-O transporte continua pela porta local `IEmailSender`, chamada somente após o retorno confirmado de `ReplacePendingTokenAsync`, sem locks mantidos durante envio. Não há outbox nesta entrega; a [política da #79](../architecture/reliable-delivery.md) será integrada pela #85. Parâmetros continuam lidos de Settings até a transferência de propriedade da #81.
+O transporte continua pela porta local `IEmailSender`, chamada somente após o retorno confirmado de `ReplacePendingTokenAsync`, sem locks mantidos durante envio. Não há outbox nesta entrega; a [política da #79](../architecture/reliable-delivery.md) será integrada pela #85. A #81 transferiu a leitura de parâmetros para o [proprietário Identity](parameters.md), no mesmo contexto.
 
 A migration `AddEmailTokens` cria a tabela `identity.email_tokens`, da entidade [`EmailToken`](../../src/Modules/Ouroboros.Modules.Identity/Domain/EmailTokens/EmailToken.cs) (`Domain/EmailTokens`), mapeada por [`EmailTokenConfiguration`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/Configurations/EmailTokenConfiguration.cs). É genérica: guarda os tokens de uso único enviados por e-mail, hoje os de cadastro e os da [redefinição de senha](password-reset.md#persistência) ([#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22)). Os dois tipos são independentes: uma solicitação de um tipo só revoga os pendentes do mesmo tipo. Além de `id`, `external_id`, `created_at` e `updated_at` das [convenções das entidades](../architecture/entity-conventions.md):
 
@@ -284,7 +284,7 @@ A política `identity-registration-completion` não tem teste próprio de `429`;
 - falha injetada por trigger na criação da conta desfaz o consumo; removido o trigger, o mesmo token conclui em novo escopo;
 - duas conclusões com tokens distintos para o mesmo e-mail criam uma conta e consomem somente o token vencedor; o perdedor permanece sem `used_at`.
 
-Os testes de arquitetura verificam a retirada das exceções de persistência da #75 da lista de transição; a dependência de parâmetros de Settings permanece atribuída à #81.
+Os testes de arquitetura verificam a retirada das exceções de persistência da #75 e da dependência de parâmetros de Settings removida pela #81.
 
 ## Referências
 

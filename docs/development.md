@@ -79,36 +79,34 @@ Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela,
    dotnet user-secrets set "ConnectionStrings:Ouroboros" "Host=localhost;Port=5432;Database=ouroboros;Username=ouroboros;Password=<a senha do .env>" --project src/Ouroboros.Api
    ```
 
-4. Restaure a ferramenta local `dotnet-ef` (fixada em `dotnet-tools.json`) e aplique as migrations de cada módulo com persistência, o Identity e o Settings:
+4. Para **instalação nova**, sem tabelas legadas de parâmetros, restaure a ferramenta local `dotnet-ef` e aplique as migrations de Identity. Para **banco existente**, antes de qualquer atualização siga o [procedimento de backup restaurado, janela sem escrita e transferência](identity/parameters.md#upgrade-de-banco-existente). Se migrations antigas de Settings precisarem ser aplicadas, faça isso antes de Identity; nunca depois do corte.
 
    ```powershell
    dotnet tool restore
    dotnet ef database update --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext
-   dotnet ef database update --project src/Modules/Ouroboros.Modules.Settings --startup-project src/Ouroboros.Api --context SettingsDbContext
    ```
 
-   A migration do Settings inclui os valores iniciais dos parâmetros com a função `uuidv7()`, que exige PostgreSQL 18 (a versão do `compose.yaml`).
+   `OwnIdentityParameters` cria sementes com `uuidv7()` em instalação limpa, exigindo PostgreSQL 18 (a versão do `compose.yaml`). No upgrade, copia e valida os parâmetros e histórico de Settings na mesma transação. A migration não faz backup automaticamente nem exclui a origem; não ative a versão nova se ela falhar.
 
    No primeiro `database update` em um banco vazio, o log mostra `Failed executing DbCommand` sobre `__EFMigrationsHistory` antes de criar a tabela. É um comportamento conhecido do EF Core: o comando termina com `Done.`. Repetir o comando não altera nada.
 
-5. Opcionalmente, confira os schemas criados (devem aparecer `identity`, com as tabelas `users`, `sessions`, `refresh_tokens` e `email_tokens`, e `settings`, com as tabelas `parameters` e `parameter_history`; ajuste usuário e banco se mudou o `.env`):
+5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua preservado, sem novas escritas; não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
 
    ```powershell
    docker compose exec postgres psql -U ouroboros -d ouroboros -c "\dn"
    ```
 
-Para gerar uma nova migration do Identity ou do Settings:
+Para gerar uma nova migration do Identity:
 
 ```powershell
 dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Identity --startup-project src/Ouroboros.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
-dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Settings --startup-project src/Ouroboros.Api --context SettingsDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
-`docker compose down` para o banco e mantém os dados no volume `postgres-data`; `docker compose down -v` também apaga o volume. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
 
 ## Criar o primeiro administrador
 
-Administradores não se cadastram sozinhos. Com o banco configurado e as migrations do Identity e do Settings aplicadas, crie o primeiro `Admin` pelo comando `create-admin` do backoffice, que roda e encerra sem subir o servidor HTTP. A senha vai na variável de ambiente `OUROBOROS_ADMIN_PASSWORD`, nunca em argumento (argumentos ficam no histórico do shell e na lista de processos):
+Administradores não se cadastram sozinhos. Com o banco configurado e as migrations de Identity aplicadas, incluindo seus parâmetros locais, crie o primeiro `Admin` pelo comando `create-admin` do backoffice, que roda e encerra sem subir o servidor HTTP. A senha vai na variável de ambiente `OUROBOROS_ADMIN_PASSWORD`, nunca em argumento (argumentos ficam no histórico do shell e na lista de processos):
 
 ```powershell
 $env:OUROBOROS_ADMIN_PASSWORD = '<senha>'
@@ -197,7 +195,7 @@ Cada arquivo usa nome com instante/UUID, texto UTF-8 sem BOM, quebras CRLF, cabe
 
 ## Cadastrar um cliente e entrar
 
-Clientes se cadastram sozinhos pela API externa, em duas etapas: informam o e-mail, recebem um link de uso único e, com ele, definem a senha. Ainda não há front-end; em desenvolvimento, o link chega como `.eml` em `.local/emails/` e o token é copiado dele. Com o banco configurado, as migrations do Identity e do Settings aplicadas e a API externa rodando no ambiente `Development` (`dotnet run --project src/Ouroboros.Api`), na raiz do repositório:
+Clientes se cadastram sozinhos pela API externa, em duas etapas: informam o e-mail, recebem um link de uso único e, com ele, definem a senha. Ainda não há front-end; em desenvolvimento, o link chega como `.eml` em `.local/emails/` e o token é copiado dele. Com o banco configurado, as migrations de Identity aplicadas, incluindo seus parâmetros locais, e a API externa rodando no ambiente `Development` (`dotnet run --project src/Ouroboros.Api`), na raiz do repositório:
 
 1. Solicite o cadastro. A resposta é sempre `202`, com a mesma mensagem, tenha o e-mail conta ou não:
 

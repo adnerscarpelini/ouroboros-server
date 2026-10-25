@@ -47,7 +47,7 @@ Quando uma falha bloqueia a conta, o `AccountLockout` registra um log `Warning` 
 
 ## Configuração
 
-O limite e a duração são [parâmetros do sistema](../architecture/system-parameters.md), lidos do Settings pelo `ISystemParameters`, sem cache:
+O limite e a duração são [parâmetros locais de Identity](parameters.md), lidos pelo seu `ISystemParameters`, sem cache:
 
 | Chave | Valor inicial | Tipo e faixa | Efeito de alterar |
 | --- | --- | --- | --- |
@@ -60,12 +60,12 @@ Os parâmetros são lidos no início de todo login, antes de buscar o usuário. 
 
 ## Pré-requisitos
 
-As migrations dos dois módulos aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)):
+As migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)):
 
 - `AddAccountLockout`, do Identity: as colunas do contador e do bloqueio em `identity.users`.
-- `AddLockoutParameters`, do Settings: os dois parâmetros, cada um com a sua linha de histórico de inclusão (revisão 0, sem autor).
+- `OwnIdentityParameters`: os dois parâmetros e seu histórico no proprietário, copiados do legado ou criados com revisão 0 numa instalação limpa. Banco legado exige o [procedimento com backup e validação](parameters.md#upgrade-de-banco-existente).
 
-Sem a migration do Settings, todo login responde `500`.
+Sem os parâmetros locais disponíveis, todo login responde `500`, sem fallback para Settings.
 
 ## Persistência
 

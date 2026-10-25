@@ -87,7 +87,7 @@ A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Modules
 | `locked_until` | `timestamptz`, nulo | Fim do bloqueio.  |
 | `created_at`, `updated_at` | `timestamptz` | Preenchidas pelo interceptor. |
 
-Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens` e `DbSet<EmailToken> EmailTokens` e aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)).
+Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens`, `DbSet<EmailToken> EmailTokens`, `DbSet<Parameter> Parameters` e `DbSet<ParameterHistory> ParameterHistory`; aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)). Parâmetros e histórico pertencem ao mesmo contexto desde a #81, com [portas locais, backup e migração validada no mesmo banco](../identity/parameters.md).
 
 Os casos de uso de sessões coordenam a persistência pelas portas internas `ISessionStore` e `ISessionTransaction`, com adaptador `SessionStore` em Infrastructure. O adaptador compartilha o `IdentityDbContext` e os métodos de lock com a redefinição de senha, preservando a mesma transação local. A [nota de persistência de sessões](../identity/session-persistence.md) descreve os limites e a verificação.
 

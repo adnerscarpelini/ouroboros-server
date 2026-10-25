@@ -87,7 +87,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
     [Fact]
     public async Task Missing_domain_parameter_is_reported_without_exception()
     {
-        await ExecuteAsync(sql: "DELETE FROM settings.parameters WHERE key = 'Identity:AdminInvitations:AllowedEmailDomain'");
+        await ExecuteAsync(sql: "DELETE FROM identity.parameters WHERE key = 'Identity:AdminInvitations:AllowedEmailDomain'");
 
         var result = await ExecuteAsync(Email, Password);
 

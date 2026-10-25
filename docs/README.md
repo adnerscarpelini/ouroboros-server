@@ -12,6 +12,7 @@ As funcionalidades ficam em `<module-name>/<feature-name>.md`:
 - Settings
   - [Portas de leitura e escrita de parâmetros](settings/parameter-ports.md): contratos internos de Application e adaptadores locais, com leitura sem cache e valor, autor, revisão e histórico confirmados atomicamente.
 - Identity
+  - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, preservação do histórico e procedimento com backup/restauração antes do corte no mesmo banco.
   - [Persistência do ciclo de sessões por portas](identity/session-persistence.md): orquestração em Application, EF e SQL em Infrastructure, unidade de trabalho completa e locks compartilhados com a redefinição de senha.
   - [Criar o primeiro administrador](identity/first-admin.md): comando `create-admin` do host de backoffice, com a senha em variável de ambiente, só enquanto não houver `Admin`.
   - [Fazer login com e-mail e senha](identity/login.md): `POST /api/v1/identity/sessions` (só `Customer`) e `POST /api/v1/admin/identity/sessions` (só `Admin`), com sessão nova, access token JWT e refresh token opaco gravado só como SHA-256; a sessão é aberta numa transação que trava o usuário e recusa o login se a senha mudou desde a verificação.

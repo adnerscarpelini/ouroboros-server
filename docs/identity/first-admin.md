@@ -9,7 +9,7 @@ Módulo responsável: Identity. O comando fica no host [`Ouroboros.Backoffice.Ap
 ## Pré-requisitos
 
 - O banco local configurado, com a connection string `ConnectionStrings:Ouroboros` nos user-secrets ([Desenvolvimento](../development.md#banco-de-dados-local)).
-- As migrations do Identity e do Settings aplicadas. A do Settings traz o parâmetro `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`), que define o domínio aceito para o e-mail do administrador ([Parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves)).
+- As migrations de Identity aplicadas, incluindo `OwnIdentityParameters`. O parâmetro local `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`) define o domínio aceito para o e-mail. Para banco legado, execute antes a [transferência de parâmetros](parameters.md#upgrade-de-banco-existente).
 
 ## Como usar
 
@@ -32,7 +32,7 @@ Na raiz do repositório, com a senha na variável de ambiente `OUROBOROS_ADMIN_P
 O caso de uso cria um usuário ativo com exatamente um papel, `Admin`, com a senha transformada em hash pelo [hasher do Identity](../architecture/identity.md#hash-e-rehash). As verificações são feitas nesta ordem, e a primeira que falha encerra o comando sem criar nada:
 
 1. **E-mail válido.** O e-mail é normalizado como no domínio (sem espaços nas pontas e em minúsculas) e precisa atender à [regra estrita de e-mail das contas](registration.md#regra-estrita-de-e-mail): parte local ASCII com letras, dígitos e `._%+-`, sem aspas, espaços, nome de exibição ou comentários, e domínio DNS sem ponto final nem literal de IP. E-mails com caracteres fora do ASCII são recusados. `MailAddress` isoladamente aceita e reescreve formas como `"ana"@example.com`, por isso não substitui a regra estrita.
-2. **Parâmetro do domínio existe.** O domínio aceito é lido do Settings pelo `ISystemParameters` a cada execução. Se o parâmetro não existir, a mensagem pede para aplicar as migrations do Settings.
+2. **Parâmetro do domínio existe.** O domínio aceito é lido localmente de Identity pelo seu `ISystemParameters` a cada execução. Se o parâmetro não existir, a mensagem pede para aplicar as migrations de Identity.
 3. **Domínio exato.** O domínio do e-mail precisa ser igual ao do parâmetro; subdomínios não são aceitos (com o valor inicial, `@rh.adnerscarpelini.com` é recusado). A mensagem informa o domínio exigido.
 4. **Política de senha.** A senha precisa atender à [política de senha](../architecture/password-policy.md); a mensagem informa a regra violada, sem repetir a senha.
 5. **Nenhum Admin existente.** Se já existir algum `Admin`, nada é criado: novos administradores entram por convite.

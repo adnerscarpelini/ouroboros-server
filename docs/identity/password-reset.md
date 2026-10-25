@@ -24,13 +24,13 @@ As rotas existem só na API externa. Contas de backoffice não são recuperadas 
 
 ## Pré-requisitos
 
-- O banco local com as migrations do Identity e do Settings aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é a `identity.email_tokens`, criada pela `AddEmailTokens` do [cadastro](registration.md#persistência), e a `AddPasswordResetParameters` (Settings) inclui os parâmetros abaixo. A redefinição não tem migration própria no Identity.
+- O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é `identity.email_tokens`, criada por `AddEmailTokens`, e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para Identity. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
 - Para ver o e-mail enviado em desenvolvimento, a API externa no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
 
 ## Configuração
 
-Dois [parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves), lidos do Settings a cada solicitação:
+Dois [parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves), lidos localmente de Identity a cada solicitação pelo seu `ISystemParameters`, sem cache:
 
 | Chave | Valor inicial | Uso |
 | --- | --- | --- |
@@ -207,7 +207,7 @@ A API pública solicita recuperação somente para contas `Customer` ativas. Con
 
 Desde a [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76), os casos de uso de redefinição dependem de portas internas, sem DbContext, EF, SQL ou tipos de Infrastructure. `IPasswordResetStore` é registrado com `PasswordResetStore`; ele e `ISessionStore` são scoped e usam o mesmo `IdentityDbContext` resolvido pela DI.
 
-A solicitação consulta a conta e substitui seus tokens por `ReplacePendingTokenAsync`: advisory lock por conta, revogação dos pendentes e inserção do novo token confirmam na mesma transação. O destinatário continua sendo o e-mail persistido da conta. O envio pela porta local `IEmailSender` ocorre somente após o retorno confirmado da escrita, sem locks durante transporte. Parâmetros continuam em Settings até a #81; outbox e integração com Notifications pertencem à #85.
+A solicitação consulta a conta e substitui seus tokens por `ReplacePendingTokenAsync`: advisory lock por conta, revogação dos pendentes e inserção do novo token confirmam na mesma transação. O destinatário continua sendo o e-mail persistido da conta. O envio pela porta local `IEmailSender` ocorre somente após o retorno confirmado da escrita, sem locks durante transporte. A #81 transferiu os parâmetros para o [proprietário Identity](parameters.md); outbox e integração com Notifications pertencem à #85.
 
 Na conclusão, `ISessionStore.BeginTransactionAsync` abre a unidade de trabalho inteira. O caso de uso usa a mesma porta para travar o usuário, depois as sessões em id crescente, e reler hash/estado sob lock. `IPasswordResetStore.ConsumeTokenAsync` e `ChangePasswordAsync` participam dessa transação, sem commit próprio; o adaptador recusa essas escritas sem uma transação ativa. `ISessionStore.RevokeUserTokensAsync` encerra a sequência de escritas antes do commit único. Saída sem commit ou falha desfaz consumo, senha, contador, bloqueio e revogações juntos. A conclusão não chama transporte e pode executar sem Notifications.
 
@@ -221,7 +221,7 @@ Os tokens ficam na tabela `identity.email_tokens`, a mesma do cadastro ([Cadastr
 
 A conclusão altera, em `identity.users`, as colunas `password_hash`, `failed_login_count`, `locked_until` e `updated_at`, e, em `identity.refresh_tokens`, `revoked_at` e `updated_at` dos tokens ativos do usuário.
 
-A migration `AddPasswordResetParameters` do Settings inclui os dois parâmetros, com a revisão 0 no histórico ([Parâmetros do sistema](../architecture/system-parameters.md#valores-iniciais-e-novas-chaves)).
+Os dois parâmetros e seu histórico pertencem a Identity desde `OwnIdentityParameters`: a migration copia o legado sem perder revisões ou, na instalação limpa, cria as sementes com revisão 0 ([parâmetros locais](parameters.md)).
 
 ## Limitações
 
@@ -273,7 +273,7 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - uma conclusão espera o lock real de uma rotação em andamento e, depois do commit dessa rotação, revoga também o refresh token sucessor;
 - tentativas de consumir token ou trocar senha fora da transação local compartilhada são recusadas sem consumo.
 
-Os testes de arquitetura verificam a retirada das exceções de persistência da #76; a dependência de parâmetros de Settings permanece para a #81.
+Os testes de arquitetura verificam a retirada das exceções de persistência da #76 e da dependência de parâmetros de Settings removida pela #81.
 
 Os limites de `identity-password-reset` e `identity-password-reset-completion` são elevados para 100.000 na [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), como os demais ([Testes de integração](../architecture/integration-tests.md)). Não há teste de `429` próprio da conclusão; o mecanismo é o mesmo das outras políticas ([Limitar requisições](auth-rate-limiting.md#como-verificar)).
 

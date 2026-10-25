@@ -4,7 +4,7 @@
 
 Cada serviço possui os parâmetros de suas regras. Identity mantém segurança, cadastro, recuperação e convites em seu banco, com leitura local. Não consultar configuração remota a cada login.
 
-Connection strings e chaves privadas são configuração protegida de infraestrutura, não parâmetros administráveis de negócio.
+Connection strings e chaves privadas são configuração protegida de infraestrutura, não parâmetros administráveis de negócio. A [operação de parâmetros de Identity](../identity/parameters.md) descreve as portas locais, a migração da #81 no mesmo banco e o procedimento de backup, corte e recuperação.
 
 A porta de leitura local recebe chave e cancelamento e retorna o valor textual para interpretação pelo caso de uso. Chave nula/em branco é inválida; chave inexistente produz erro explícito, sem assumir um padrão silencioso. Alterações valem na próxima leitura, sem reinício.
 
@@ -39,7 +39,7 @@ O padrão opcional casa com o valor inteiro, envolvido em `\A(?:<padrão>)\z`, c
 
 ## Valores iniciais e novas chaves
 
-Chaves são criadas pelas migrations da funcionalidade proprietária, com descrição e validação. Não há criação/exclusão arbitrária pelo backoffice. Transferência: #81; portas: #73; administração: #34 e #35.
+Chaves são criadas pelas migrations da funcionalidade proprietária, com descrição e validação. Não há criação/exclusão arbitrária pelo backoffice. A #81 transferiu a propriedade de parâmetros e histórico para `IdentityDbContext`, preservando a estrutura das portas da #73. Administração: #34 e #35.
 
 | Chave de Identity | Valor inicial | Limite ou efeito |
 | --- | --- | --- |
@@ -60,6 +60,6 @@ Verificar atomicidade, revisão, acesso administrativo, leitura posterior e avis
 
 Referências de cenários: [SystemParametersTests](../../tests/Ouroboros.IntegrationTests/SystemParametersTests.cs) cobre leitura, sementes, histórico, rollback e concorrência; [ParameterRulesTests](../../tests/Ouroboros.IntegrationTests/ParameterRulesTests.cs) cobre tipos, padrão, revisão e alteração sem diferença. Cobertura disponível e funcionalidades pendentes: [estado de implementação](../implementation-status.md).
 
-Contratos internos e unidade de trabalho da persistência: [portas de leitura e escrita de parâmetros](../settings/parameter-ports.md).
+Contratos internos, unidade de trabalho e migração: [parâmetros locais de Identity](../identity/parameters.md). A [nota das portas da #73](../settings/parameter-ports.md) conserva a origem do desenho.
 
 [Voltar à arquitetura](README.md)

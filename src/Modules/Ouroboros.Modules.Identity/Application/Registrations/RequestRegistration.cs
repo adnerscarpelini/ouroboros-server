@@ -2,10 +2,10 @@ using System.Globalization;
 using Microsoft.Extensions.Logging;
 using Ouroboros.Modules.Identity.Application.Notifications;
 using Ouroboros.Modules.Identity.Application.Security;
+using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Registrations;
 using Ouroboros.Modules.Identity.Domain.EmailTokens;
 using Ouroboros.Modules.Identity.Domain.Users;
-using Ouroboros.Modules.Settings.Contracts;
 
 namespace Ouroboros.Modules.Identity.Application.Registrations;
 

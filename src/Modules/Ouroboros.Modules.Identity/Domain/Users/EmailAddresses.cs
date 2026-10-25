@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Ouroboros.Modules.Identity.Domain.Users;
 
-// Regra estrita de e-mail das contas, a mesma dos parâmetros do Settings. O MailAddress sozinho aceita
+// Regra estrita de e-mail das contas, a mesma dos parâmetros de Identity. O MailAddress sozinho aceita
 // nome de exibição, aspas, comentários, espaços, domínio literal e ponto final, e reescreve o endereço
 // (por exemplo, "vic tim@example.com" vira "tim@example.com"): um link poderia ir para outra caixa, e
 // um endereço equivalente ao de uma conta existente escaparia da verificação de e-mail já usado.

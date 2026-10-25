@@ -13,8 +13,6 @@ internal readonly record struct KnownViolation(string Rule, string Subject, stri
 internal static class KnownViolations
 {
     private const string ApplicationLayer = "layer.application";
-    private const string CrossServiceType = "type.cross-service";
-    private const string CrossServiceProject = "project.cross-service";
     private const string ForeignServiceExecutable = "project.executable-foreign-service";
 
     private const string IdentityApplication = "Ouroboros.Modules.Identity.Application.";
@@ -27,13 +25,6 @@ internal static class KnownViolations
     [
         // #77: primeiro Admin.
         .. Group("#77", ApplicationLayer, IdentityApplication + "Administrators.CreateFirstAdmin", IdentityInfrastructure + "Persistence.IdentityDbContext", EntityFramework, EntityFrameworkRelational),
-
-        // #73 e #81: Identity lê parâmetros de Settings; passam a ser locais ao serviço.
-        .. Group("#73, #81", CrossServiceProject, "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings"),
-        .. Group("#73, #81", CrossServiceType, IdentityApplication + "Administrators.CreateFirstAdmin", "Ouroboros.Modules.Settings.Contracts.ISystemParameters", "Ouroboros.Modules.Settings.Contracts.ParameterNotFoundException"),
-        .. Group("#73, #81", CrossServiceType, IdentityApplication + "PasswordResets.RequestPasswordReset", "Ouroboros.Modules.Settings.Contracts.ISystemParameters"),
-        .. Group("#73, #81", CrossServiceType, IdentityApplication + "Registrations.RequestRegistration", "Ouroboros.Modules.Settings.Contracts.ISystemParameters"),
-        .. Group("#73, #81", CrossServiceType, IdentityApplication + "Sessions.AccountLockout", "Ouroboros.Modules.Settings.Contracts.ISystemParameters"),
 
         // #95 e #96: hosts agregadores que compõem todos os módulos.
         .. Group("#95, #96", ForeignServiceExecutable, "Ouroboros.Api", "Ouroboros.Modules.Accounts", "Ouroboros.Modules.Customers", "Ouroboros.Modules.Identity", "Ouroboros.Modules.Settings", "Ouroboros.Modules.Transactions"),

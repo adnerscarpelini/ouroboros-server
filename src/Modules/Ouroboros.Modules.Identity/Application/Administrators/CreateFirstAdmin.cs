@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Ouroboros.Modules.Identity.Application.Security;
+using Ouroboros.Modules.Identity.Contracts;
 using Ouroboros.Modules.Identity.Contracts.Administrators;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Settings.Contracts;
 
 namespace Ouroboros.Modules.Identity.Application.Administrators;
 
@@ -28,14 +28,14 @@ internal sealed class CreateFirstAdmin(
         string allowedDomain;
         try
         {
-            // O Settings já valida o domínio em minúsculas; a normalização aqui protege a comparação.
+            // O Identity já valida o domínio em minúsculas; a normalização aqui protege a comparação.
             allowedDomain = (await parameters.GetAsync(AllowedEmailDomainParameter, cancellationToken)).Trim().ToLowerInvariant();
         }
         catch (ParameterNotFoundException)
         {
             return new(
                 CreateFirstAdminOutcome.ConfigurationMissing,
-                $"O parâmetro do sistema '{AllowedEmailDomainParameter}' não existe; aplique as migrations do Settings.");
+                $"O parâmetro do sistema '{AllowedEmailDomainParameter}' não existe; aplique as migrations do Identity.");
         }
 
         if (!string.Equals(host, allowedDomain, StringComparison.Ordinal))
