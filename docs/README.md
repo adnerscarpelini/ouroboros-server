@@ -1,6 +1,7 @@
 # Documentação do Ouroboros
 
 - [Arquitetura de microsserviços](architecture/README.md).
+- [Contrato e política de entrega confiável](architecture/reliable-delivery.md): decisão da #79 para Identity e Notifications, com recuperação, duplicatas, expiração e proteção de payloads; implementação distribuída em entregas próprias.
 - [Estrutura dos serviços](architecture/module-structure.md).
 - [Estado de implementação](implementation-status.md).
 - [Executar o checkout atual](development.md).

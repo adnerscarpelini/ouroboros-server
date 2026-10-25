@@ -10,13 +10,15 @@ A origem grava intenção na outbox junto do estado de negócio. RabbitMQ recebe
 
 Rollback não produz intenção publicável. Commit seguido de falha permite recuperação. Nenhum envio acontece dentro da transação de negócio.
 
+O [contrato e a política de entrega confiável](reliable-delivery.md), definidos na #79, fixam identidade estável, aceitação durável, confirmação de publicação, tentativas limitadas, recuperação e classificação de falhas. A #93 materializa o envelope e a topologia; #72 e #85–#87 implementam os processos e a persistência. A disponibilidade do transporte no checkout permanece no [estado de implementação](../implementation-status.md).
+
 ## Configuração e adaptadores
 
 Notifications possui configuração e segredos próprios. Adaptador local gera .eml apenas em Development, em caminho configurável compatível com Linux. Provedor inválido falha explicitamente. Configuração disponível: [desenvolvimento](../development.md).
 
 ## Proteção e limites
 
-Links de uso único são segredos. Proteger payload armazenado/em transporte, restringir acesso e definir retenção e descarte. Tokens e conteúdo sensível não aparecem em logs. Expiração e substituição exigem política para mensagens obsoletas.
+Links de uso único são segredos. A [política](reliable-delivery.md#proteção-acesso-e-retenção) exige proteção do payload armazenado/em transporte, acesso mínimo, descarte no estado terminal ou na confirmação de publicação e retenção limitada de metadados sanitizados. Tokens e conteúdo sensível não aparecem em logs. Expiração e substituição seguem a [regra de obsolescência](reliable-delivery.md#expiração-e-obsolescência): cancelar intenção ainda não publicada não garante impedir um envio externo em curso; Identity continua recusando o link revogado.
 
 Aceitação durável não significa entrega única. Falha após envio e antes de registrar conclusão pode duplicar e-mail. Documentar ambiguidade e política do provedor; não prometer exactly-once.
 
