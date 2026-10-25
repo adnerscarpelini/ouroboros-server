@@ -70,6 +70,6 @@ O [inventário do checkout](../implementation-status.md#inventário-de-dependên
 - Para uma biblioteca externa, a exceção é por assembly: o uso de outro tipo do mesmo assembly já nomeado, em um tipo listado, não é detectado até a exceção sair.
 - `typeof(...)` em argumento de atributo não é resolvido. `nameof`, constantes incorporadas pelo compilador e `default(T)` não geram referência no IL.
 - Top-level statements (`<Program>$`) são tipo gerado; os executáveis são cobertos pelas regras de projeto, não pelas de tipo.
-- A suíte não verifica isolamento por credencial ou banco, mensageria confiável, implantação independente nem regras de API ou worker em nível de tipo (por exemplo, controllers sem acesso a persistência).
+- A suíte de dependências não verifica mensageria confiável, implantação independente nem regras de API ou worker em nível de tipo (por exemplo, controllers sem acesso a persistência). O isolamento por banco e por credencial tem testes próprios: `CredentialIsolationTests` (a credencial administrativa não aparece em `src`) e `DatabaseProvisioningTests`, com PostgreSQL real ([Persistência](persistence.md#roles-e-privilégios-por-serviço)).
 
 [Voltar à arquitetura](README.md)

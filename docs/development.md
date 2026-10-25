@@ -37,6 +37,8 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - Os testes de arquitetura não acessam o banco: sobem o host com uma connection string e uma chave de assinatura fictícias. Os testes não usam a chave dos user-secrets.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
+- Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
+- `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
@@ -61,7 +63,7 @@ O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFix
 
 Os dois hosts exigem a connection string `ConnectionStrings:Ouroboros`: sem ela, falham ao subir com `OptionsValidationException` e uma mensagem que cita a chave. As migrations nunca são aplicadas na subida; rode-as por comando. Todos os comandos abaixo são executados na raiz do repositório.
 
-1. Crie o `.env` a partir do modelo e troque a senha de `POSTGRES_PASSWORD` (o `.env` fica fora do Git):
+1. Crie o `.env` a partir do modelo e troque a senha de `POSTGRES_PASSWORD`, além das quatro senhas por serviço quando for [provisionar os bancos](#provisionar-bancos-e-roles-por-serviço) (o `.env` fica fora do Git):
 
    ```powershell
    cp .env.example .env
@@ -103,6 +105,55 @@ dotnet ef migrations add <Nome> --project src/Modules/Ouroboros.Modules.Identity
 ```
 
 `docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Ouroboros`. Detalhes e o padrão para outros módulos estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+
+## Provisionar bancos e roles por serviço
+
+Cada serviço persistente tem banco e roles próprios na instância PostgreSQL local: Identity (`ouroboros_identity`) e Notifications (`ouroboros_notifications`). O procedimento é versionado em `scripts/database` (`provision.sql`, `provision-service.sql` e `session-safety.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão de roles e privilégios está em [Persistência](architecture/persistence.md#roles-e-privilégios-por-serviço).
+
+1. No `.env`, troque as quatro senhas por serviço, diferentes das de exemplo e entre si:
+
+   | Variável | Role |
+   | --- | --- |
+   | `IDENTITY_RUNTIME_PASSWORD` | `identity_runtime` |
+   | `IDENTITY_MIGRATION_PASSWORD` | `identity_migrator` |
+   | `NOTIFICATIONS_RUNTIME_PASSWORD` | `notifications_runtime` |
+   | `NOTIFICATIONS_MIGRATION_PASSWORD` | `notifications_migrator` |
+
+   O Compose interpola `$` nos valores do `.env`: uma senha com `$` deve ser escrita com `$$` (por exemplo, `abc$$def` vale `abc$def`). Uma connection string que leve essa senha usa o valor real, com um único `$`.
+
+2. Execute, na raiz do repositório (o Compose sobe o PostgreSQL e espera o healthcheck, se preciso):
+
+   ```powershell
+   docker compose --profile provision run --rm provision-databases
+   ```
+
+   A saída termina com `Provisionamento concluído.`, precedida de `Serviço provisionado: identity` e `Serviço provisionado: notifications`. O serviço `provision-databases` usa `POSTGRES_USER` e `POSTGRES_PASSWORD` do `.env`, a credencial **administrativa** da instância (superusuário): só o container do PostgreSQL e este comando a recebem, e APIs e workers nunca a usam.
+
+3. Confira roles e bancos (ajuste o usuário se mudou o `.env`):
+
+   ```powershell
+   docker compose exec postgres psql -U ouroboros -d postgres -c "\du" -c "\l"
+   ```
+
+Comportamento do comando:
+
+- **Idempotente.** Funciona em volume novo e em volume existente (a imagem só executa `docker-entrypoint-initdb.d` com o volume vazio, por isso o procedimento é um comando à parte). Reexecutar cria cada banco e cada role uma única vez, não altera dados e nunca apaga bancos, roles, volumes ou dados.
+- **Converge o acesso.** Depois de aplicar migrations, reexecute o comando: tabelas e sequences já criadas passam a ter os privilégios do runtime, e o histórico de migrations (`__EFMigrationsHistory`) é negado ao runtime. Entre a migration e a reexecução, um histórico recém-criado ainda é acessível ao runtime.
+- **Rotação de senha.** Troque o valor no `.env` e reexecute: a senha de cada role é reaplicada a cada execução. Atualize também a connection string de quem usa a role.
+- **Validação.** Senha vazia ou ausente, ou igual entre as roles de runtime e de migration do mesmo serviço, faz o comando falhar com código diferente de zero, sem criar nada para aquele serviço. Os serviços são processados em ordem (Identity, depois Notifications): se a falha for no segundo, o primeiro já foi provisionado. Senhas iguais entre serviços não são recusadas; use valores distintos. A saída e o log do servidor não contêm as senhas.
+- **Banco original e `postgres`.** O banco de `POSTGRES_DB` (`ouroboros` no modelo) e o `postgres` deixam de aceitar `CONNECT` e `TEMPORARY` de `PUBLIC`: nenhuma role de serviço entra neles. A credencial administrativa continua conectando, e nenhum dado ou objeto é alterado.
+
+Formato das connection strings por serviço, com marcadores no lugar das senhas do `.env` (exemplo para Identity; Notifications segue o padrão com `ouroboros_notifications` e `notifications_*`):
+
+```text
+# runtime: a única que a API ou o worker do serviço deve receber (DML, sem DDL)
+Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=<IDENTITY_RUNTIME_PASSWORD>
+
+# migration: só para o comando explícito de migrations (DDL no banco do próprio serviço)
+Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>
+```
+
+O provisionamento não altera nenhum host nem aplica migrations: os hosts seguem lendo `ConnectionStrings:Ouroboros`, configurada em [Banco de dados local](#banco-de-dados-local). A disponibilidade de cada etapa está no [estado de implementação](implementation-status.md).
 
 ## Criar o primeiro administrador
 

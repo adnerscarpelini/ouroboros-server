@@ -1,6 +1,6 @@
 # Parâmetros locais de Identity
 
-Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. Esta entrega não troca banco ou credencial; provisionamento pertence à #92 e transferência do banco à #82.
+Identity possui seus parâmetros e histórico desde a [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81). As tabelas `identity.parameters` e `identity.parameter_history` usam o mesmo `IdentityDbContext`, banco e connection string do restante de Identity. Esta entrega não troca banco ou credencial; o [provisionamento de bancos e roles](../development.md#provisionar-bancos-e-roles-por-serviço) é da #92 e a transferência do banco, da #82.
 
 ## Leitura e escrita
 
