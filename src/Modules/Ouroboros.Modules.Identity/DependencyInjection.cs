@@ -78,7 +78,9 @@ public static class DependencyInjection
     {
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
         services.AddOptions<JwtOptions>().BindConfiguration(JwtOptions.SectionName).ValidateOnStart();
-        services.AddSingleton<AccessTokenIssuer>();
+        services.AddSingleton<IAccessTokenIssuer, AccessTokenIssuer>();
+        services.AddSingleton(provider => new SessionTokenOptions(
+            provider.GetRequiredService<IOptions<JwtOptions>>().Value.RefreshTokenLifetime));
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)

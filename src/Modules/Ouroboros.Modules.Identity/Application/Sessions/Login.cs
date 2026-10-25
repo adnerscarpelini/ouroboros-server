@@ -1,11 +1,9 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Sessions;
 using Ouroboros.Modules.Identity.Domain.Users;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
 
@@ -13,8 +11,8 @@ internal sealed class Login(
     IdentityDbContext context,
     UserPasswordVerifier passwordVerifier,
     AccountLockout accountLockout,
-    AccessTokenIssuer accessTokenIssuer,
-    IOptions<JwtOptions> jwtOptions,
+    IAccessTokenIssuer accessTokenIssuer,
+    SessionTokenOptions tokenOptions,
     TimeProvider timeProvider) : ILogin
 {
     public async Task<LoginResult> ExecuteAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -67,7 +65,7 @@ internal sealed class Login(
 
         user.ResetFailedLogins();
         var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
-        var refreshTokenExpiresAt = now.Add(jwtOptions.Value.RefreshTokenLifetime);
+        var refreshTokenExpiresAt = now.Add(tokenOptions.RefreshTokenLifetime);
         var session = Session.Open(user.Id, refreshTokenHash, refreshTokenExpiresAt);
         context.Sessions.Add(session);
 
@@ -75,7 +73,7 @@ internal sealed class Login(
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
-        var accessToken = accessTokenIssuer.Issue(user, session.ExternalId);
+        var accessToken = accessTokenIssuer.Issue(user.ExternalId, user.Role, session.ExternalId);
         return new LoginResult(new SessionTokens(accessToken.Token, accessToken.ExpiresAt, refreshToken, refreshTokenExpiresAt));
     }
 }

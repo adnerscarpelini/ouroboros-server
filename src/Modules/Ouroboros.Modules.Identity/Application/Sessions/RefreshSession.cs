@@ -1,18 +1,16 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Ouroboros.Modules.Identity.Application.Security;
 using Ouroboros.Modules.Identity.Contracts.Sessions;
 using Ouroboros.Modules.Identity.Domain.Sessions;
 using Ouroboros.Modules.Identity.Infrastructure.Persistence;
-using Ouroboros.Modules.Identity.Infrastructure.Security;
 
 namespace Ouroboros.Modules.Identity.Application.Sessions;
 
 internal sealed partial class RefreshSession(
     IdentityDbContext context,
-    AccessTokenIssuer accessTokenIssuer,
-    IOptions<JwtOptions> jwtOptions,
+    IAccessTokenIssuer accessTokenIssuer,
+    SessionTokenOptions tokenOptions,
     TimeProvider timeProvider,
     ILogger<RefreshSession> logger) : IRefreshSession
 {
@@ -86,13 +84,13 @@ internal sealed partial class RefreshSession(
         }
 
         var (refreshToken, refreshTokenHash) = OpaqueTokens.Generate();
-        var refreshTokenExpiresAt = now.Add(jwtOptions.Value.RefreshTokenLifetime);
+        var refreshTokenExpiresAt = now.Add(tokenOptions.RefreshTokenLifetime);
         context.RefreshTokens.Add(RefreshToken.Issue(found.Token.SessionId, refreshTokenHash, refreshTokenExpiresAt));
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
 
         // O papel vem do banco, então o access token novo reflete o papel atual do usuário.
-        var accessToken = accessTokenIssuer.Issue(found.User, found.SessionId);
+        var accessToken = accessTokenIssuer.Issue(found.User.ExternalId, found.User.Role, found.SessionId);
         return new RefreshSessionResult(new SessionTokens(accessToken.Token, accessToken.ExpiresAt, refreshToken, refreshTokenExpiresAt));
     }
 

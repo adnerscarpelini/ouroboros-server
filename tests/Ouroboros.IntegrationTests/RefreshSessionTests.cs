@@ -3,8 +3,10 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Time.Testing;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -203,6 +205,33 @@ public sealed class RefreshSessionTests(PostgresFixture postgres) : IntegrationT
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.All(responses.Where(response => response.StatusCode != HttpStatusCode.OK), response => Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode));
         Assert.Equal(2L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.refresh_tokens"));
+    }
+
+    [Fact]
+    public async Task Configured_token_lifetimes_are_preserved_on_login_and_refresh()
+    {
+        await using var api = CreateApi().WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Authentication:Jwt:AccessTokenLifetime"] = "00:09:00",
+                    ["Authentication:Jwt:RefreshTokenLifetime"] = "2.00:00:00",
+                })));
+        using var client = api.CreateClient();
+        await CreateUserAsync(api, CustomerEmail, UserRole.Customer);
+
+        var login = await LoginAsync(client, LoginRoute, CustomerEmail);
+        Assert.Equal(_time.GetUtcNow().AddDays(2), login.GetProperty("refreshTokenExpiresAt").GetDateTimeOffset());
+        Assert.Equal(_time.GetUtcNow().AddMinutes(9), login.GetProperty("accessTokenExpiresAt").GetDateTimeOffset());
+
+        _time.Advance(TimeSpan.FromMinutes(5));
+        var response = await RefreshAsync(client, RefreshRoute, RefreshTokenOf(login));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var renewed = await ReadJsonAsync(response);
+        Assert.Equal(_time.GetUtcNow().AddDays(2), renewed.GetProperty("refreshTokenExpiresAt").GetDateTimeOffset());
+        Assert.Equal(_time.GetUtcNow().AddMinutes(9), renewed.GetProperty("accessTokenExpiresAt").GetDateTimeOffset());
+        Assert.Equal(SessionIdOf(login), SessionIdOf(renewed));
+        Assert.NotEqual(RefreshTokenOf(login), RefreshTokenOf(renewed));
     }
 
     private WebApplicationFactory<Program> CreateApi() => Api.WithWebHostBuilder(builder =>

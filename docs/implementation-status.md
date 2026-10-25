@@ -5,6 +5,7 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | Entrega | Disponibilidade no checkout | Issue |
 | --- | --- | --- |
 | Login, sessões, cadastro e recuperação | Implementados; controllers ainda em Ouroboros.Api e Ouroboros.Backoffice.Api | #95 migra os comportamentos; #96 remove os executáveis |
+| Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; HS256 e contratos preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
 | Serviços em src/Services | Organização definida; projetos ainda em src/Modules | #94, #72 e #96 |
 | Banco e parâmetros próprios de Identity | Identity e Settings têm DbContexts, schemas e migrations distintos, mas usam ConnectionStrings:Ouroboros e credencial/banco comuns no Compose; a credencial da aplicação é a administrativa da instância | #73, #81 (parâmetros), #92 (provisionamento), #82 (transferência do banco), #97 (banco original) |
 | Administração de parâmetros e integrações | Modelo/histórico e leitura de parâmetros implementados; endpoints administrativos, reautenticação, avisos e clients de integração pendentes | #34, #35, #37–#39 |
@@ -37,7 +38,6 @@ Este inventário descreve o código disponível, sem conceder exceções por nam
 
 | Tipos e localização | Dependência atual a remover | Entrega |
 | --- | --- | --- |
-| Identity/Application/Sessions: Login, RefreshSession | AccessTokenIssuer, JwtOptions de Infrastructure.Security | #71 |
 | Identity/Application/Sessions: Login, AccountLockout, RefreshSession, Logout, LogoutAll | IdentityDbContext, EF, consultas/escritas e coordenação de persistência | #74 |
 | Identity/Application/Registrations: RequestRegistration, CompleteRegistration | IdentityDbContext, EF, SQL advisory lock, PersistenceErrors/erros do provedor | #75 |
 | Identity/Application/PasswordResets: RequestPasswordReset, CompletePasswordReset | IdentityDbContext, EF, SQL e coordenação de locks/tokens/sessões | #76 |
