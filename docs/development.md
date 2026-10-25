@@ -33,7 +33,7 @@ dotnet test --project tests/Ouroboros.ArchitectureTests   # só arquitetura (sem
 dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (exige Docker)
 ```
 
-- A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string e uma chave de assinatura fictícias. Os testes não usam a chave dos user-secrets.
+- A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string fictícia e um manifesto externo de chaves RSA efêmeras. Os testes não usam as chaves dos user-secrets.
 - Os testes de listeners em Kestrel real ([`KestrelListenerTests`](../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs)) abrem portas livres de loopback e exigem Docker pelo banco. O teste de que o listener administrativo não responde por endereço da máquina é ignorado quando a máquina não tem endereço IPv4 fora de loopback.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
@@ -284,29 +284,73 @@ Detalhes em [Criar o primeiro administrador](identity/first-admin.md). Com o `Ad
 
 ## Chave de assinatura dos tokens
 
-A API de Identity exige a chave `Authentication:Jwt:SigningKey`, que assina e valida os access tokens JWT (HS256). Sem ela, ou com uma chave vazia ou menor que 32 bytes (256 bits) em UTF-8, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. A chave nunca vai para o Git nem para o `appsettings.json`.
+A API de Identity exige `Authentication:Jwt:KeyRingPath`, caminho absoluto de um manifesto JSON externo. Ela emite RS256, exige RSA de pelo menos 2048 bits e valida o par público/privado na subida. Configuração ausente, manifesto inválido, chave ilegível ou par divergente impedem iniciar. Não há geração automática ou fallback para a configuração antiga `SigningKey`.
 
-1. Gere uma chave aleatória. Por exemplo, com OpenSSL:
+O diretório deve ficar fora do checkout, de qualquer contexto de build e das imagens. Só a conta de operação pode escrever o manifesto e as chaves; só o processo de Identity deve ler a privada. Em produção, o operador monta os arquivos como segredos somente de leitura no emissor, com caminhos absolutos válidos dentro dele. Outros serviços recebem apenas a URL HTTPS de JWKS. Não copie o diretório para Dockerfile, volume público, artefato de CI ou backup sem proteção e acesso restrito. A aplicação não configura ACL nem apaga segredos por conta própria.
 
-   ```powershell
-   openssl rand -base64 48
-   ```
+### Gerar a primeira chave
 
-   Ou, só com PowerShell:
+O exemplo usa PowerShell 7 e .NET, sem imprimir a privada. Informe um diretório **novo**, externo ao código; em desenvolvimento, execute a geração com a conta que executará Identity. Para outra conta de runtime, o operador concede a ela leitura e travessia, preservando escrita exclusiva da operação.
 
-   ```powershell
-   $bytes = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); [Convert]::ToBase64String($bytes)
-   ```
+```powershell
+$keyDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para as chaves'))
+if (Test-Path -LiteralPath $keyDirectory) { throw 'Escolha um diretório novo' }
+$ancestor = [IO.DirectoryInfo]::new($keyDirectory)
+while ($null -ne $ancestor) {
+    if (Test-Path -LiteralPath (Join-Path $ancestor.FullName '.git')) { throw 'Diretório dentro de um checkout' }
+    $ancestor = $ancestor.Parent
+}
+[void][IO.Directory]::CreateDirectory($keyDirectory)
+if ($IsWindows) {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl = Get-Acl -LiteralPath $keyDirectory
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $keyDirectory -AclObject $acl
+} else {
+    [IO.File]::SetUnixFileMode($keyDirectory, [IO.UnixFileMode]::UserRead -bor
+        [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+}
 
-   Os dois geram 64 caracteres, acima do mínimo de 32 bytes.
+function New-RsaSigningPair([string] $directory, [string] $kid) {
+    if ($kid -notmatch '^[a-zA-Z0-9-]{1,80}$') { throw 'kid inválido' }
+    $privatePath = Join-Path $directory "$kid.pem"
+    if (Test-Path -LiteralPath $privatePath) { throw 'Chave já existe' }
+    $rsa = [Security.Cryptography.RSA]::Create(3072)
+    try {
+        [IO.File]::WriteAllText($privatePath, $rsa.ExportPkcs8PrivateKeyPem(), [Text.UTF8Encoding]::new($false))
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($privatePath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+        }
+        $public = $rsa.ExportParameters($false)
+        return @{
+            kid = $kid
+            n = [Convert]::ToBase64String($public.Modulus).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+            e = [Convert]::ToBase64String($public.Exponent).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        }
+    } finally { $rsa.Dispose() }
+}
 
-2. Grave a chave nos user-secrets do projeto `Ouroboros.Identity.Api` (`UserSecretsId` do `Ouroboros.Identity.Api.csproj`):
+$kid = 'identity-' + [DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmss')
+$publicEntry = New-RsaSigningPair $keyDirectory $kid
+$manifestPath = Join-Path $keyDirectory 'ring.json'
+$manifest = @{
+    activeKid = $kid
+    privateKeyPath = Join-Path $keyDirectory "$kid.pem"
+    keys = @($publicEntry)
+}
+[IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+if (-not $IsWindows) {
+    [IO.File]::SetUnixFileMode($manifestPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+}
+dotnet user-secrets set 'Authentication:Jwt:KeyRingPath' $manifestPath --project src/Services/Identity/Ouroboros.Identity.Api
+```
 
-   ```powershell
-   dotnet user-secrets set "Authentication:Jwt:SigningKey" "<a chave gerada>" --project src/Services/Identity/Ouroboros.Identity.Api
-   ```
+No Windows, confira `Get-Acl -LiteralPath $keyDirectory` e os dois arquivos: sem herança de leitura ampla, com acesso apenas da operação e da conta de Identity. No Linux, confira `stat`: diretório `0700`, privada e manifesto `0600`, com dono correto. Se as contas forem diferentes, configure grupo/ACL específico: runtime lê e atravessa, mas não escreve. Não amplie acesso para `Everyone`/`Users` ou `other` para resolver erro de leitura.
 
-Fora de desenvolvimento, a chave vem da variável de ambiente `Authentication__Jwt__SigningKey`, com o mesmo valor em todos os processos que emitem ou validam tokens. Trocar a chave invalida os tokens já emitidos. Emissor, audiências e tempos de vida ficam no `appsettings.json` do host; detalhes em [Autenticação JWT e autorização por políticas](architecture/authentication.md).
+Fora de Development, defina `Authentication__Jwt__KeyRingPath` com o caminho do manifesto montado. Emissor, audiências e tempos permanecem no `appsettings.json`; [decisão e validação](architecture/authentication.md).
 
 Os valores de `Authentication:Jwt` disponíveis são:
 
@@ -317,9 +361,49 @@ Os valores de `Authentication:Jwt` disponíveis são:
 | AdminAudience | `ouroboros-backoffice`: tokens de `Admin`, aceitos no listener administrativo. Obrigatória na API de Identity e diferente de `Audience` |
 | AccessTokenLifetime | `00:15:00` |
 | RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
-| SigningKey | Externa ao Git, pelo menos 32 bytes UTF-8; Base64 é usado como texto, sem decodificação |
+| KeyRingPath | Externo ao Git, caminho absoluto do manifesto; privada PEM PKCS#8 apontada por `privateKeyPath` |
 
-Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. O checkout valida HS256 com tolerância de relógio de 30 segundos e sem consulta à sessão a cada chamada; rotação assimétrica é uma entrega da #84, conforme o [estado de implementação](implementation-status.md).
+Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. A tolerância de relógio continua em 30 segundos; não há consulta à sessão em cada validação de access token. Refresh token e logout preservam os contratos anteriores.
+
+### Rotacionar uma chave RSA
+
+Use `kid` novo para cada par, sem reaproveitá-lo. O manifesto admite até 16 públicas, tem limite de 64 KiB e não contém PEM privado. A operação abaixo usa as variáveis e a função da geração inicial, com `ring.json` já existente; recarregue `$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -AsHashtable` antes de editar se abriu outra sessão.
+
+1. Gere o próximo par com `New-RsaSigningPair`, no mesmo diretório protegido. Acrescente sua entrada pública a `keys`, mantendo `activeKid` e `privateKeyPath` anteriores. Para gravar cada nova versão, escreva JSON num arquivo temporário **no mesmo diretório**, aplique a mesma ACL/`0600` e substitua o manifesto atomicamente com `[IO.File]::Move($temporaryPath, $manifestPath, $true)`. A troca exige filesystem que suporte rename atômico; não edite o arquivo em uso diretamente. O runtime relê o manifesto a cada operação; não é necessário reiniciar consumidores.
+2. Confira `GET /api/v1/identity/keys` e aguarde pelo menos cinco minutos para os caches receberem a próxima pública. A resposta é anônima, só no listener externo, com cache de 300 s e limite inicial de 60 requisições/minuto por IP.
+3. Troque `activeKid` e `privateKeyPath` para o próximo par e substitua o manifesto atomicamente. Na entrada anterior, defina `retiredAt` como o instante UTC em que a última emissão antiga cessou e `acceptUntil` pelo menos **20 min 30 s** depois (15 min de access token + 30 s + 5 min de cache). Um intervalo de 21 minutos atende aos valores atuais. Em múltiplos emissores, calcule a janela a partir do último a trocar, sem retirar a pública antes disso. Confira que novos tokens trazem o novo `kid` e que um token antigo ainda válido continua aceito.
+4. Depois que todos os emissores usarem o próximo par, remova a privada antiga do armazenamento/montagem de emissão e suas cópias operacionais que não sejam necessárias para recuperação protegida. A pública anterior permanece até `acceptUntil`; nesse instante, Identity para de resolvê-la e de publicá-la no JWKS. Depois do prazo, retire a entrada do manifesto. Não reduza a janela para compensar atraso de operação.
+
+Exemplo da mudança de estado da entrada anterior, sem material de chave:
+
+```powershell
+$retiredAt = [DateTimeOffset]::UtcNow
+$previousEntry.retiredAt = $retiredAt.ToString('O')
+$previousEntry.acceptUntil = $retiredAt.AddMinutes(21).ToString('O')
+```
+
+O consumidor deve manter cache de cinco minutos e limitar novas buscas a uma por 30 segundos, inclusive para `kid` desconhecido. Sem uma chave válida em cache e com JWKS indisponível, deve recusar acesso, sem fallback ou cache vencido. O host de prova dos testes demonstra essa política; não é uma biblioteca cliente implantada. Consulte [chaves públicas e cache](architecture/authentication.md#chaves-públicas-e-cache).
+
+### Transição de HS256
+
+Instalação nova começa diretamente com RSA, sem `legacy`. Para preservar access tokens HS256 existentes, o operador faz uma única janela de transição, coordenada com a interrupção de todas as emissões antigas:
+
+1. Copie o **valor exato** da antiga `Authentication:Jwt:SigningKey` para um arquivo de texto externo protegido, sem quebra de linha adicional. Não decodifique Base64: o emissor antigo usava os bytes UTF-8 do texto, com pelo menos 32 bytes. Faça a cópia pelo gerenciador de segredos, sem imprimir a chave ou colocá-la em argumento, histórico do shell ou transcript. Aplique as mesmas ACLs/`0600` da privada RSA.
+2. Acrescente ao manifesto `legacy: { keyPath, startsAt, endsAt }`, com caminho absoluto do arquivo e instantes UTC absolutos. `startsAt` é a troca para emissão RSA; `endsAt` deve ser no máximo 15 minutos depois, conforme `AccessTokenLifetime`. Exemplo para compor apenas metadados, usando `$legacyPath` já definido pelo operador:
+
+   ```powershell
+   $startsAt = [DateTimeOffset]::UtcNow
+   $manifest.legacy = @{
+       keyPath = $legacyPath
+       startsAt = $startsAt.ToString('O')
+       endsAt = $startsAt.AddMinutes(15).ToString('O')
+   }
+   ```
+
+3. Publique o manifesto atomicamente conforme a rotação e inicie a emissão RSA. Durante `startsAt <= agora < endsAt`, ambos os algoritmos são aceitos por Identity, cada um com sua própria chave. Não estenda nem recrie o prazo num reinício; mantenha o mesmo limite absoluto em todos os emissores. Consumidores novos recebem somente as públicas RSA e não validam HS256.
+4. Ao atingir `endsAt`, HS256 é recusado mesmo se o arquivo ainda existir, e Identity não o abre mais. Retire `legacy` do manifesto, remova o arquivo legado pelo caminho absoluto conferido e elimine o segredo de todas as fontes antigas. Remova o user-secret com `dotnet user-secrets remove 'Authentication:Jwt:SigningKey' --project src/Services/Identity/Ouroboros.Identity.Api`; retire também `Authentication__Jwt__SigningKey` da configuração do processo e do gerenciador de segredos. Não basta retirar uma fonte enquanto outra ainda guarda o segredo. A aplicação não apaga esses arquivos/configurações automaticamente.
+
+O prazo HS256 não inclui tolerância extra para transição: tokens antigos ainda dentro da tolerância de relógio podem exigir renovação ao atingir o limite. Uma implantação com versões antigas e novas emitindo simultaneamente precisa cessar a emissão HS256 antes de iniciar a janela, para não truncar a vida dos últimos tokens. Não use rollback para reativar o prazo ou voltar a emitir HS256.
 
 ## Executar a API de Identity
 
@@ -342,11 +426,11 @@ Um token é aceito só no listener do seu público: o de `Customer` (audiência 
 
 Para pôr a API atrás de um proxy, configure `Identity:ForwardedHeaders:KnownProxies` (IPs) ou `KnownNetworks` (CIDR, por exemplo `10.0.0.0/8`). Sem isso, `X-Forwarded-For` é ignorado e o rate limit por IP usa o endereço da conexão; um IP ou CIDR inválido impede a subida.
 
-Os user-secrets (connection string e chave de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string nem a chave de assinatura, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__SigningKey`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
+Os user-secrets (connection string e caminho do manifesto de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra essa configuração, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__KeyRingPath`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
 
 ### Endpoints e limites
 
-Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. Os únicos endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
 
 ## E-mails em desenvolvimento
 

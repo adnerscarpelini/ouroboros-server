@@ -49,7 +49,7 @@ public class OuroborosApiFactory : WebApplicationFactory<IdentityApiEntryPoint>
         var settings = new Dictionary<string, string?>
         {
             ["ConnectionStrings:Ouroboros"] = _connectionString,
-            ["Authentication:Jwt:SigningKey"] = TestTokens.SigningKey,
+            ["Authentication:Jwt:KeyRingPath"] = TestSigningKeys.ManifestPath,
         };
         foreach (var (key, value) in _overrides ?? new Dictionary<string, string?>())
         {

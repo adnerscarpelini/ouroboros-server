@@ -20,7 +20,7 @@ Cada listener renova somente sessões do seu papel, como no login. A checagem de
 ## Pré-requisitos
 
 - O banco local com as migrations do Identity aplicadas, inclusive a `AddRefreshTokenRevocation`, que cria a coluna `revoked_at` ([Desenvolvimento](../development.md#banco-de-dados-local)). O login também grava essa coluna ao criar o primeiro refresh token da sessão.
-- A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
+- O manifesto externo `Authentication:Jwt:KeyRingPath` e sua chave privada configurados ([README](../development.md#chave-de-assinatura-dos-tokens)).
 - A política `identity-refresh` configurada em `Identity:RateLimiting:Policies` da API; sem ela, a API não sobe ([Validação na subida](auth-rate-limiting.md#validação-na-subida)).
 - Um refresh token ativo, obtido no login do mesmo público ([Fazer login com e-mail e senha](login.md)).
 

@@ -96,6 +96,9 @@ public static class DependencyInjection
     {
         services.AddSingleton<IValidateOptions<JwtOptions>, JwtOptionsValidator>();
         services.AddOptions<JwtOptions>().BindConfiguration(JwtOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<TokenKeyRing>();
+        services.AddSingleton<ITokenPublicKeys>(provider => provider.GetRequiredService<TokenKeyRing>());
+        services.AddHostedService<SigningKeysStartupCheck>();
         services.AddSingleton<IAccessTokenIssuer, AccessTokenIssuer>();
         services.AddSingleton(provider => new SessionTokenOptions(
             provider.GetRequiredService<IOptions<JwtOptions>>().Value.RefreshTokenLifetime));
@@ -116,19 +119,42 @@ public static class DependencyInjection
 
     private static void ConfigureBearer(IServiceCollection services, string scheme, Func<JwtOptions, string> audience) =>
         services.AddOptions<JwtBearerOptions>(scheme)
-            .Configure<IOptions<JwtOptions>>((bearer, jwtOptions) =>
+            .Configure<IOptions<JwtOptions>, TokenKeyRing>((bearer, jwtOptions, keys) =>
             {
                 var jwt = jwtOptions.Value;
                 bearer.MapInboundClaims = false;
 
                 // O 401 não explica por que o token foi recusado (assinatura, expiração etc.).
                 bearer.IncludeErrorDetails = false;
+                bearer.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = context =>
+                    {
+                        var principal = context.Principal!;
+                        var kind = principal.FindFirst(IdentityClaims.PrincipalType)?.Value;
+                        var algorithm = ((Microsoft.IdentityModel.JsonWebTokens.JsonWebToken)context.SecurityToken).Alg;
+                        // Somente tokens HS256 da janela legada podem omitir o discriminador novo.
+                        if (principal.FindAll(IdentityClaims.PrincipalType).Skip(1).Any()
+                            || principal.FindAll(IdentityClaims.Subject).Count() != 1
+                            || principal.FindAll(IdentityClaims.Session).Count() != 1
+                            || principal.FindAll(IdentityClaims.Role).Count() != 1
+                            || (kind != "user" && !(kind is null && algorithm == SecurityAlgorithms.HmacSha256))
+                            || !Guid.TryParse(principal.FindFirst(IdentityClaims.Subject)?.Value, out var subject) || subject == Guid.Empty
+                            || !Guid.TryParse(principal.FindFirst(IdentityClaims.Session)?.Value, out var session) || session == Guid.Empty
+                            || principal.FindFirst(IdentityClaims.Role)?.Value is not ("Customer" or "Admin"))
+                        {
+                            context.Fail("Principal inválido.");
+                        }
+                        return Task.CompletedTask;
+                    },
+                };
                 bearer.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidIssuer = jwt.Issuer,
                     ValidAudience = audience(jwt),
-                    IssuerSigningKey = new SymmetricSecurityKey(jwt.SigningKeyBytes),
-                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                    IssuerSigningKeyResolver = (_, token, kid, _) => keys.Resolve(kid, ((Microsoft.IdentityModel.JsonWebTokens.JsonWebToken)token).Alg),
+                    TryAllIssuerSigningKeys = false,
+                    ValidAlgorithms = [SecurityAlgorithms.RsaSha256, SecurityAlgorithms.HmacSha256],
                     ValidateIssuer = true,
                     ValidateAudience = true,
                     ValidateIssuerSigningKey = true,

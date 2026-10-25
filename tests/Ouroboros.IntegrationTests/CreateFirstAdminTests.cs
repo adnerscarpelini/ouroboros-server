@@ -274,7 +274,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
         start.Environment["DOTNET_ENVIRONMENT"] = "Testing";
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Testing";
         start.Environment["ConnectionStrings__Ouroboros"] = ConnectionString;
-        start.Environment["Authentication__Jwt__SigningKey"] = IntegrationApiFactory.SigningKey;
+        start.Environment["Authentication__Jwt__KeyRingPath"] = TestSigningKeys.ManifestPath;
         start.Environment[CreateAdminCommand.PasswordVariable] = ProcessPassword;
         return Process.Start(start) ?? throw new InvalidOperationException("Não foi possível iniciar o comando de teste.");
     }

@@ -13,6 +13,25 @@ namespace Ouroboros.IntegrationTests;
 public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : IntegrationTest(postgres)
 {
     [Fact]
+    public async Task Public_jwks_is_anonymous_cached_and_absent_from_admin_listener()
+    {
+        using var response = await Client.GetAsync("/api/v1/identity/keys", TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+        Assert.Equal(TimeSpan.FromMinutes(5), response.Headers.CacheControl?.MaxAge);
+        var json = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var keys = new Microsoft.IdentityModel.Tokens.JsonWebKeySet(json);
+        var key = Assert.Single(keys.Keys);
+        Assert.Equal("test-key", key.Kid);
+        Assert.Equal("RS256", key.Alg);
+        Assert.False(key.HasPrivateKey);
+        using var admin = Api.CreateAdminClient();
+        var token = Api.Services.GetRequiredService<IAccessTokenIssuer>().Issue(Guid.CreateVersion7(), UserRole.Admin, Guid.CreateVersion7());
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+        using var hidden = await admin.GetAsync("/api/v1/identity/keys", TestContext.Current.CancellationToken);
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, hidden.StatusCode);
+    }
+
+    [Fact]
     public async Task Issued_token_is_accepted_and_carries_identity_claims()
     {
         var user = User.Create("cliente@example.com", "hash", UserRole.Customer);
@@ -40,7 +59,8 @@ public sealed class AccessTokenIssuerTests(PostgresFixture postgres) : Integrati
             .Issue(Guid.CreateVersion7(), Enum.Parse<UserRole>(roleName), Guid.CreateVersion7());
 
         var jwt = new JsonWebToken(token.Token);
-        Assert.Equal("HS256", jwt.Alg);
+        Assert.Equal("RS256", jwt.Alg);
+        Assert.Equal("test-key", jwt.Kid);
         Assert.Equal("ouroboros", jwt.Issuer);
         Assert.Equal([audience], jwt.Audiences);
         Assert.Equal(TimeSpan.FromMinutes(15), jwt.ValidTo - jwt.IssuedAt);

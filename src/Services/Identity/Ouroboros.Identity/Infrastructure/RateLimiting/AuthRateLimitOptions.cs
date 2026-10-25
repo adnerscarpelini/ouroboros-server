@@ -13,6 +13,7 @@ internal sealed class AuthRateLimitOptions
     // Políticas que precisam estar configuradas porque algum endpoint as usa.
     public static readonly IReadOnlyList<string> RequiredPolicies =
     [
+        IdentityRateLimitPolicies.Keys,
         IdentityRateLimitPolicies.Login,
         IdentityRateLimitPolicies.Refresh,
         IdentityRateLimitPolicies.Logout,

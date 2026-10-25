@@ -10,7 +10,7 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | Porta de persistência do cadastro | Implementada em Application de Identity (`IRegistrationStore`), com adaptador scoped em Infrastructure; substituição de token sob advisory lock e conclusão com consumo/conta atômicos, rollback em conflito e transporte local após commit ([detalhes](identity/registration.md#persistência)) | [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75) |
 | Porta de persistência da redefinição | Implementada em Application de Identity (`IPasswordResetStore`), com adaptador scoped em Infrastructure e transação compartilhada com `ISessionStore`; consumo, senha, desbloqueio e revogação atômicos, ordem de locks preservada e transporte local após commit na solicitação ([detalhes](identity/password-reset.md#persistência)) | [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76) |
 | Porta de persistência do primeiro administrador | Implementada em Application de Identity (`IFirstAdminStore`), com adaptador scoped em Infrastructure; advisory lock global, ausência de Admin, unicidade e gravação na mesma transação, com parâmetros locais e hash calculado antes dela ([detalhes](identity/first-admin.md#persistência)) | [#77](https://github.com/adnerscarpelini/ouroboros-server/issues/77) |
-| Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; HS256 e contratos preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
+| Porta de emissão de access tokens | Implementada em Application de Identity, com adaptador JWT em Infrastructure; casos de uso recebem apenas a duração do refresh token, sem chave de assinatura; adaptador migrado de HS256 para RS256 pela #84, com audiências e contrato de sessão preservados | [#71](https://github.com/adnerscarpelini/ouroboros-server/issues/71) |
 | Porta de projeção do usuário autenticado | Implementada em Application de Identity, com consulta e projeção EF em Infrastructure; preserva ExternalId, campos de resposta e recusa de usuário inexistente, inativo ou sem o papel do canal nos dois públicos ([detalhes](identity/me.md#caso-de-uso-exposto)) | [#78](https://github.com/adnerscarpelini/ouroboros-server/issues/78) |
 | Portas e propriedade de parâmetros | Portas da #73 transferidas para Identity pela #81, com `Identity.Contracts.ISystemParameters`, regras e adaptadores locais no mesmo `IdentityDbContext`; leitura sem cache, escrita/histórico atômicos e migração validada com origem preservada ([detalhes e operação](identity/parameters.md)) | [#73](https://github.com/adnerscarpelini/ouroboros-server/issues/73), [#81](https://github.com/adnerscarpelini/ouroboros-server/issues/81) |
 | Serviços em src/Services | Identity está em `src/Services/Identity/Ouroboros.Identity` (assembly e namespace `Ouroboros.Identity`; Domain, Application, Infrastructure e Contracts são pastas da biblioteca), sem mudança de comportamento, rotas, `IdentityDbContext`, schema ou ids de migrations. Não há `src/Modules`: o checkout contém `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e o serviço Identity (biblioteca e API); nenhum serviço novo foi criado | [#94](https://github.com/adnerscarpelini/ouroboros-server/issues/94) (Identity), [#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96) (retirada de `src/Modules`) e #72 |
@@ -19,7 +19,7 @@ As notas de [arquitetura](architecture/README.md) definem a organização adotad
 | Contrato e política de entrega confiável | Decisão documentada: contrato lógico v1, recuperação, duplicatas, retries, expiração, proteção e retenção; não implementa o transporte ([detalhes](architecture/reliable-delivery.md)) | [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79) |
 | Notifications e entrega confiável | Envio local em Identity, sem outbox; processos e entrega confiável pendentes | #72, #85–#87 |
 | Broker e schema executável de mensagem | Inexistentes no checkout; sem RabbitMQ no Compose. Contrato lógico definido pela #79; envelope executável, compatibilidade e topologia pendentes | #93 |
-| Assinatura assimétrica | Checkout utiliza HS256 | #84 |
+| Assinatura assimétrica | RS256 com `kid`, manifesto e privada externos, JWKS público versionado e cache de cinco minutos; rotação sem reinício do consumidor, transição HS256 com prazo absoluto e validação de principal único. Consumidor de prova TestServer somente com públicas; ainda não há outro serviço validador. Geração, permissões, montagem e retirada do segredo legado são operações explícitas ([configuração](development.md#chave-de-assinatura-dos-tokens), [decisão](architecture/authentication.md)) | [#84](https://github.com/adnerscarpelini/ouroboros-server/issues/84) |
 | Observabilidade | Pendente | #66–#68, #88 |
 | Imagens, Compose dos serviços e validação independente | Pendentes; o Compose atual só executa o PostgreSQL e os comandos de provisionamento (profile `provision`) e de transferência do banco de Identity (profile `transfer`) | #98, #89 |
 | Gateways | Etapa posterior, sem bloquear serviços | #83 |
@@ -37,7 +37,7 @@ Comportamentos dos hosts removidos e onde estão na API de Identity:
 | Controllers do backoffice (Sessions, Me) | `Controllers/Admin` |
 | Modelos de sessão (`SessionModels`) | Unificados em `Controllers/SessionModels.cs` |
 | Política padrão do backoffice (papel `Admin`) | Convenção de rota `ListenerRouteConvention` |
-| Rate limiting (7 políticas) | `Identity:RateLimiting` no `appsettings.json` |
+| Rate limiting (8 políticas, incluindo JWKS da #84) | `Identity:RateLimiting` no `appsettings.json` |
 | `Authentication:Jwt` (`Audience` e `AdminAudience`) | `appsettings.json` |
 | `Identity:Email` de desenvolvimento | `appsettings.Development.json` |
 | `create-admin` | `CommandLine/CreateAdminCommand` |
@@ -58,7 +58,7 @@ Os testes de integração reproduzem o schema legado `settings` por SQL versiona
 | Settings central com referência de Contracts por outros módulos | Parâmetros no serviço que aplica a regra; Identity lê seus parâmetros localmente, e o projeto Settings foi retirado pela #96, com o schema `settings` retido até a #97 |
 | Módulos Accounts, Customers e Transactions como pastas e registros de DI vazios | Sem scaffolding: cada serviço será criado em `src/Services/<Serviço>` quando houver funcionalidade e fronteira financeira aprovadas, sem inferir regras financeiras por nome de pasta |
 | Notifications como biblioteca em DI nos dois hosts | Processo independente, integração por contrato de mensagem, sem consultar Identity |
-| HS256 compartilhado entre emissor e consumidores | Assinatura assimétrica e rotação na #84 |
+| HS256 compartilhado entre emissor e consumidores | Emissão RS256 e JWKS público na #84; HS256 apenas na janela legada absoluta de migração |
 | Gateways como condição para extrair os serviços | Acesso direto protegido, validação #89 e gateways #83 depois |
 
 As premissas substituídas não autorizam novas violações. A #69 altera documentação; não extrai processos ou transfere persistência.

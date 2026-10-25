@@ -30,6 +30,9 @@ public sealed class AuthorizationTests(OuroborosApiFactory external, BackofficeA
 
     public static TheoryData<string, string> InvalidTokens => new()
     {
+        { "principal de integração", TestTokens.Create(TestTokens.ExternalAudience, Customer, principalType: "integration") },
+        { "principal de serviço", TestTokens.Create(TestTokens.ExternalAudience, Customer, principalType: "service") },
+        { "principal vazio", TestTokens.Create(TestTokens.ExternalAudience, Customer, principalType: "") },
         { "alg=none", TestTokens.Create(TestTokens.ExternalAudience, Customer, unsigned: true) },
         { "outra chave", TestTokens.Create(TestTokens.ExternalAudience, Customer, signingKey: "uma-chave-diferente-tambem-com-mais-de-256-bits") },
         { "expirado", TestTokens.Create(TestTokens.ExternalAudience, Customer, lifetime: TimeSpan.FromMinutes(-5)) },
@@ -120,10 +123,10 @@ public sealed class AuthorizationTests(OuroborosApiFactory external, BackofficeA
 
     public static TheoryData<string?, string> InvalidSigningKeys => new()
     {
-        { null, "SigningKey' não foi configurada" },
-        { "", "SigningKey' não foi configurada" },
-        { "curta-demais-para-hs256", "menos de 256 bits" },
-        { "                                        ", "SigningKey' não foi configurada" },
+        { null, "KeyRingPath" },
+        { "", "KeyRingPath" },
+        { "relative.json", "KeyRingPath" },
+        { "                                        ", "KeyRingPath" },
     };
 
     [Theory]
@@ -132,7 +135,7 @@ public sealed class AuthorizationTests(OuroborosApiFactory external, BackofficeA
     {
         using var factory = new OuroborosApiFactory(
             OuroborosApiFactory.FakeConnectionString,
-            new Dictionary<string, string?> { ["Authentication:Jwt:SigningKey"] = signingKey });
+            new Dictionary<string, string?> { ["Authentication:Jwt:KeyRingPath"] = signingKey });
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 

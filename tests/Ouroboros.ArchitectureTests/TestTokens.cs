@@ -23,9 +23,10 @@ internal static class TestTokens
         string signingKey = SigningKey,
         TimeSpan? lifetime = null,
         bool unsigned = false,
-        string algorithm = SecurityAlgorithms.HmacSha256,
+        string algorithm = SecurityAlgorithms.RsaSha256,
         bool withExpiration = true,
-        TimeSpan? notBeforeOffset = null)
+        TimeSpan? notBeforeOffset = null,
+        string principalType = "user")
     {
         var now = DateTime.UtcNow;
         var expires = now.Add(lifetime ?? TimeSpan.FromMinutes(15));
@@ -41,6 +42,7 @@ internal static class TestTokens
             [
                 new Claim("sub", Guid.CreateVersion7().ToString()),
                 new Claim("role", role),
+                new Claim("principal_type", principalType),
                 new Claim("sid", Guid.CreateVersion7().ToString()),
             ]),
         };
@@ -48,7 +50,9 @@ internal static class TestTokens
         if (!unsigned)
         {
             descriptor.SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey)),
+                algorithm.StartsWith("HS", StringComparison.Ordinal)
+                    ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey))
+                    : signingKey == SigningKey ? TestSigningKeys.Key : new RsaSecurityKey(System.Security.Cryptography.RSA.Create(2048)) { KeyId = "other-key" },
                 algorithm);
         }
 

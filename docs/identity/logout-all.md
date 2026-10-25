@@ -29,7 +29,7 @@ Com a API de Identity no ar (listener público em `http://localhost:5141` no per
 ```http
 POST /api/v1/identity/sessions/logout-all HTTP/1.1
 Host: localhost:5141
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.exemplo.assinatura
+Authorization: Bearer <access-token>
 ```
 
 Exemplo executável no [guia de desenvolvimento](../development.md#encerrar-todas-as-sessões).

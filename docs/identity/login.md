@@ -18,7 +18,7 @@ As duas rotas são anônimas (`[AllowAnonymous]`), como as da [renovação](refr
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas, inclusive `AddSessions`, `AddRefreshTokenRevocation` (o login grava `revoked_at` do refresh token), `AddAccountLockout` e `OwnIdentityParameters` ([Desenvolvimento](../development.md#banco-de-dados-local)). Banco legado exige a [transferência de parâmetros com backup e validação](parameters.md#upgrade-de-banco-existente). Sem os parâmetros locais do bloqueio, todo login responde `500` ([Bloquear a conta](account-lockout.md#configuração)).
-- A chave `Authentication:Jwt:SigningKey` configurada ([README](../development.md#chave-de-assinatura-dos-tokens)).
+- O manifesto externo `Authentication:Jwt:KeyRingPath` e sua chave privada configurados ([README](../development.md#chave-de-assinatura-dos-tokens)).
 - Um usuário ativo do papel do canal. O `Admin` é criado pelo comando `create-admin` ([Criar o primeiro administrador](first-admin.md)). O `Customer` é criado pelo cadastro de cliente por e-mail ([Cadastrar cliente por e-mail](registration.md#fluxo-completo-em-desenvolvimento)).
 
 ## Como usar
@@ -69,7 +69,7 @@ Acima de 10 requisições do mesmo IP na mesma janela fixa de 1 minuto, o login 
 
 | Campo | Conteúdo |
 | --- | --- |
-| `accessToken` | JWT HS256 com `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`), `sid` (`ExternalId` da sessão aberta) e `jti`, além de `iss`, `aud`, `iat`, `nbf` e `exp` ([Emissão do access token](../architecture/authentication.md#emissão-do-access-token)). |
+| `accessToken` | JWT RS256 com `kid`, `principal_type=user`, `sub` (`ExternalId` do usuário), `role` (`Customer` ou `Admin`), `sid` (`ExternalId` da sessão aberta) e `jti`, além de `iss`, `aud`, `iat`, `nbf` e `exp` ([Emissão do access token](../architecture/authentication.md#emissão-do-access-token)). |
 | `tokenType` | Sempre `Bearer`. |
 | `accessTokenExpiresAt` | Instante de expiração do access token: agora + `AccessTokenLifetime` (15 minutos). |
 | `refreshToken` | Valor opaco: 32 bytes aleatórios em Base64Url (43 caracteres), de uso único na [renovação](refresh-session.md). |

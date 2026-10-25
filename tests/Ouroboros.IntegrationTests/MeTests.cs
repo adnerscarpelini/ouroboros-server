@@ -184,11 +184,12 @@ public sealed class MeTests(PostgresFixture postgres) : IntegrationTest(postgres
             [
                 new Claim("sub", userId.ToString()),
                 new Claim("role", role.ToString()),
+                new Claim("principal_type", "user"),
                 new Claim("sid", Guid.CreateVersion7().ToString()),
             ]),
             SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(IntegrationApiFactory.SigningKey)),
-                SecurityAlgorithms.HmacSha256),
+                TestSigningKeys.Key,
+                SecurityAlgorithms.RsaSha256),
         });
 
     private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
