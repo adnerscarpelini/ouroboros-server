@@ -91,6 +91,8 @@ Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` e
 
 Os casos de uso de sessões coordenam a persistência pelas portas internas `ISessionStore` e `ISessionTransaction`, com adaptador `SessionStore` em Infrastructure. O adaptador compartilha o `IdentityDbContext` e os métodos de lock com a redefinição de senha, preservando a mesma transação local. A [nota de persistência de sessões](../identity/session-persistence.md) descreve os limites e a verificação.
 
+Na redefinição, `IPasswordResetStore`/`PasswordResetStore` concentra consultas e escritas específicas; a conclusão abre a transação pela porta de sessões da #74 e compartilha o mesmo contexto scoped. Consumo, senha, desbloqueio e revogação só confirmam juntos, na ordem de locks abaixo. A Application não depende de EF ou SQL. Ver [persistência da redefinição](../identity/password-reset.md#persistência), entregue na #76.
+
 ## Ordem dos locks
 
 O serviço trava linhas numa ordem única, sempre dentro de uma transação:

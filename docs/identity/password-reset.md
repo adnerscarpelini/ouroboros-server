@@ -198,10 +198,18 @@ A API pública solicita recuperação somente para contas `Customer` ativas. Con
 | [`ICompletePasswordReset`](../../src/Modules/Ouroboros.Modules.Identity/Contracts/PasswordResets/ICompletePasswordReset.cs) | `Contracts/PasswordResets` (`public`) | `ExecuteAsync(CompletePasswordResetRequest(Token, Password))`, que devolve `CompletePasswordResetResult(Outcome, Message)`: `Completed`, `InvalidToken` (sem motivo) ou `PasswordRejected`, com a regra violada em `Message`. |
 | [`CompletePasswordReset`](../../src/Modules/Ouroboros.Modules.Identity/Application/PasswordResets/CompletePasswordReset.cs) | `Application/PasswordResets` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
 | [`EmailToken.ForPasswordReset`](../../src/Modules/Ouroboros.Modules.Identity/Domain/EmailTokens/EmailToken.cs) | `Domain/EmailTokens` (`internal`) | Cria o token de redefinição com finalidade `PasswordReset` e `user_id` da conta. |
-| [`IdentityDbContext.LockUserAsync`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/IdentityDbContext.cs) | `Infrastructure/Persistence` (`internal`) | Trava a linha do usuário com `FOR NO KEY UPDATE` até o fim da transação; usado pela conclusão e pelo login ([Ordem dos locks](../architecture/identity.md#ordem-dos-locks)). |
+| [`IPasswordResetStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/PasswordResets/IPasswordResetStore.cs) | `Application/PasswordResets` (`internal`) | Porta scoped de consulta, substituição atômica dos pendentes e escritas da conclusão na transação compartilhada de Identity. |
+| [`PasswordResetStore`](../../src/Modules/Ouroboros.Modules.Identity/Infrastructure/Persistence/PasswordResetStore.cs) | `Infrastructure/Persistence` (`internal`) | Adaptador scoped sobre `IdentityDbContext`; concentra EF, SQL e advisory lock da solicitação. Consumo e troca de senha exigem transação ativa. |
+| [`ISessionStore`](../../src/Modules/Ouroboros.Modules.Identity/Application/Sessions/ISessionStore.cs) | `Application/Sessions` (`internal`) | Abre a transação da conclusão, trava usuário e sessões, relê o estado vigente e revoga os refresh tokens. Compartilha o contexto com o adaptador de reset ([persistência de sessões](session-persistence.md)). |
 | [`PasswordResetsController`](../../src/Ouroboros.Api/Controllers/Identity/PasswordResetsController.cs) | `Controllers/Identity` da API externa | Action `Create`, com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordReset)]`, e action `Complete` (`POST complete`), com `[EnableRateLimiting(IdentityRateLimitPolicies.PasswordResetCompletion)]`, ambas `[AllowAnonymous]`. Declara no mesmo arquivo o `PasswordResetRequestBody` (só `Email`) e o `CompletePasswordResetBody` (`Token` e `Password`), e reutiliza o `AcceptedResponse(Message)` do cadastro e os `type` de erro de `SessionModels.cs`. |
 
 ## Persistência
+
+Desde a [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76), os casos de uso de redefinição dependem de portas internas, sem DbContext, EF, SQL ou tipos de Infrastructure. `IPasswordResetStore` é registrado com `PasswordResetStore`; ele e `ISessionStore` são scoped e usam o mesmo `IdentityDbContext` resolvido pela DI.
+
+A solicitação consulta a conta e substitui seus tokens por `ReplacePendingTokenAsync`: advisory lock por conta, revogação dos pendentes e inserção do novo token confirmam na mesma transação. O destinatário continua sendo o e-mail persistido da conta. O envio pela porta local `IEmailSender` ocorre somente após o retorno confirmado da escrita, sem locks durante transporte. Parâmetros continuam em Settings até a #81; outbox e integração com Notifications pertencem à #85.
+
+Na conclusão, `ISessionStore.BeginTransactionAsync` abre a unidade de trabalho inteira. O caso de uso usa a mesma porta para travar o usuário, depois as sessões em id crescente, e reler hash/estado sob lock. `IPasswordResetStore.ConsumeTokenAsync` e `ChangePasswordAsync` participam dessa transação, sem commit próprio; o adaptador recusa essas escritas sem uma transação ativa. `ISessionStore.RevokeUserTokensAsync` encerra a sequência de escritas antes do commit único. Saída sem commit ou falha desfaz consumo, senha, contador, bloqueio e revogações juntos. A conclusão não chama transporte e pode executar sem Notifications.
 
 Os tokens ficam na tabela `identity.email_tokens`, a mesma do cadastro ([Cadastrar cliente por e-mail](registration.md#persistência)), sem migration nova no Identity. Um token de redefinição tem:
 
@@ -250,7 +258,7 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - token já usado, expirado (uma hora depois), invalidado por uma solicitação mais nova, de cadastro, de usuário inativo (sem consumir o token), inexistente, vazio ou nulo recebe o mesmo `400` `invalid-password-reset-token`; com o token expirado, a senha antiga continua valendo;
 - senha curta, comum, igual à atual ou nula recebe `400` `password-rejected`, sem consumir o token, que funciona em seguida;
 - cinco conclusões simultâneas com o mesmo token e senhas diferentes: só uma recebe `204`, as demais `400`, e só a senha da vencedora entra;
-- com uma falha simulada por um trigger na troca da senha, a resposta é `500`, o token continua sem `used_at`, o refresh token continua ativo, a senha antiga entra, a sessão renova e, sem o trigger, a conclusão com o mesmo token funciona.
+- com falha simulada por trigger na troca da senha ou na revogação de refresh tokens, a resposta é `500` e hash, contador de falhas, bloqueio, token de redefinição e refresh tokens permanecem como antes; removida a falha e liberado o bloqueio de teste, a senha antiga entra, a sessão renova e o mesmo token conclui.
 
 [`PasswordResetRaceTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetRaceTests.cs) força as corridas com um hasher que pausa uma vez numa verificação ou num hash de uma senha escolhida e pode simular que o hash armazenado precisa ser refeito:
 
@@ -258,6 +266,14 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - o mesmo login com rehash não traz a senha antiga de volta: depois dele, a senha antiga recebe `401` e a nova entra;
 - um bloqueio atingido enquanto a redefinição calcula o hash é removido por ela, e a senha nova entra;
 - com a linha do usuário travada por `LockUserAsync` numa transação aberta, uma nova solicitação de redefinição responde `202` e envia o e-mail em menos de 10 segundos, sem esperar o lock nem entrar em deadlock.
+
+[`PasswordResetPersistenceTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetPersistenceTests.cs) exercita as portas reais resolvidas pela DI:
+
+- falha por trigger na inserção do token substituto preserva o token pendente anterior e seu destinatário;
+- uma conclusão espera o lock real de uma rotação em andamento e, depois do commit dessa rotação, revoga também o refresh token sucessor;
+- tentativas de consumir token ou trocar senha fora da transação local compartilhada são recusadas sem consumo.
+
+Os testes de arquitetura verificam a retirada das exceções de persistência da #76; a dependência de parâmetros de Settings permanece para a #81.
 
 Os limites de `identity-password-reset` e `identity-password-reset-completion` são elevados para 100.000 na [`IntegrationApiFactory`](../../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs), como os demais ([Testes de integração](../architecture/integration-tests.md)). Não há teste de `429` próprio da conclusão; o mecanismo é o mesmo das outras políticas ([Limitar requisições](auth-rate-limiting.md#como-verificar)).
 
@@ -269,6 +285,7 @@ Os limites de `identity-password-reset` e `identity-password-reset-completion` s
 
 - [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitar redefinição de senha.
 - [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): redefinir a senha com o token.
+- [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76): portas de persistência e unidade de trabalho compartilhada com sessões.
 - Depende de [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10) (envio de e-mail), [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12) (login), [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13) (bloqueio da conta) e [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) (limite de requisições por IP).
 
 [Voltar à documentação](../README.md)
