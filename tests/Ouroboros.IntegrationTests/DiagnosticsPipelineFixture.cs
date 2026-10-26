@@ -15,6 +15,7 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
     internal const string StoreFile = "/var/lib/ouroboros-diagnostics/logs.jsonl";
     private INetwork? _network;
     private IVolume? _volume;
+    private IVolume? _queueVolume;
     private IContainer? _store;
     private IContainer? _collector;
 
@@ -23,6 +24,8 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
     internal IContainer Collector => _collector ?? throw new InvalidOperationException("Coletor não iniciado.");
 
     internal IContainer Store => _store ?? throw new InvalidOperationException("Destino não iniciado.");
+    internal IVolume QueueVolume => _queueVolume ?? throw new InvalidOperationException("Volume não iniciado.");
+    internal string? CollectorConfigurationOverride { get; init; }
 
     public async ValueTask InitializeAsync()
     {
@@ -31,15 +34,17 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
         // Como no Compose: o volume novo nasce do root e só o dono é ajustado ao usuário sem privilégios 10001.
         _volume = new VolumeBuilder().Build();
         await _volume.CreateAsync(TestContext.Current.CancellationToken);
-        await using (var init = new ContainerBuilder("busybox:1.37.0").WithVolumeMount(_volume, "/data")
-            .WithCommand("sh", "-c", "chown 10001:10001 /data && chmod 0750 /data && echo ready && sleep 600")
+        _queueVolume = new VolumeBuilder().Build();
+        await _queueVolume.CreateAsync(TestContext.Current.CancellationToken);
+        await using (var init = new ContainerBuilder("busybox:1.37.0").WithVolumeMount(_volume, "/data").WithVolumeMount(_queueVolume, "/queue")
+            .WithCommand("sh", "-c", "chown 10001:10001 /data /queue && chmod 0750 /data /queue && echo ready && sleep 600")
             .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("ready")).Build())
         {
             await init.StartAsync(TestContext.Current.CancellationToken);
         }
         _store = CollectorBuilder("diagnostics-store.yaml").WithNetworkAliases("diagnostics-store").WithVolumeMount(_volume, "/var/lib/ouroboros-diagnostics").Build();
         await _store.StartAsync(TestContext.Current.CancellationToken);
-        _collector = CollectorBuilder("collector.yaml").WithPortBinding(4318, true).Build();
+        _collector = NewCollector().Build();
         await _collector.StartAsync(TestContext.Current.CancellationToken);
     }
 
@@ -49,6 +54,7 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
         if (_store is not null) { await _store.DisposeAsync(); }
         if (_network is not null) { await _network.DisposeAsync(); }
         if (_volume is not null) { await _volume.DeleteAsync(); await _volume.DisposeAsync(); }
+        if (_queueVolume is not null) { await _queueVolume.DeleteAsync(); await _queueVolume.DisposeAsync(); }
     }
 
     // Linhas OTLP/JSON gravadas pelo destino (uma por lote recebido); vazio enquanto nada chegou.
@@ -80,9 +86,23 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
         }
     }
 
-    private ContainerBuilder CollectorBuilder(string configuration) => new ContainerBuilder(Image)
+    internal ContainerBuilder NewCollector(string? configuration = null, bool readOnly = false) => CollectorBuilder("collector.yaml", configuration)
+        .WithVolumeMount(QueueVolume, "/var/lib/ouroboros-collector", readOnly ? DotNet.Testcontainers.Configurations.AccessMode.ReadOnly : DotNet.Testcontainers.Configurations.AccessMode.ReadWrite)
+        .WithPortBinding(4318, true).WithPortBinding(8888, true);
+
+    internal async Task<string> InternalMetricsAsync()
+        => await InternalMetricsAsync(Collector);
+
+    internal static async Task<string> InternalMetricsAsync(IContainer collector)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        return await http.GetStringAsync($"http://{collector.Hostname}:{collector.GetMappedPublicPort(8888)}/metrics", TestContext.Current.CancellationToken);
+    }
+
+    private ContainerBuilder CollectorBuilder(string configuration, string? text = null) => new ContainerBuilder(Image)
         .WithNetwork(_network!)
-        .WithResourceMapping(File.ReadAllBytes(RepositoryRoot.Resolve("config", "observability", configuration)), "/etc/otelcol/" + configuration)
+        .WithResourceMapping(Encoding.UTF8.GetBytes(text ?? (configuration == "collector.yaml" ? CollectorConfigurationOverride : null)
+            ?? File.ReadAllText(RepositoryRoot.Resolve("config", "observability", configuration))), "/etc/otelcol/" + configuration)
         .WithCommand("--config=/etc/otelcol/" + configuration)
         .WithPortBinding(13133, true)
         .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(request => request.ForPort(13133)));

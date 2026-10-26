@@ -31,6 +31,7 @@ Os processos só conhecem OTLP. Trocar o destino por um backend completo exige m
 API de Identity ─┐                         127.0.0.1:4318          rede interna do Compose
                  ├─ OTLP/HTTP ──► otel-collector ──► OTLP/HTTP ──► diagnostics-store ──► volume diagnostics-data
 Worker ──────────┘  (opcional)      (2ª sanitização)                (arquivos rotacionados)
+                                     └─ volume collector-queue (fila persistente)
        └─ stdout: console JSON (sempre)
        └─ stderr: sinal de falha do pipeline
 ```
@@ -38,11 +39,19 @@ Worker ──────────┘  (opcional)      (2ª sanitização)   
 | Componente | Configuração | Recursos e limites |
 | --- | --- | --- |
 | Processo (cada executável) | Sanitização e um processador em lote por destino de logs e por exportador de traces; leitor periódico de métricas | Fila de 2048 itens por processador de logs/traces, lotes de até 512, envio a cada 1 s, timeout de exportação de 5 s. Métricas agregadas e exportadas a cada 1 s, com timeout de 5 s e até 256 séries por instrumento/view |
-| `otel-collector` | [`collector.yaml`](../../config/observability/collector.yaml), imagem `otel/opentelemetry-collector-contrib:0.162.0` | OTLP/HTTP na porta 4318, publicada só em `127.0.0.1` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); `memory_limiter` de 160 MiB (pico de 40 MiB) com `mem_limit: 256m` e `GOMEMLIMIT=200MiB`; pipelines de logs, traces e métricas com lotes de 512 a 1024 itens a cada 1 s; exportação ao destino com gzip, timeout de 5 s, fila em memória de 20000 itens por sinal e novas tentativas de 1 s a 30 s por até 300 s |
+| `otel-collector` | [`collector.yaml`](../../config/observability/collector.yaml), imagem `otel/opentelemetry-collector-contrib:0.162.0` | OTLP/HTTP na porta 4318, publicada só em `127.0.0.1` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); `memory_limiter` de 160 MiB (pico de 40 MiB) com `mem_limit: 256m` e `GOMEMLIMIT=200MiB`; lotes de 512 a 1024 itens a cada 1 s; exportação gzip com timeout de 5 s, fila persistente de até 8 MiB serializados por sinal, dois consumidores e retries de 1 s a 30 s por até 300 s por lote em processamento |
 | `diagnostics-store` | [`diagnostics-store.yaml`](../../config/observability/diagnostics-store.yaml), mesma imagem | OTLP/HTTP só na rede interna do Compose, sem porta publicada; `memory_limiter` de 96 MiB com `mem_limit: 160m`; exportadores `file/logs`, `file/traces` e `file/metrics` em `/var/lib/ouroboros-diagnostics/{logs,traces,metrics}.jsonl` (OTLP/JSON, uma linha por lote recebido) |
-| `diagnostics-volume-init` | `busybox:1.37.0`, roda e termina | Ajusta o volume `diagnostics-data` para o usuário sem privilégios 10001 dos coletores, modo `0750`; o destino só sobe depois que ele conclui com sucesso |
+| `diagnostics-volume-init` | `busybox:1.37.0`, roda e termina | Ajusta `diagnostics-data` e `collector-queue` para o usuário sem privilégios 10001, modo `0750`; coletor e destino aguardam a conclusão com sucesso |
 
 Os health checks dos coletores (porta 13133) não são publicados. O receptor OTLP não tem TLS nem autenticação: o coletor aceita qualquer produtor que alcance a porta, e por isso só escuta em loopback na máquina. Outros ambientes exigem TLS e controle de acesso antes de expô-lo.
+
+### Fila persistente e isolamento das instâncias
+
+`file_storage/queue` grava em `/var/lib/ouroboros-collector`, no volume `collector-queue`, separado do destino. O diretório deve existir e ser gravável pelo usuário 10001 (`create_directory=false`). `fsync=true` reduz a janela entre escrita e sincronização; `timeout=1s` limita a espera pelo lock do bbolt. Há um arquivo por sinal/exportador, cada um limitado a 32 MiB: até 96 MiB ativos. A compactação na subida e após redução de ocupação usa o mesmo filesystem; temporários podem elevar o espaço a aproximadamente 192 MiB. Os limiares de compactação são 16 MiB/4 MiB, com limpeza de temporários na subida. Não há recriação automática de arquivo corrompido.
+
+`sending_queue` usa bytes serializados, com teto de 8 MiB por sinal, `block_on_overflow=false` e `wait_for_result=false`. Cheia ou sem espaço de armazenamento, a fila rejeita novas entradas e sinaliza a falha; lotes já admitidos não são removidos para abrir espaço. Os retries de até 300 s valem para o lote em processamento, não são um TTL global da fila: espera e reinícios podem aumentar a idade dos dados. Uma falha após entrega e antes do progresso local pode gerar duplicatas; o destino não deduplica.
+
+Cada instância exige seu próprio diretório e volume. Projetos Compose distintos ou volumes distintos isolam os arquivos; escalar o mesmo serviço com o mesmo volume não é suportado. Um segundo escritor disputa o lock e falha ao iniciar. Permissão ausente, arquivo inválido e erro de disco são relatados nos logs do coletor, fora do pipeline de negócio; a falha pode impedir a subida do coletor. A recuperação operacional preserva os arquivos e corrige a causa ([procedimento](../development.md#recuperar-o-buffer-do-coletor)).
 
 ## Identidade da ocorrência
 
@@ -109,11 +118,11 @@ A sanitização reconhece chaves e padrões, não o significado do texto. Não s
 | Erro original | A falha do diagnóstico nunca substitui o erro original: um `500` continua saindo como ProblemDetails, e nenhuma exceção do pipeline chega ao negócio |
 | Recursão | Os eventos internos do OpenTelemetry não passam pelo `ILogger`; a falha é sinalizada só pela [saída independente](#sinalização-independente) |
 | Coletor sob pressão de memória | O `memory_limiter` recusa dados novos antes de atingir o limite do container; o produtor recebe erro e o lote recusado não é persistido |
-| Destino indisponível | O coletor guarda até 20000 itens por sinal na fila em memória e repete por até 300 s; com a fila cheia, recusa novos dados com `503` (`sending queue is full`) e conta o descarte nos próprios logs. Religado o destino, a fila é drenada |
+| Destino indisponível | O coletor mantém a fila persistente dentro dos tetos de bytes/arquivo e tenta novamente. Fila cheia, erro de armazenamento e tentativas esgotadas são observáveis nas métricas internas e nos logs. O batch pode já ter respondido à origem antes da rejeição na fila; um `200` OTLP não garante persistência. Religado o destino, o que continua na fila é drenado |
 | Encerramento gracioso | Cada processador exporta o que estiver na fila, com timeout de cerca de 5 s por destino |
-| Encerramento abrupto (SIGKILL, queda do processo ou do container) | Perde o que está em memória: até 2048 registros por destino no processo, o lote do último segundo e a fila em memória do coletor |
+| Encerramento abrupto (SIGKILL, queda do processo ou do container) | Pode perder filas de até 2048 logs/spans por processador no executável, agregações locais de métricas e o batch de até 1 s no coletor. Entradas já gravadas na fila persistente são retomadas ao reiniciar com o mesmo volume preservado |
 
-O console também passa pela fila em lote: as linhas aparecem em até cerca de 1 s depois da chamada, e as do último segundo se perdem em encerramento abrupto. O processo não tem buffer em disco e o coletor não persiste a fila; buffer persistente e recuperação do coletor ficam com a [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
+O console também passa pela fila em lote: as linhas aparecem em até cerca de 1 s depois da chamada, e as do último segundo se perdem em encerramento abrupto. O executável não tem buffer em disco. O coletor sanitiza antes da fila persistente, mas seu batch é em memória e não faz ACK sincronizado com o disco. `fsync` não protege contra perda do volume, do host ou falhas do armazenamento subjacente; apagar/perder `collector-queue` elimina o que ainda não chegou ao destino. Não há promessa de perda zero nem exactly-once.
 
 ## Sinalização independente
 
@@ -133,13 +142,15 @@ O descarte é informado de forma agregada, quando o processador encerra ou a exp
 
 A única exclusão é o evento `MetricInstrumentIgnored` do SDK cujo motivo é um meter não assinado pelo provider: não coletar esse meter faz parte da seleção intencional. Outros motivos do mesmo evento, instrumentos duplicados e falhas reais continuam sinalizados.
 
+O coletor expõe telemetria interna Prometheus em `8888`, somente na rede interna do Compose. `otelcol_exporter_queue_size` e `otelcol_exporter_queue_capacity` mostram ocupação/capacidade; `otelcol_exporter_enqueue_failed_*` indica falha de admissão e `otelcol_exporter_send_failed_*`, falhas de envio. Falha de envio pode ser recuperada por retry: não equivale sozinha à contagem de perdas únicas. Os logs Docker de cada um dos dois coletores usam `json-file`, com 5 MiB e dois arquivos (aproximadamente 10 MiB por container); não retornam ao próprio pipeline.
+
 ## Retenção e limpeza
 
 | Onde | Retenção |
 | --- | --- |
 | Destino (`diagnostics-data`) | Cada arquivo ativo (`logs.jsonl`, `traces.jsonl`, `metrics.jsonl`) é rotacionado ao atingir 32 MiB, com o instante UTC da rotação no nome do arquivo rotacionado. Por sinal, ficam no máximo 8 rotacionados; os com mais de 7 dias e os além dos 8 são removidos. Cerca de 288 MiB por sinal (1 ativo e 8 rotacionados), aproximadamente 864 MiB para os três |
 | Console (stdout) e stderr | Cabe ao ambiente de execução, como o terminal ou o driver de log do container |
-| Coletor | Nada fica guardado depois da entrega ao destino; a fila só existe em memória |
+| Coletor (`collector-queue`) | Entradas pendentes no bbolt, com os tetos de bytes/arquivo e compactação descritos acima; removidas da fila após o processamento, sem TTL global. O volume persiste entre substituições do container |
 
 Limites da limpeza:
 
@@ -151,7 +162,7 @@ Limites da limpeza:
 ## Consequências
 
 - Os diagnósticos dos dois executáveis ficam num único destino, filtráveis por serviço, instância, ambiente, trace e ocorrência, sem banco e sem credencial nova.
-- O custo fixo do pipeline local é de até cerca de 416 MiB de memória nos dois coletores e aproximadamente 864 MiB de disco para os três sinais.
+- O custo fixo do pipeline local é de até cerca de 416 MiB de memória nos dois coletores, aproximadamente 864 MiB de arquivos do destino, até 96 MiB de arquivos ativos da fila (aproximadamente 192 MiB com temporários de compactação) e cerca de 20 MiB de logs Docker dos dois coletores.
 - Perder diagnósticos é aceito sob saturação, indisponibilidade e encerramento abrupto, desde que sinalizado e sem afetar o negócio.
 - A sanitização em duas camadas reduz, mas não elimina, o risco de vazamento; a [disciplina de template](#limites) continua necessária.
 
@@ -159,7 +170,7 @@ Limites da limpeza:
 
 - HTTP e fontes próprias de mensagens são instrumentados, com [contexto e links](trace-correlation.md#propagação-por-mensagens). As fontes automáticas `RabbitMQ.Client.*` não são assinadas e não há injeção de headers AMQP.
 - A [política de captura de falhas](error-responses.md#política-de-captura-de-falhas) registra respostas `4xx`/`5xx` com rota normalizada, status, duração, classificação e código, além de catches relevantes e comandos/workers. O resumo HTTP não repete a exceção técnica, e nenhum identificador de usuário é acrescentado. As categorias de comando e atualização do EF são suprimidas para não exportar SQL/parâmetros nem duplicar a exceção; a fronteira registra `exception.*` sanitizados.
-- Buffer persistente no coletor, recuperação após queda e múltiplas instâncias são da [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
+- A recuperação depende do volume exclusivo da instância, de arquivos válidos e de espaço/permissões; falhas prolongadas, tentativas esgotadas e perda de volume podem descartar diagnósticos. Não há alta disponibilidade nem deduplicação do destino.
 - Compose dos executáveis, imagens das APIs e probes são da [#98](https://github.com/adnerscarpelini/ouroboros-server/issues/98); hoje a API e o worker rodam fora do Compose e enviam ao coletor pela porta de loopback.
 - O `eventId` aparece no console, mas não no registro OTLP do destino.
 
@@ -172,6 +183,7 @@ Limites da limpeza:
 | Spans com links, gravação mesmo com flag remoto desligado, remoção de atributos sensíveis e `tracestate`, dimensões de métricas restritas e exclusão do aviso de meter intencionalmente não assinado | [`DistributedTelemetryTests`](../../tests/Ouroboros.ArchitectureTests/DistributedTelemetryTests.cs) |
 | Cadastro com publicação posterior à resposta HTTP, RabbitMQ e worker em processo separado: HTTP, publicação, aceitação e entrega com o mesmo trace no destino real; links do ciclo, ausência de query/token/e-mail e dimensões OTLP permitidas | [`MicroservicesBatchEndToEndTests`](../../tests/Ouroboros.IntegrationTests/MicroservicesBatchEndToEndTests.cs) (`Deferred_publication_and_worker_export_same_trace_and_bounded_metric_labels_to_real_collector`) |
 | Atraso sem chamada ao provedor, rejeição de contrato e falha permanente com sinais distintos; dimensões fechadas na outbox | [`NotificationInboxTests`](../../tests/Ouroboros.IntegrationTests/NotificationInboxTests.cs), [`EmailOutboxPublisherTests`](../../tests/Ouroboros.IntegrationTests/EmailOutboxPublisherTests.cs) |
+| Fila sanitizada recuperada após SIGKILL/substituição com o mesmo volume; fila em bytes e arquivo limitados (tetos reduzidos no ensaio); filesystem Linux cheio, permissão ausente, arquivo inválido e instâncias com volumes exclusivos, incluindo recusa de segundo escritor no mesmo volume; negócio preservado | [`CollectorRecoveryTests`](../../tests/Ouroboros.IntegrationTests/CollectorRecoveryTests.cs), com coletores, destino e PostgreSQL reais |
 | Coletor e destino reais, com os YAML do repositório e o volume preparado como no Compose: evento sensível chega ao destino sanitizado, com serviço, versão, instância, ambiente, trace, span e ocorrência; rollback de negócio não descarta o diagnóstico e nenhum banco o recebe; o coletor sanitiza de novo OTLP bruto de outro produtor; coletor que aceita a conexão e não responde, com 30000 logs e spans: o chamador não bloqueia, o `500` em ProblemDetails é preservado, o sinal de descarte sai em stderr e nenhum log do OpenTelemetry volta ao `ILogger` | [`DiagnosticsPipelineTests`](../../tests/Ouroboros.IntegrationTests/DiagnosticsPipelineTests.cs), com a [`DiagnosticsPipelineFixture`](../../tests/Ouroboros.IntegrationTests/DiagnosticsPipelineFixture.cs) (exige Docker) |
 
 Subir o coletor, habilitar o envio, ler o destino e interpretar o stderr: [Diagnósticos no coletor local](../development.md#diagnósticos-no-coletor-local).
@@ -181,6 +193,7 @@ Subir o coletor, habilitar o envio, ler o destino e interpretar o stderr: [Diagn
 - [#66](https://github.com/adnerscarpelini/ouroboros-server/issues/66): decisão e implementação do pipeline.
 - [#88](https://github.com/adnerscarpelini/ouroboros-server/issues/88): traces e métricas distribuídos, links e dimensões restritas.
 - [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67): captura segura nas entradas HTTP, comandos e catches relevantes.
+- [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68): fila persistente limitada, recuperação e sinalização interna do coletor.
 - [#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69): microsserviços, com diagnóstico independente dos bancos de negócio.
 - [#28](https://github.com/adnerscarpelini/ouroboros-server/issues/28): correlação W3C e console JSON.
 

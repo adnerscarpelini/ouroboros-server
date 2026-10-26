@@ -519,7 +519,7 @@ docker compose up -d otel-collector
 docker compose ps otel-collector diagnostics-store
 ```
 
-O comando sobe também `diagnostics-volume-init`, que prepara o volume para o usuário sem privilégios dos coletores e termina, e `diagnostics-store`. O coletor recebe OTLP/HTTP em `127.0.0.1:4318` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); o destino não tem porta publicada. OTLP sem TLS nem autenticação se restringe ao desenvolvimento local. Os erros dos dois ficam em `docker compose logs otel-collector diagnostics-store`.
+O comando sobe também `diagnostics-volume-init`, que prepara `diagnostics-data` e `collector-queue` com dono 10001 e modo `0750`, e `diagnostics-store`. O coletor recebe OTLP/HTTP em `127.0.0.1:4318` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); o destino e a telemetria interna não têm portas publicadas. OTLP sem TLS nem autenticação se restringe ao desenvolvimento local. Os erros dos dois ficam em `docker compose logs otel-collector diagnostics-store`, com rotação Docker de aproximadamente 10 MiB por container.
 
 ### Enviar os diagnósticos
 
@@ -564,13 +564,29 @@ ouroboros-observability <instante UTC> <nível> <fonte>#<evento>: <mensagem> (su
 
 Cada evento sai no máximo uma vez a cada 30 s; `N` no fim conta as repetições suprimidas. O descarte é informado de forma agregada, quando o processador encerra ou a exportação falha. O aviso do SDK de meter não assinado é excluído por representar a seleção intencional de métricas; outros motivos, instrumentos duplicados e falhas de exportação continuam visíveis. Para separar o sinal da saída normal, redirecione o stderr, por exemplo com `2> .local/identity-diagnostics.err` no `dotnet run`. A linha passa pela mesma sanitização de padrões, mas não a publique em issues.
 
+### Recuperar o buffer do coletor
+
+A fila persistente usa `collector-queue` em `/var/lib/ouroboros-collector`, separado de `diagnostics-data`: até 8 MiB serializados por sinal, arquivos ativos de até 32 MiB cada (96 MiB no total) e temporários de compactação no mesmo filesystem, que podem elevar o uso a aproximadamente 192 MiB. Reserve esse espaço além dos arquivos do destino. O executável continua com filas em memória; `200` OTLP pode anteceder a escrita da fila, pois há um batch em memória no coletor. Os 300 s de retry são por lote em processamento, sem TTL global da fila ([garantias e limites](architecture/diagnostics-pipeline.md#fila-persistente-e-isolamento-das-instâncias)).
+
+Com o volume válido e preservado, reiniciar ou substituir o container retoma entradas já gravadas, inclusive depois de SIGKILL. `fsync` não protege perda do volume/host e o destino pode receber duplicatas. Não execute duas instâncias com o mesmo diretório ou escale o serviço compartilhando esse volume: cada instância precisa de volume exclusivo, por exemplo em projetos Compose distintos. O bbolt recusa o segundo escritor por timeout de lock.
+
+Em erro de permissão, arquivo inválido ou disco cheio, confira os logs do coletor e a capacidade do filesystem. Preserve os arquivos; pare a instância antes de inspecionar ou fazer backup do volume. Corrija a permissão para o usuário 10001 ou a causa de falta de espaço, e reinicie usando o mesmo volume. Arquivo inválido pode impedir a subida e exige avaliação/restauração pelo operador: não é recriado automaticamente. Não apague o volume ou arquivos da fila como procedimento de recuperação.
+
+Para observar admissão, envio e ocupação, leia as métricas Prometheus pela rede interna. Com o nome padrão do projeto, por exemplo (substitua `ouroboros_default` pela rede do projeto usado):
+
+```powershell
+docker run --rm --network ouroboros_default busybox:1.37.0 wget -qO- http://otel-collector:8888/metrics | Select-String 'otelcol_exporter_(enqueue_failed|send_failed|queue_size|queue_capacity)'
+```
+
+`enqueue_failed_*` indica falha ao admitir dados; `send_failed_*` inclui tentativas que ainda podem ser recuperadas. Crescimento desses contadores, junto da ocupação e dos logs, indica saturação ou falha; não os some como uma contagem de perdas únicas. A porta 8888 permanece interna, sem publicação no host.
+
 ### Parar o coletor
 
 ```powershell
 docker compose stop otel-collector diagnostics-store
 ```
 
-O que estiver na fila em memória do coletor se perde ao pará-lo. `docker compose down` também mantém o volume `diagnostics-data`; os comandos documentados não o removem.
+Entradas já gravadas em `collector-queue` permanecem para a próxima subida, desde que o volume seja preservado e continue válido. O batch em memória do coletor e as filas dos executáveis ainda têm janela de perda. `docker compose down` mantém `diagnostics-data` e `collector-queue`; os comandos documentados não removem esses volumes.
 
 ### Testes do pipeline
 
@@ -578,6 +594,7 @@ Com coletor e destino reais, exigem Docker e não usam os containers do Compose:
 
 ```powershell
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*DiagnosticsPipelineTests'
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*CollectorRecoveryTests'
 ```
 
 ## Executar o worker de Notifications
