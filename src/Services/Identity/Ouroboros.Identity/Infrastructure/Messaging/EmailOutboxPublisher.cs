@@ -19,7 +19,7 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
         {
             try { await RunOnceAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception) { LogCycleFailed(logger); }
+            catch (Exception exception) { LogCycleFailed(logger, exception); }
             await Task.Delay(TimeSpan.FromSeconds(options.Value.PollSeconds), clock, stoppingToken);
         }
     }
@@ -69,9 +69,9 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
                 var code = suspended ? "configuration-suspended" : exception is PublishException ? "broker-rejected" : "publish-unconfirmed";
                 metrics.Failure(code);
                 activity?.SetStatus(ActivityStatusCode.Error);
-                LogPublishFailed(logger, intent.ExternalId, code);
+                LogPublishFailed(logger, intent.ExternalId, code, exception);
                 try { await publisher.DisposeAsync(); }
-                catch (Exception) { LogCycleFailed(logger); }
+                catch (Exception cleanupException) { LogCycleFailed(logger, cleanupException); }
                 var now = clock.GetUtcNow();
                 var seconds = Math.Min(300, Math.Pow(2, Math.Min(intent.Attempts, 9)) * (0.8 + Random.Shared.NextDouble() * 0.4));
                 await store.RetryAsync(intent.Id, lease, now, suspended ? null : now.AddSeconds(seconds), code, cancellationToken);
@@ -99,7 +99,7 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Publicação de {MessageId} não confirmada: {Code}; intenção recuperável.")]
-    private static partial void LogPublishFailed(ILogger logger, Guid messageId, string code);
+    private static partial void LogPublishFailed(ILogger logger, Guid messageId, string code, Exception? exception = null);
     [LoggerMessage(Level = LogLevel.Error, Message = "Ciclo do publicador interrompido; progresso persistido será retomado.")]
-    private static partial void LogCycleFailed(ILogger logger);
+    private static partial void LogCycleFailed(ILogger logger, Exception exception);
 }

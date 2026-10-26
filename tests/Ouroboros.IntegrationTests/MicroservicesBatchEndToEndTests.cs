@@ -14,12 +14,46 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Infrastructure.Messaging;
 using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Messaging;
 using Ouroboros.Notifications.Domain;
 
 namespace Ouroboros.IntegrationTests;
 
 public sealed partial class NotificationsWorkerTests
 {
+    [Fact]
+    public async Task Worker_catch_exports_correlated_exception_with_service_and_safe_message_id_without_payload()
+    {
+        await using var pipeline = new DiagnosticsPipelineFixture();
+        await pipeline.InitializeAsync();
+        await PurgeAsync();
+        await using var notifications = await NotificationDatabaseScenario.CreateAsync(database);
+        const string trace = "8bf92f3577b34da6a3ce929d0e0e4736";
+        var message = notifications.Keys.Message(changeMetadata: metadata => metadata with { Traceparent = $"00-{trace}-00f067aa0ba902b7-01" });
+        using var worker = StartWorker(notifications.Keys, new Dictionary<string, string>
+        {
+            ["Notifications__PrivateKeyRingPath"] = Path.Combine(notifications.Keys.DirectoryPath, "missing-keys.json"),
+            ["Observability__Otlp__Endpoint"] = pipeline.OtlpEndpoint,
+        });
+        var output = worker.StandardOutput.ReadToEndAsync(Cancellation);
+        var error = worker.StandardError.ReadToEndAsync(Cancellation);
+        try
+        {
+            await PublishAsync(EnvelopeCodec.Encode(message), message.MessageId);
+            var record = await pipeline.WaitForRecordAsync(item => item.GetProperty("record").TryGetProperty("traceId", out var id) && id.GetString() == trace
+                && OtlpJson.Attribute(item.GetProperty("record"), "Code") == "configuration-suspended");
+            Assert.Equal("notifications", OtlpJson.Attribute(record.GetProperty("resource"), "service.name"));
+            Assert.Equal(message.MessageId.ToString("D"), OtlpJson.Attribute(record.GetProperty("record"), "MessageId"));
+            Assert.NotNull(OtlpJson.Attribute(record.GetProperty("record"), "exception.type"));
+            var text = await pipeline.StoredTextAsync();
+            Assert.DoesNotContain(message.Payload.Ciphertext, text);
+            Assert.DoesNotContain(NotificationTestKeys.Content.Recipient, text);
+            Assert.DoesNotContain("private-test-token", text);
+        }
+        finally { await StopAsync(worker); }
+        Assert.DoesNotContain(message.Payload.Ciphertext, await output + await error);
+    }
+
     [Fact]
     public async Task Deferred_publication_and_worker_export_same_trace_and_bounded_metric_labels_to_real_collector()
     {

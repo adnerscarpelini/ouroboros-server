@@ -25,7 +25,10 @@ Na raiz do repositório, com a senha na variável de ambiente `OUROBOROS_ADMIN_P
 | --- | --- | --- |
 | `0` | Administrador criado. | `Administrador <e-mail> criado.` na saída padrão. |
 | `1` | Recusado por uma regra (veja abaixo). | Na saída de erro, a mensagem da regra seguida de `Nada foi criado.` |
+| `1` | Exceção inesperada ou cancelamento solicitado durante a execução. | Erro inesperado: `Não foi possível concluir o comando. Consulte os diagnósticos correlacionados.`; cancelamento: `Comando cancelado.` |
 | `2` | Uso incorreto: falta `--email` ou a variável `OUROBOROS_ADMIN_PASSWORD` está ausente ou vazia. | Na saída de erro, o uso correto ou o pedido para definir a variável. Nada é criado. |
+
+Falha técnica registra `command-failed` com a exceção sanitizada e uma atividade W3C própria, sem senha, conteúdo SQL ou e-mail no diagnóstico. Cancelamento solicitado registra `expected-cancellation` em `Information`. O host é descartado de forma assíncrona antes da saída do processo, para drenar as filas de diagnóstico dentro dos limites do pipeline. A saída funcional de sucesso continua mostrando o e-mail ao operador; ela não é um log de diagnóstico ([política de captura](../architecture/error-responses.md#política-de-captura-de-falhas)).
 
 ## Regras
 

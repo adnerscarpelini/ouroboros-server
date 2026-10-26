@@ -54,7 +54,7 @@ internal sealed partial class RequestPasswordReset(
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            LogIntentFailed();
+            LogIntentFailed(exception);
         }
         return RequestPasswordResetResult.Accepted;
     }
@@ -69,5 +69,5 @@ internal sealed partial class RequestPasswordReset(
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.")]
-    private partial void LogIntentFailed();
+    private partial void LogIntentFailed(Exception exception);
 }

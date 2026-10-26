@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using Ouroboros.Identity.Contracts.Administrators;
 
 namespace Ouroboros.Identity.Api.CommandLine;
@@ -40,8 +42,26 @@ public static class CreateAdminCommand
         }
 
         await using var scope = services.CreateAsyncScope();
-        var result = await scope.ServiceProvider.GetRequiredService<ICreateFirstAdmin>()
-            .ExecuteAsync(new CreateFirstAdminRequest(email, password), cancellationToken);
+        using var activity = new Activity("create-admin").SetIdFormat(ActivityIdFormat.W3C).Start();
+        var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(CreateAdminCommand));
+        CreateFirstAdminResult result;
+        try
+        {
+            result = await scope.ServiceProvider.GetRequiredService<ICreateFirstAdmin>()
+                .ExecuteAsync(new CreateFirstAdminRequest(email, password), cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogInformation("Comando create-admin cancelado: expected-cancellation.");
+            await error.WriteLineAsync("Comando cancelado.");
+            return Failure;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Falha no comando create-admin: command-failed.");
+            await error.WriteLineAsync("Não foi possível concluir o comando. Consulte os diagnósticos correlacionados.");
+            return Failure;
+        }
 
         if (result.Succeeded)
         {

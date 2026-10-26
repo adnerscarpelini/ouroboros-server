@@ -16,7 +16,7 @@ Os endpoints usam um formato único de erro. Validações, falhas de negócio e 
 Cada API de serviço configura o tratamento HTTP de erros, com mecanismos técnicos comuns quando úteis:
 
 - `AddProblemDetails`, com `CustomizeProblemDetails` preenchendo `traceId` com `Activity.Current?.Id` ou, sem `Activity`, com `HttpContext.TraceIdentifier`;
-- `app.UseExceptionHandler()`, que converte exceções não tratadas em ProblemDetails;
+- `app.UseExceptionHandler()` com `SafeExceptionHandler`, que registra a ocorrência técnica e converte exceções não tratadas em ProblemDetails; no .NET 10, `SuppressDiagnosticsCallback` evita que o middleware do framework registre a mesma exceção de novo;
 - `app.UseStatusCodePages()`, que dá corpo ProblemDetails às respostas de erro sem corpo. O `429` do limite de requisições também sai em ProblemDetails, escrito pelo próprio rate limiter do Identity ([Limite de requisições (429)](#limite-de-requisições-429)).
 
 ## Formatos
@@ -24,6 +24,8 @@ Cada API de serviço configura o tratamento HTTP de erros, com mecanismos técni
 ### Erro inesperado (500)
 
 Uma exceção não tratada responde `500` com título genérico, sem mensagem, tipo de exceção ou stack trace. O diagnóstico segue o [pipeline de diagnósticos sanitizados](diagnostics-pipeline.md), com o mesmo trace da resposta e tipo, mensagem e pilha da exceção sanitizados antes de qualquer destino. Uma falha do pipeline não substitui o `500`.
+
+Se o escritor nativo não aceitar o header `Accept` do cliente, o handler ainda escreve o erro genérico em `application/problem+json`, sem relançar a exceção. Esse fallback é específico do erro inesperado; as respostas de status sem corpo mantêm a negociação descrita abaixo.
 
 ```json
 {
@@ -114,6 +116,29 @@ O `traceId` do corpo é o id W3C completo da requisição, no formato `00-<trace
 
 Com um `traceparent` válido na requisição, o `<trace-id>` é o recebido e o `<span-id>` é o span novo da requisição; sem ele ou com valor inválido, o host gera um trace novo. O contrato do `traceId` não muda: a decisão, o formato dos logs e a propagação para as mensagens estão em [Correlação por W3C Trace Context](trace-correlation.md).
 
+## Política de captura de falhas
+
+[`HttpFailureDiagnostics`](../../src/Ouroboros.Hosting/HttpFailureDiagnostics.cs) envolve o pipeline dos dois públicos de Identity. Depois do processamento, registra um resumo de cada resposta `4xx`/`5xx`, inclusive validação automática e erro sem corpo, sem ler o corpo da requisição ou da resposta. O resumo tem `Status`, `Route` (template da rota, ou `unmatched`), `DurationMs`, `Code` e `Classification`, com o trace corrente.
+
+| Situação | Nível e classificação | Código |
+| --- | --- | --- |
+| Validação em `ValidationProblemDetails` | `Warning`, `validation` | `validation-failed` |
+| `ProblemDetails` de falha de negócio `4xx` | `Warning`, `business` | Fragmento permitido do `type` do catálogo, ou `http-<status>` |
+| `ProblemDetails` técnico `5xx`, sem exceção não tratada | `Warning`, `technical` | Fragmento permitido do catálogo, ou `http-<status>` |
+| Erro sem classificação de `ProblemDetails` | `Warning`, `http` para `4xx`, `technical` para `5xx` | `http-<status>` |
+| Exceção não tratada | Uma ocorrência técnica `Error` no handler; resumo `Warning`, `unexpected`, sem a exceção | `unhandled-exception` |
+| Requisição com `RequestAborted` cancelado | `Information`, marcador `expected-cancellation`, sem ocorrência técnica inesperada | O log informa rota, status observado e duração |
+
+O código de negócio só vem do fragmento de um `type` iniciado pela URL pública `https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/`, com até 64 letras ASCII, dígitos ou hífens. URLs externas, query, texto de validação, `title` e `detail` não são copiados para o diagnóstico. A captura não altera o status nem o contrato das respostas de negócio ou a proteção contra enumeração.
+
+A ocorrência técnica e o resumo HTTP são registros distintos e correlacionados, cada um com sua identidade de log; somente a ocorrência técnica recebe `exception.*`. As categorias `Microsoft.EntityFrameworkCore.Database.Command` e `Microsoft.EntityFrameworkCore.Update` ficam em `None`: não exportam SQL, parâmetros nem cópias da mesma exceção antes de relançá-la. A fronteira HTTP ou o catch responsável pelo trabalho registra o diagnóstico sanitizado. O logging sensível do EF não é habilitado.
+
+Falhas recuperadas que precisam de diagnóstico são registradas explicitamente onde há contexto: proteção/gravação de intenções de cadastro/reset, publicação da outbox, aceitação/execução da inbox, relay de referências e manutenções. Nos workers, serviço, GUID seguro da mensagem quando disponível e código da operação identificam o trabalho, sem payload, destinatário ou conteúdo do e-mail. Um erro de ciclo sem mensagem individual tem somente o contexto disponível. Encerramentos esperados por cancelamento não são tratados como falhas inesperadas.
+
+O comando `create-admin` também tem fronteira própria: uma atividade W3C correlaciona o erro técnico sanitizado com `command-failed`; a saída ao operador é genérica, com código de saída `1`. Cancelamento solicitado registra `expected-cancellation` em `Information`. O host é descartado de forma assíncrona antes de sair, permitindo a drenagem limitada das filas ([operação](../identity/first-admin.md#códigos-de-saída)).
+
+Essa política seleciona falhas das entradas e catches existentes. Não intercepta cada `throw`, exceções recuperadas internamente por bibliotecas, falhas do sistema operacional ou encerramentos abruptos; também não garante entrega de todos os diagnósticos. As limitações de reconhecimento de segredos e de retenção permanecem no [pipeline de diagnósticos](diagnostics-pipeline.md#limites).
+
 ## Comportamento em Development
 
 O handler explícito trata a exceção antes da página de exceção do desenvolvedor. Por isso, também em `Development` a resposta de um erro inesperado é o ProblemDetails genérico; o diagnóstico interno recebe o tratamento sanitizado do pipeline de observabilidade. A decisão é consciente: o contrato é o mesmo em todos os ambientes e nenhum detalhe interno vaza por configuração de ambiente.
@@ -133,12 +158,15 @@ O handler explícito trata a exceção antes da página de exceção do desenvol
 
 [`TraceCorrelationTests`](../../tests/Ouroboros.ArchitectureTests/TraceCorrelationTests.cs) verifica a correspondência entre o `traceId` do ProblemDetails e os campos `traceId`/`spanId` dos logs, com e sem `traceparent` e com contexto inválido ([cenários](trace-correlation.md#como-verificar)).
 
+[`DiagnosticsPipelineTests`](../../tests/Ouroboros.IntegrationTests/DiagnosticsPipelineTests.cs), com coletor/destino e PostgreSQL reais, verifica os dois públicos, validação automática, falha de negócio, resposta sem corpo, cancelamento esperado, erro de provedor e exceção técnica única sem SQL ou dados sensíveis, incluindo o fallback com `Accept: text/plain`. [`CreateFirstAdminTests`](../../tests/Ouroboros.IntegrationTests/CreateFirstAdminTests.cs) verifica o comando em processo real, e [`MicroservicesBatchEndToEndTests`](../../tests/Ouroboros.IntegrationTests/MicroservicesBatchEndToEndTests.cs), a falha recuperada no worker separado.
+
 O comando para executar esses testes está no [guia de desenvolvimento](../development.md#testes).
 
 ## Issues relacionadas
 
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): decisão e implementação.
 - [#28](https://github.com/adnerscarpelini/ouroboros-server/issues/28): correspondência entre o `traceId` e os campos `traceId`/`spanId` dos logs JSON.
+- [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67): seleção e classificação de falhas, ocorrência técnica sem duplicação e catches de comandos/workers.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers das APIs.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): falha de negócio do login, `invalid-credentials`.

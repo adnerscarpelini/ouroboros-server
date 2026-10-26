@@ -18,7 +18,7 @@ internal sealed partial class InboxMaintenance(IServiceScopeFactory scopes, IOpt
         do
         {
             try { ProtectedEmailBackupRetention.Purge(options.Value.BackupDirectory, clock.GetUtcNow()); }
-            catch (Exception) { LogBackupFailed(logger); }
+            catch (Exception exception) { LogBackupFailed(logger, exception); }
             if (!string.IsNullOrWhiteSpace(configuration.GetConnectionString("Notifications")))
             {
                 try
@@ -33,13 +33,13 @@ internal sealed partial class InboxMaintenance(IServiceScopeFactory scopes, IOpt
                     scope.ServiceProvider.GetRequiredService<InboxMetrics>().Snapshot(snapshot);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-                catch (Exception) { LogDatabaseFailed(logger); }
+                catch (Exception exception) { LogDatabaseFailed(logger, exception); }
             }
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Limpeza de backups de Notifications não concluída; retomada no próximo ciclo.")]
-    private static partial void LogBackupFailed(ILogger logger);
+    private static partial void LogBackupFailed(ILogger logger, Exception exception);
     [LoggerMessage(Level = LogLevel.Error, Message = "Limpeza da inbox não concluída; retomada no próximo ciclo.")]
-    private static partial void LogDatabaseFailed(ILogger logger);
+    private static partial void LogDatabaseFailed(ILogger logger, Exception exception);
 }

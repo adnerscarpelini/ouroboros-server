@@ -103,7 +103,7 @@ Não há campo `exception`: a exceção original nunca chega ao console. Os esco
 
 ## Limites e entregas seguintes
 
-- Sanitização, coletor, destino, retenção e comportamento sob saturação estão no [pipeline de diagnósticos](diagnostics-pipeline.md). A captura padronizada de respostas de erro fica com a [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67); buffer persistente e recuperação do pipeline, com a [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
+- Sanitização, coletor, destino, retenção e comportamento sob saturação estão no [pipeline de diagnósticos](diagnostics-pipeline.md). A [captura de falhas](error-responses.md#política-de-captura-de-falhas) correlaciona o resumo HTTP e a ocorrência técnica sem repetir a exceção; buffer persistente e recuperação do pipeline continuam com a [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
 - O OpenTelemetry exporta logs, spans e métricas quando o endpoint está configurado. A amostragem local grava todos os spans instrumentados, mas filas limitadas e encerramento abrupto podem descartá-los; não há garantia de captura absoluta. Métricas e limites no [pipeline de diagnósticos](diagnostics-pipeline.md#métricas-do-fluxo).
 
 ## Como verificar

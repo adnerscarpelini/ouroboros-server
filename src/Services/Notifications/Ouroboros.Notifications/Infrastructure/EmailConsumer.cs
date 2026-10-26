@@ -30,7 +30,7 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
             catch (Exception exception) when (exception is RabbitMQ.Client.Exceptions.RabbitMQClientException or IOException or TimeoutException)
             {
-                LogBrokerUnavailable(logger);
+                LogBrokerUnavailable(logger, exception);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
@@ -66,10 +66,10 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
                 LogHandled(logger, id, result.ToString());
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-            catch (Exception)
+            catch (Exception exception)
             {
                 activity?.SetStatus(ActivityStatusCode.Error);
-                LogSuspended(logger, id, "acceptance-unavailable");
+                LogSuspended(logger, id, "acceptance-unavailable", exception);
                 ended.TrySetException(new IOException("acceptance-unavailable"));
             }
         };
@@ -80,9 +80,9 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
     [LoggerMessage(Level = LogLevel.Information, Message = "Consumo de Notifications desabilitado.")]
     private static partial void LogDisabled(ILogger logger);
     [LoggerMessage(Level = LogLevel.Warning, Message = "Broker de Notifications indisponível; nova conexão será tentada.")]
-    private static partial void LogBrokerUnavailable(ILogger logger);
+    private static partial void LogBrokerUnavailable(ILogger logger, Exception exception);
     [LoggerMessage(Level = LogLevel.Error, Message = "Notifications suspenso para {MessageId}: {Code}. Nenhum ACK.")]
-    private static partial void LogSuspended(ILogger logger, Guid? messageId, string code);
+    private static partial void LogSuspended(ILogger logger, Guid? messageId, string code, Exception exception);
     [LoggerMessage(Level = LogLevel.Information, Message = "Notifications processou {MessageId}: {State}.")]
     private static partial void LogHandled(ILogger logger, Guid? messageId, string state);
 }

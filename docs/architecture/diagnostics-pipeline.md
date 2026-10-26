@@ -158,7 +158,7 @@ Limites da limpeza:
 ## Limites e entregas seguintes
 
 - HTTP e fontes próprias de mensagens são instrumentados, com [contexto e links](trace-correlation.md#propagação-por-mensagens). As fontes automáticas `RabbitMQ.Client.*` não são assinadas e não há injeção de headers AMQP.
-- A captura padronizada de respostas `4xx`/`5xx` (rota, status, duração, usuário, código do problema) é da [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67). Hoje chega ao destino o que os executáveis já registram, como o erro de uma exceção não tratada, com `exception.*` sanitizados.
+- A [política de captura de falhas](error-responses.md#política-de-captura-de-falhas) registra respostas `4xx`/`5xx` com rota normalizada, status, duração, classificação e código, além de catches relevantes e comandos/workers. O resumo HTTP não repete a exceção técnica, e nenhum identificador de usuário é acrescentado. As categorias de comando e atualização do EF são suprimidas para não exportar SQL/parâmetros nem duplicar a exceção; a fronteira registra `exception.*` sanitizados.
 - Buffer persistente no coletor, recuperação após queda e múltiplas instâncias são da [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
 - Compose dos executáveis, imagens das APIs e probes são da [#98](https://github.com/adnerscarpelini/ouroboros-server/issues/98); hoje a API e o worker rodam fora do Compose e enviam ao coletor pela porta de loopback.
 - O `eventId` aparece no console, mas não no registro OTLP do destino.
@@ -180,6 +180,7 @@ Subir o coletor, habilitar o envio, ler o destino e interpretar o stderr: [Diagn
 
 - [#66](https://github.com/adnerscarpelini/ouroboros-server/issues/66): decisão e implementação do pipeline.
 - [#88](https://github.com/adnerscarpelini/ouroboros-server/issues/88): traces e métricas distribuídos, links e dimensões restritas.
+- [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67): captura segura nas entradas HTTP, comandos e catches relevantes.
 - [#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69): microsserviços, com diagnóstico independente dos bancos de negócio.
 - [#28](https://github.com/adnerscarpelini/ouroboros-server/issues/28): correlação W3C e console JSON.
 

@@ -35,6 +35,10 @@ public static class ObservabilityHostExtensions
 
         // Remove os provedores padrão (no Windows, inclusive o Event Log): o OpenTelemetry é o único provedor.
         builder.Logging.ClearProviders();
+        // EF registra a mesma exceção no comando e no SaveChanges antes de relançar. A fronteira HTTP ou o
+        // catch responsável pelo trabalho registra o único diagnóstico técnico, sem SQL nem parâmetros.
+        builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
+        builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Update", LogLevel.None);
         builder.Logging.Configure(options => options.ActivityTrackingOptions = ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
         var instance = Guid.NewGuid().ToString("D");
         var environment = builder.Environment.EnvironmentName;

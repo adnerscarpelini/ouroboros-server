@@ -19,7 +19,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         {
             try { await RunOnceAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception) { LogInterrupted(logger); }
+            catch (Exception exception) { LogInterrupted(logger, exception); }
             await Task.Delay(TimeSpan.FromSeconds(options.Value.ProcessingPollSeconds), clock, stoppingToken);
         }
     }
@@ -65,6 +65,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (NotificationDeliveryException exception) when (exception.Kind == DeliveryFailure.Configuration)
         {
+            LogDeliveryFailed(logger, row.MessageId, "configuration-suspended", exception);
             var recorded = await store.SuspendAsync(row.MessageId, lease, clock.GetUtcNow(), cancellationToken);
             if (recorded == 1) { metrics.Attempt("suspended"); activity?.SetTag("messaging.delivery.outcome", "suspended"); }
             activity?.SetStatus(ActivityStatusCode.Error);
@@ -72,6 +73,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         }
         catch (Exception exception)
         {
+            LogDeliveryFailed(logger, row.MessageId, "delivery-failed", exception);
             var now = clock.GetUtcNow();
             var permanent = exception is NotificationDeliveryException { Kind: DeliveryFailure.InvalidContent } ? "invalid-contract"
                 : exception is NotificationDeliveryException { Kind: DeliveryFailure.Permanent } ? "provider-permanent" : null;
@@ -96,5 +98,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
     [LoggerMessage(Level = LogLevel.Information, Message = "Processamento de {MessageId}: {State}.")]
     private static partial void LogResult(ILogger logger, Guid messageId, string state);
     [LoggerMessage(Level = LogLevel.Error, Message = "Executor de Notifications interrompido; estado persistido será recuperado.")]
-    private static partial void LogInterrupted(ILogger logger);
+    private static partial void LogInterrupted(ILogger logger, Exception exception);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Falha de entrega de Notifications para {MessageId}: {Code}.")]
+    private static partial void LogDeliveryFailed(ILogger logger, Guid messageId, string code, Exception exception);
 }

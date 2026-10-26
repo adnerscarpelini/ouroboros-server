@@ -16,20 +16,20 @@ internal sealed partial class EmailIntentMaintenance(IServiceScopeFactory scopes
         do
         {
             try { EmailIntentBackupRetention.Purge(options.Value.BackupDirectory, clock.GetUtcNow()); }
-            catch (Exception) { LogBackupCleanupFailed(logger); }
+            catch (Exception exception) { LogBackupCleanupFailed(logger, exception); }
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
                 await EmailIntentPersistence.MaintainAsync(scope.ServiceProvider.GetRequiredService<IdentityDbContext>(), clock.GetUtcNow(), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception) { LogCleanupFailed(logger); }
+            catch (Exception exception) { LogCleanupFailed(logger, exception); }
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Limpeza de intenções de e-mail não concluída; retomada no próximo ciclo.")]
-    private static partial void LogCleanupFailed(ILogger logger);
+    private static partial void LogCleanupFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Limpeza de backups protegidos não concluída; retomada no próximo ciclo.")]
-    private static partial void LogBackupCleanupFailed(ILogger logger);
+    private static partial void LogBackupCleanupFailed(ILogger logger, Exception exception);
 }

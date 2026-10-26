@@ -9,10 +9,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Ouroboros.Identity.Application.Notifications;
+using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Domain.Users;
 using Ouroboros.Identity.Infrastructure.Persistence;
 using Ouroboros.Observability;
@@ -25,6 +28,124 @@ public sealed class DiagnosticsPipelineTests(PostgresFixture postgres, Diagnosti
 {
     private const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task Unexpected_failure_with_non_json_accept_preserves_generic_server_error()
+    {
+        await using var api = WithEndpoint(pipeline.OtlpEndpoint);
+        using var client = api.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/diagnostics-probe/fail");
+        request.Headers.Accept.ParseAdd("text/plain");
+        using var response = await client.SendAsync(request, Cancellation);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(Cancellation);
+        foreach (var secret in DiagnosticsProbeController.Secrets) { Assert.DoesNotContain(secret, body); }
+    }
+
+    [Theory]
+    [InlineData("registrations")]
+    [InlineData("password-resets")]
+    public async Task Recovered_email_intent_failure_keeps_generic_accepted_response_and_exports_one_sanitized_exception(string path)
+    {
+        await using var api = WithEndpoint(pipeline.OtlpEndpoint).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton<IEmailIntentFactory, FailingIntentFactory>()));
+        using var client = api.CreateClient();
+        var trace = ActivityTraceId.CreateRandom().ToString();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/identity/" + path);
+        request.Headers.Add("traceparent", $"00-{trace}-00f067aa0ba902b7-01");
+        request.Content = JsonContent.Create(new { Email = DiagnosticsProbeController.Email });
+        using var response = await client.SendAsync(request, Cancellation);
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var record = await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "exception.type") is not null);
+        Assert.Equal("identity", OtlpJson.Attribute(record.GetProperty("resource"), "service.name"));
+        var records = (await pipeline.StoredRecordsAsync()).Where(item => TraceOf(item) == trace).ToArray();
+        Assert.Single(records, item => OtlpJson.Attribute(Record(item), "exception.type") is not null);
+        var text = string.Join('\n', records.Select(item => item.ToString()));
+        Assert.DoesNotContain(DiagnosticsProbeController.Password, text);
+        Assert.DoesNotContain(DiagnosticsProbeController.Email, text);
+    }
+
+    private sealed class FailingIntentFactory : IEmailIntentFactory
+    {
+        public EmailIntent Create(EmailMessage content, string purpose, DateTimeOffset now, DateTimeOffset expiresAt) =>
+            throw new InvalidOperationException($"Provedor: Password={DiagnosticsProbeController.Password}; destinatário {content.To}");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Both_http_audiences_capture_validation_business_empty_and_unexpected_once_without_sensitive_data(bool administrative)
+    {
+        await using var api = WithEndpoint(pipeline.OtlpEndpoint);
+        using var client = api.CreateClient();
+        if (administrative) { client.DefaultRequestHeaders.Add(IntegrationApiFactory.ListenerHeader, IntegrationApiFactory.AdminListener); }
+        foreach (var (path, status, classification, code) in new[]
+        {
+            ("validation", 400, "validation", "validation-failed"),
+            ("business", 409, "business", "probe-conflict"),
+            ("empty", 418, "http", "http-418"),
+            ("fail", 500, "unexpected", "unhandled-exception"),
+        })
+        {
+            var trace = ActivityTraceId.CreateRandom().ToString();
+            var prefix = administrative ? "admin/diagnostics-probe/" : "diagnostics-probe/";
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/" + prefix + path);
+            request.Headers.Add("traceparent", $"00-{trace}-00f067aa0ba902b7-01");
+            request.Content = JsonContent.Create(new { });
+            using var response = await client.SendAsync(request, Cancellation);
+            Assert.Equal(status, (int)response.StatusCode);
+            var summary = await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "Code") == code);
+            Assert.Equal(classification, OtlpJson.Attribute(Record(summary), "Classification"));
+            Assert.Equal($"api/v{{version:apiVersion}}/{prefix}{path}", OtlpJson.Attribute(Record(summary), "Route"));
+            Assert.Null(OtlpJson.Attribute(Record(summary), "exception.type"));
+            if (status == 500)
+            {
+                var body = await response.Content.ReadAsStringAsync(Cancellation);
+                Assert.DoesNotContain(DiagnosticsProbeController.Password, body);
+                await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "exception.type") is not null);
+                var technical = (await pipeline.StoredRecordsAsync()).Where(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "exception.type") is not null).ToArray();
+                Assert.Single(technical);
+                var exported = string.Join("\n", (await pipeline.StoredRecordsAsync()).Where(item => TraceOf(item) == trace));
+                foreach (var secret in DiagnosticsProbeController.Secrets) { Assert.DoesNotContain(secret, exported); }
+            }
+            if (status == 418) { Assert.Equal("", await response.Content.ReadAsStringAsync(Cancellation)); }
+        }
+    }
+
+    [Fact]
+    public async Task Expected_request_cancellation_is_classified_without_an_unexpected_exception()
+    {
+        await using var api = WithEndpoint(pipeline.OtlpEndpoint);
+        using var client = api.CreateClient();
+        var trace = ActivityTraceId.CreateRandom().ToString();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/diagnostics-probe/cancel");
+        request.Headers.Add("traceparent", $"00-{trace}-00f067aa0ba902b7-01");
+        using var response = await client.SendAsync(request, Cancellation);
+        Assert.Equal(499, (int)response.StatusCode);
+        await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && Record(item).GetProperty("body").ToString().Contains("expected-cancellation", StringComparison.Ordinal));
+        Assert.DoesNotContain(await pipeline.StoredRecordsAsync(), item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "exception.type") is not null);
+    }
+
+    [Fact]
+    public async Task Real_postgres_failure_is_captured_once_without_SQL_credentials_or_input()
+    {
+        await using var api = WithEndpoint(pipeline.OtlpEndpoint);
+        using var client = api.CreateClient();
+        var trace = ActivityTraceId.CreateRandom().ToString();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/diagnostics-probe/database-failure");
+        request.Headers.Add("traceparent", $"00-{trace}-00f067aa0ba902b7-01");
+        using var response = await client.SendAsync(request, Cancellation);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "exception.type") == "Npgsql.PostgresException");
+        await pipeline.WaitForRecordAsync(item => TraceOf(item) == trace && OtlpJson.Attribute(Record(item), "Code") == "unhandled-exception");
+        var records = (await pipeline.StoredRecordsAsync()).Where(item => TraceOf(item) == trace).ToArray();
+        Assert.Single(records, item => OtlpJson.Attribute(Record(item), "exception.type") is not null);
+        var text = string.Join('\n', records.Select(record => record.ToString()));
+        Assert.DoesNotContain("SELECT CAST", text);
+        Assert.DoesNotContain(DiagnosticsProbeController.Password, text);
+        Assert.DoesNotContain(DiagnosticsProbeController.Email, text);
+        Assert.DoesNotContain("EnableSensitiveDataLogging", text);
+    }
 
     [Fact]
     public async Task Sensitive_event_reaches_the_dedicated_store_sanitized_with_service_trace_and_occurrence()
@@ -209,10 +330,43 @@ public sealed partial class DiagnosticsProbeController(ILogger<DiagnosticsProbeC
     internal static readonly string[] Secrets = [Password, Jwt, Email, "private-test-token"];
 
     [HttpGet("fail")]
+    [HttpPost("fail")]
+    [HttpPost("~/api/v{version:apiVersion}/admin/diagnostics-probe/fail")]
     public IActionResult Fail()
     {
         LogSensitive(logger, Marker, Password, Email, Link);
         throw new InvalidOperationException($"Falha Npgsql em Host=db;Password={Password} com Bearer {Jwt}");
+    }
+
+    [HttpPost("validation")]
+    [HttpPost("~/api/v{version:apiVersion}/admin/diagnostics-probe/validation")]
+    public IActionResult Validate(DiagnosticValidation input) => Ok();
+
+    [HttpPost("business")]
+    [HttpPost("~/api/v{version:apiVersion}/admin/diagnostics-probe/business")]
+    public IActionResult Business() => Problem(statusCode: 409, type: "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/probe.md#probe-conflict");
+
+    [HttpPost("empty")]
+    [HttpPost("~/api/v{version:apiVersion}/admin/diagnostics-probe/empty")]
+    public IActionResult EmptyFailure()
+    {
+        HttpContext.Features.Get<Microsoft.AspNetCore.Diagnostics.IStatusCodePagesFeature>()!.Enabled = false;
+        return new ContentResult { StatusCode = 418, Content = "" };
+    }
+
+    [HttpPost("cancel")]
+    public IActionResult Cancel()
+    {
+        HttpContext.RequestAborted = new CancellationToken(canceled: true);
+        throw new OperationCanceledException(HttpContext.RequestAborted);
+    }
+
+    [HttpPost("database-failure")]
+    public async Task<IActionResult> DatabaseFailure(CancellationToken cancellationToken)
+    {
+        var context = HttpContext.RequestServices.GetRequiredService<IdentityDbContext>();
+        await context.Database.ExecuteSqlRawAsync($"SELECT CAST('password={Password} email={Email}' AS integer)", cancellationToken);
+        return NoContent();
     }
 
     [HttpPost("rollback/{marker}")]
@@ -233,3 +387,5 @@ public sealed partial class DiagnosticsProbeController(ILogger<DiagnosticsProbeC
     [LoggerMessage(Level = LogLevel.Warning, Message = "Diagnóstico dentro de transação revertida {Marker}")]
     private static partial void LogInsideTransaction(ILogger logger, string marker);
 }
+
+public sealed record DiagnosticValidation([System.ComponentModel.DataAnnotations.Required] string Value);
