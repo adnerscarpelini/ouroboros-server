@@ -45,6 +45,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
 - [`HealthAndContainerArchitectureTests`](../tests/Ouroboros.ArchitectureTests/HealthAndContainerArchitectureTests.cs), nos testes de arquitetura e sem Docker, verifica que `/health/live`, `/health/ready` e `/health` são anônimos e nunca expõem segredos, connection strings ou mensagens de exceção, que os Dockerfiles usam `APP_VERSION`, `SOURCE_REVISION`, usuário não-root (`$APP_UID`) e contextos isolados por serviço, que o `compose.yaml` mantém o listener administrativo (`5142`) não publicado no host e migrations no profile explícito `migrate`, que a CI constrói as duas imagens versionadas e que nenhum comando documentado em `docs/`, `scripts/` ou `compose.yaml` remove volumes do Docker.
 - [`ServiceReadinessAndContainerTests`](../tests/Ouroboros.IntegrationTests/ServiceReadinessAndContainerTests.cs), nos testes de integração com Docker, verifica que os serviços não aplicam migrations na subida e só ficam prontos após o comando explícito `migrate` com suas roles de migration e convergência de privilégios, que com o RabbitMQ parado Identity permanece pronto (`200`) e realiza login enquanto Notifications permanece vivo (`/health/live` `200`) e reporta não pronto (`/health/ready` `503`), que as imagens construídas executam como UID `1654` com o rótulo OCI `<version>-<commit>` sem assemblies do outro serviço ou `.env`, e que `scripts/messaging/new-compose-keys.ps1` gera diretórios externos isolados para Identity e Notifications sem imprimir segredos.
+- [`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs), nos testes de integração com Docker ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89)), valida a atualização e reversão (rollback) de `Ouroboros.Notifications.Worker` entre versões compatíveis do contrato v1 sem reimplantar ou reiniciar `Identity`, a continuidade do login e recuperação de intenções na parada de `Notifications` e do `RabbitMQ`, a reentrega idempotente/deduplicada após falha do publicador ou do consumidor, o impacto comum e recuperação automática (`ClearAllPools`) na parada da instância `PostgreSQL` compartilhada e a preservação de dados em migrations aditivas durante rollback de binário ([procedimento e comandos](#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)).
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
@@ -169,6 +170,110 @@ docker compose down
 ```
 
 Preserve sempre os volumes `postgres-data`, `rabbitmq-data`, `diagnostics-data` e `collector-queue`, bem como o diretório externo de chaves e a pasta `backups/`. Nenhum comando documentado ou script do repositório remove volumes do Docker.
+
+## Validação de atualização independente, rollback e recuperação dos serviços
+
+A entrega [#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89) valida a implantação independente, o rollback de versão compatível e a recuperação de falhas com acesso direto às APIs e serviços reais, sem exigir gateways ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)) e sem excluir volumes.
+
+### Verificação automatizada reproduzível
+
+Na raiz do repositório, com Docker e `pwsh` disponíveis, execute a suíte dedicada ([`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs)), que sobe containers isolados de PostgreSQL (`ProvisionedInstance`) e RabbitMQ (`RabbitMqFixture`) sem depender nem alterar o `.env` ou os volumes do Compose local:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ServiceUpdateAndRecoveryTests"
+```
+
+### Cenários validados e reprodução com Docker Compose
+
+Com o ambiente do [Docker Compose](#executar-os-serviços-com-docker-compose) em execução, todos os cenários abaixo podem ser reproduzidos preservando integralmente os volumes (`postgres-data`, `rabbitmq-data`, `diagnostics-data` e `collector-queue`):
+
+#### 1. Atualização e reversão (rollback) de Notifications sem implantar Identity
+
+- **Garantia validada:** `Ouroboros.Notifications.Worker` é atualizado entre versões compatíveis do contrato v1 (por exemplo, `1.0.0-rev100` → `1.1.0-rev110`) e revertido (`1.1.0-rev110` → `1.0.0-rev100`) com `identity-api` em execução contínua, sem reimplantar nem reiniciar `Identity`. Envelopes v1 padrão e envelopes contendo campos JSON opcionais aditivos são aceitos nas duas versões (`EnvelopeCodec` preserva os campos obrigatórios e ignora extensões opcionais desconhecidas), `serviceVersion` reflete a versão em execução nos logs JSON estruturados e mensagens já entregues antes do rollback permanecem deduplicadas em `notifications.inbox` (`State = Delivered`, `Attempts = 1`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  # Construir duas imagens compatíveis do worker (ex.: 1.0.0-rev100 e 1.1.0-rev110)
+  docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile --build-arg APP_VERSION=1.0.0 --build-arg SOURCE_REVISION=rev100 -t ouroboros-notifications-worker:1.0.0-rev100 .
+  docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile --build-arg APP_VERSION=1.1.0 --build-arg SOURCE_REVISION=rev110 -t ouroboros-notifications-worker:1.1.0-rev110 .
+
+  # Atualizar somente notifications-worker para 1.1.0-rev110 sem reiniciar identity-api
+  $env:IMAGE_TAG = '1.1.0-rev110'
+  docker compose up -d --no-deps notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+
+  # Reverter (rollback) somente notifications-worker para 1.0.0-rev100 sem reiniciar identity-api
+  $env:IMAGE_TAG = '1.0.0-rev100'
+  docker compose up -d --no-deps notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  Remove-Item Env:IMAGE_TAG
+  ```
+
+#### 2. Parada e reinício de Notifications
+
+- **Garantia validada:** Quando `notifications-worker` para, `identity-api` permanece pronto (`GET /health/ready` retorna `200 OK` com `{"status":"Healthy"}`), o login funciona normalmente e novas solicitações de cadastro/redefinição gravam intenções de e-mail que aguardam recuperação. Quando `notifications-worker` volta a iniciar e reporta prontidão (`200 OK` em `http://127.0.0.1:5143/health/ready`), as mensagens pendentes são consumidas e entregues (`State = Delivered`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"recuperacao-worker@example.com"}'
+
+  docker compose start notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 3. Parada e reinício do RabbitMQ
+
+- **Garantia validada:** Com o container `rabbitmq` parado:
+  - `identity-api` permanece pronto (`GET /health/ready` `200 OK`) e o login funciona normalmente.
+  - Novas solicitações de e-mail permanecem retidas na outbox (`identity.email_intents`) com `State = Pending`, `ProtectedEnvelope` preservado e `NextAttemptAt` agendado para retentativa.
+  - Mensagens persistentes (`Persistent = true`) publicadas na fila durável `notifications.email.v1` antes da parada sobrevivem no volume `rabbitmq-data` do broker.
+  - `notifications-worker` permanece vivo (`GET /health/live` `200 OK`), mas reporta não pronto (`GET /health/ready` `503 Service Unavailable` com `{"status":"Unhealthy"}`).
+  - Após `docker compose start rabbitmq`, `notifications-worker` volta a `200 OK` em `/health/ready`, a mensagem que já estava enfileirada no broker e a intenção pendente na outbox são publicadas (`State = Published`, `ProtectedEnvelope = null`) e entregues (`State = Delivered`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop rabbitmq
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  # /health/live do worker segue 200 OK; /health/ready responde 503 Unhealthy enquanto o broker está parado
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/live
+
+  docker compose start rabbitmq
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 4. Parada e reinício da instância PostgreSQL compartilhada
+
+- **Impacto comum e recuperação:** Como `ouroboros_identity` e `ouroboros_notifications` compartilham a mesma instância PostgreSQL no ambiente local ([decisão educacional](architecture/microservices.md#um-banco-por-móduloserviço-uma-instância-local)), parar o container `postgres` afeta ambos os serviços simultaneamente:
+  - Tanto `identity-api` (`:5141`) quanto `notifications-worker` (`:5143`) continuam respondendo `200 OK` em `GET /health/live`, mas passam a responder `503 Service Unavailable` com corpo fixo `{"status":"Unhealthy"}` em `GET /health/ready` e `GET /health`.
+  - Tentativas de login durante a indisponibilidade falham sem expor senhas, nomes de roles, hosts ou connection strings no corpo da resposta.
+  - Os health checks de prontidão ([`IdentityReadinessHealthCheck`](../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityReadinessHealthCheck.cs) e [`NotificationsReadinessHealthCheck`](../src/Services/Notifications/Ouroboros.Notifications/Infrastructure/NotificationsReadinessHealthCheck.cs)) abrem conexões com `Pooling = false` e timeouts curtos (3 s) e executam `NpgsqlConnection.ClearAllPools()` ao capturar falha de conectividade, descartando conexões quebradas do pool da aplicação.
+  - Assim que `postgres` retorna (`docker compose start postgres`), ambos os serviços recuperam automaticamente a prontidão (`200 OK` em `/health/ready`) e o login volta a funcionar sem necessidade de reiniciar os containers de aplicação.
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop postgres
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/live
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/live
+
+  docker compose start postgres
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 5. Reentrega após falha do publicador ou do consumidor
+
+- **Falha do publicador após publicar no broker e antes de `ConfirmAsync`:** Se o publicador de Identity publicar a mensagem com confirmação do broker (`BasicPublishAsync` em modo confirm/mandatory) e parar antes de gravar `ConfirmAsync` no banco local, a intenção permanece `Pending` até a expiração da lease (`lease_until`) e é republicada no ciclo seguinte com o **mesmo `MessageId` (`ExternalId`)**. `Notifications` recebe as duas entregas na fila, mas `InboxAcceptance` deduplica a segunda entrega pela chave primária/tombstone em `notifications.inbox`, executando o transporte de e-mail uma única vez (`State = Delivered`, `Attempts = 1`).
+- **Falha do consumidor após enviar ao provedor e antes de `DeliverAsync`:** Se o executor de Notifications reclamar a mensagem (`ClaimAsync`), registrar a tentativa (`BeginAttemptAsync`, gravando `State = Sending` e `Attempts = 1`) e concluir a chamada ao transporte externo (`IEmailTransport.SendAsync`), mas parar antes do commit local em `DeliverAsync`, a linha permanece em `State = Sending` com o `ProtectedEnvelope` retido. Quando a lease (`lease_until`) e `next_attempt_at` vencem, o `InboxExecutor` retoma a mesma mensagem preservando o **`MessageId`** original e o cabeçalho RFC 5322 **`Message-ID: <{messageId:N}@ouroboros.local>`**, concluindo a confirmação local na segunda tentativa (`State = Delivered`, `Attempts = 2`, `ProtectedEnvelope = null`).
+- **Tratamento e janela explícita de duplicação no transporte:** No adaptador local `PickupEmailTransport`, a escrita em disco é idempotente por nome de arquivo (`{messageId:N}.eml` gravado via arquivo temporário `.tmp` e `File.Move(..., overwrite: true)`), resultando em um único arquivo final com o mesmo `Message-ID`. Conforme a [política de entrega confiável](architecture/reliable-delivery.md), como o transporte externo não participa da transação do banco, um provedor SMTP/HTTP real que não deduplique por `Message-ID` pode enviar o e-mail duas vezes nessa janela entre o retorno de `SendAsync` e o commit de `DeliverAsync` (entrega *at-least-once*, sem promessa de *exactly-once* no provedor externo).
+
+#### 6. Limites de rollback com migrations e novas escritas
+
+- **Migrations aditivas e preservação de dados:** Quando uma versão nova aplica uma migration aditiva (por exemplo, nova coluna opcional ou tabela nova adicionada pela role `*_migrator`) e grava novos dados, reverter o container do serviço para o binário da versão anterior preserva integralmente os dados gravados pela versão nova, desde que **não** seja executado downgrade destrutivo de schema (`DROP COLUMN` / `DROP TABLE`) nem remoção de volumes. O binário anterior continua lendo e gravando as colunas conhecidas pelo seu modelo EF Core e mantendo `/health/ready` em `200 OK` (`{"status":"Healthy"}`), sem expor segredos.
+- **Limites explícitos de rollback:**
+  - Não execute downgrade destrutivo de banco como parte de rollback de container/binário: alterações incompatíveis exigem padrão *expand-and-contract* em entregas separadas.
+  - Para a transferência inicial do banco de Identity ([#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82)), permanecem os limites documentados em [Voltar ao banco original](#voltar-ao-banco-original) (`rollback` e `reconcile` preservam novas escritas em CSV e recusam históricos de migrations divergentes ou linhas copiadas excluídas).
 
 ## RabbitMQ local
 

@@ -20,7 +20,13 @@ internal sealed class IdentityReadinessHealthCheck(IOptions<IdentityDatabaseOpti
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(3));
 
-            await using var connection = new NpgsqlConnection(connectionString);
+            var builder = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                Pooling = false,
+                Timeout = 3,
+                CommandTimeout = 3,
+            };
+            await using var connection = new NpgsqlConnection(builder.ConnectionString);
             await connection.OpenAsync(timeout.Token);
             await using var command = new NpgsqlCommand(
                 "SELECT 1 FROM identity.parameters LIMIT 1; SELECT 1 FROM identity.email_intents LIMIT 1;",
@@ -35,6 +41,7 @@ internal sealed class IdentityReadinessHealthCheck(IOptions<IdentityDatabaseOpti
         }
         catch (Exception)
         {
+            NpgsqlConnection.ClearAllPools();
             return HealthCheckResult.Unhealthy();
         }
     }

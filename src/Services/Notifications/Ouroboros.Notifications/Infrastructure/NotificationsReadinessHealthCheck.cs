@@ -39,7 +39,13 @@ internal sealed class NotificationsReadinessHealthCheck(
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(3));
 
-            await using (var dbConnection = new NpgsqlConnection(connectionString))
+            var dbBuilder = new NpgsqlConnectionStringBuilder(connectionString)
+            {
+                Pooling = false,
+                Timeout = 3,
+                CommandTimeout = 3,
+            };
+            await using (var dbConnection = new NpgsqlConnection(dbBuilder.ConnectionString))
             {
                 await dbConnection.OpenAsync(timeout.Token);
                 await using var command = new NpgsqlCommand("SELECT 1 FROM notifications.inbox LIMIT 1;", dbConnection);
@@ -62,6 +68,7 @@ internal sealed class NotificationsReadinessHealthCheck(
         }
         catch (Exception)
         {
+            NpgsqlConnection.ClearAllPools();
             return HealthCheckResult.Unhealthy();
         }
     }

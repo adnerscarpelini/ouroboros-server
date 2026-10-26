@@ -39,7 +39,7 @@ Identity emite tokens com assinatura assimétrica e rotação; consumidores vali
 
 CI Linux, PostgreSQL real, contratos e testes de falha acompanham cada serviço. HTTP e mensagens são correlacionados pelo [W3C Trace Context](trace-correlation.md), com logs JSON no console de cada executável; OpenTelemetry exporta essa correlação. Diagnóstico sanitizado usa pipeline independente dos bancos de negócio, com coletor e destino dedicado, e não substitui auditoria ([pipeline de diagnósticos](diagnostics-pipeline.md)).
 
-Validar atualização de Notifications sem implantar Identity, recuperação de mensagens, isolamento de bancos e acesso administrativo direto. Kubernetes não é requisito.
+A atualização e reversão (rollback) de Notifications entre versões compatíveis do contrato v1 sem reimplantar Identity, a recuperação de mensagens após parada de Notifications ou do RabbitMQ, a deduplicação e preservação de `MessageId` em reentregas do publicador e do consumidor, o impacto comum e recuperação na parada da instância PostgreSQL compartilhada, o isolamento de bancos e o acesso administrativo direto são verificados por [`ServiceUpdateAndRecoveryTests`](../../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs) ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89); [procedimento e comandos](../development.md#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)). Kubernetes não é requisito.
 
 Backup, validação e preservação de dados são obrigatórios na transferência de persistência. Não apagar origem ou volumes incidentalmente. Rollback depois de novas escritas precisa preservá-las/reconciliá-las.
 

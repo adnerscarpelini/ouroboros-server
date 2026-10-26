@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using Npgsql;
 using Testcontainers.PostgreSql;
@@ -17,12 +19,20 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     public const string NotificationsRuntime = "notifications_runtime";
     public const string NotificationsMigrator = "notifications_migrator";
 
+    private readonly int _hostPort = FreeTcpPort();
+
     // A instância registra todas as instruções e durações: o provisionamento precisa neutralizar isso
     // nas próprias sessões, senão as senhas apareceriam no log do servidor.
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
-        .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1",
-            "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0")
-        .Build();
+    private readonly PostgreSqlContainer _container;
+
+    public ProvisionedInstance()
+    {
+        _container = new PostgreSqlBuilder("postgres:18-alpine")
+            .WithPortBinding(_hostPort, 5432)
+            .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1",
+                "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0")
+            .Build();
+    }
 
     // Senhas só de teste, geradas a cada execução; nunca aparecem em saída nem em logs.
     public IReadOnlyDictionary<string, string> Passwords { get; } = new Dictionary<string, string>
@@ -44,6 +54,10 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     }
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();
+
+    internal Task StopAsync() => _container.StopAsync();
+
+    internal Task StartAsync() => _container.StartAsync();
 
     internal async Task<ScriptResult> MessagingRecoveryAsync(string file, string variable, Guid id)
     {
@@ -186,6 +200,13 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     }
 
     private static string Secret() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+
+    private static int FreeTcpPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
 
     public sealed record ScriptResult(long ExitCode, string Stdout, string Stderr);
 }

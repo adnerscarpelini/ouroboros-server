@@ -26,7 +26,7 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     private readonly IContainer _container;
     private readonly IVolume _volume = new VolumeBuilder().Build();
     internal string Host => _container.Hostname;
-    internal int Port => _container.GetMappedPublicPort(5672);
+    internal int Port => _amqpPort;
 
     public RabbitMqFixture()
     {
