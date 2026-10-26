@@ -25,7 +25,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): `AddEmailTokens` cria a tabela dos tokens e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para o proprietário. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova. A conclusão não tem migration própria.
-- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é a #87.
+- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é implementado pela #87.
 
 ## Configuração
 
@@ -42,7 +42,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; a responsabilidade durável de Notifications ainda é a #87.
+O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; Notifications persiste aceitação/deduplicação pela #87.
 
 ## Solicitar o cadastro
 
@@ -70,7 +70,7 @@ A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que pro
 http://localhost:3000/cadastro/concluir?token=<token>
 ```
 
-A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Nesta entrega, a API não gera `.eml`: o publicador precisa estar habilitado e o worker de Development rodando para produzir o arquivo, sem a garantia durável da #87.
+A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Nesta entrega, a API não gera `.eml`: o publicador precisa estar habilitado e o worker de Development rodando para produzir o arquivo, com aceitação durável da #87 antes do ACK.
 
 ### E-mail inválido (400)
 
@@ -244,7 +244,7 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 - **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado.
 - **Sem reenvio.** Uma nova solicitação cumpre esse papel e invalida o link anterior. Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP.
 - **E-mail que ganhou conta depois da solicitação.** A conclusão responde token inválido e, como a transação é desfeita, o token continua pendente até expirar, mas nunca mais conclui. Uma nova solicitação para esse e-mail não gera token, porque ele já tem conta.
-- **Entrega confiável parcial.** O publicador vem desabilitado por padrão; quando habilitado, publica com confirmação e recuperação. Aceitação durável/deduplicação de Notifications ainda é a #87 ([Outbox](email-outbox.md)).
+- **Entrega exige processos configurados.** Publicador e consumidor vêm desabilitados por padrão. Quando habilitados, a publicação é confirmada e a aceitação é durável/deduplicada; a fronteira com o provedor ainda admite duplicação ([Outbox](email-outbox.md), [processamento](../notifications/durable-processing.md)).
 - **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Log `fail` do EF Core na corrida pelo e-mail.** A violação de unicidade tratada como token inválido ainda gera um log de nível `Error` (`fail`) do EF Core ao salvar, sem dado sensível. Na operação, esse log isolado na conclusão do cadastro é uma corrida esperada, não uma falha do sistema.
 - **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório ([Fluxo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).

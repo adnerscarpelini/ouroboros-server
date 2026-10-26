@@ -2,7 +2,7 @@
 
 ## Responsabilidade dos executáveis
 
-Cada serviço HTTP possui API própria. Identity executa em [`Ouroboros.Identity.Api`](../../src/Services/Identity/Ouroboros.Identity.Api), um processo com dois públicos (clientes e administradores) que delega aos casos de uso locais. Notifications executa em [`Ouroboros.Notifications.Worker`](../../src/Services/Notifications/Ouroboros.Notifications.Worker), Generic Host separado sem API de negócio, com configuração e imagem próprias. Seu [consumo inicial](../notifications/worker.md) é restrito a Development até a aceitação durável da #87; saúde operacional não obriga criar API de negócio.
+Cada serviço HTTP possui API própria. Identity executa em [`Ouroboros.Identity.Api`](../../src/Services/Identity/Ouroboros.Identity.Api), um processo com dois públicos (clientes e administradores) que delega aos casos de uso locais. Notifications executa em [`Ouroboros.Notifications.Worker`](../../src/Services/Notifications/Ouroboros.Notifications.Worker), Generic Host separado sem API de negócio, com configuração e imagem próprias. Seu [processamento durável](../notifications/durable-processing.md) usa banco próprio e habilitação explícita; o provedor local é restrito a Development. Saúde operacional não obriga criar API de negócio.
 
 Executáveis compõem apenas seu proprietário, sem carregar outros serviços como bibliotecas ou acessar seus bancos. Disponibilidade dos executáveis no [estado de implementação](../implementation-status.md); comandos e URLs no [guia de desenvolvimento](../development.md#executar-a-api-de-identity).
 

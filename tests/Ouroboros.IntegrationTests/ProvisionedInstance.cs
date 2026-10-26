@@ -20,7 +20,8 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     // A instância registra todas as instruções e durações: o provisionamento precisa neutralizar isso
     // nas próprias sessões, senão as senhas apareceriam no log do servidor.
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine")
-        .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1")
+        .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1",
+            "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0")
         .Build();
 
     // Senhas só de teste, geradas a cada execução; nunca aparecem em saída nem em logs.
@@ -43,6 +44,35 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     }
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();
+
+    internal async Task<ScriptResult> MessagingRecoveryAsync(string file, string variable, Guid id)
+    {
+        if (file is not ("resume-notification-processing.sql" or "resume-notification-failure-publication.sql"))
+        { throw new ArgumentException("Script de recuperação desconhecido."); }
+        await _container.CopyAsync(RepositoryRoot.Resolve("scripts", "messaging"), "/messaging");
+        return await ExecAsync("psql", "-X", "-U", "postgres", "-d", NotificationsDatabase,
+            "-v", "ON_ERROR_STOP=1", "-v", $"{variable}={id:D}", "-f", "/messaging/" + file);
+    }
+
+    internal async Task<string> RestoreProtectedNotificationsBackupAsync()
+    {
+        const string path = "/tmp/notifications-fixture.dump";
+        var backup = await ExecAsync("pg_dump", "-U", "postgres", "-Fc", "--no-owner", "--no-acl", "--file", path, NotificationsDatabase);
+        Assert.True(backup.ExitCode == 0, "pg_dump do banco próprio falhou.");
+        var restoredBytes = await ProtectedBackupRoundTrip.RunAsync(await _container.ReadFileAsync(path));
+        await _container.CopyAsync(restoredBytes, path);
+        var name = "notifications_restore_" + Guid.NewGuid().ToString("N");
+        await ExecuteAdminAsync("postgres", $"CREATE DATABASE \"{name}\"");
+        var restore = await ExecAsync("pg_restore", "-U", "postgres", "--exit-on-error", "--no-owner", "--no-acl", "--dbname", name, path);
+        Assert.True(restore.ExitCode == 0, "pg_restore do banco próprio falhou.");
+        return name;
+    }
+
+    internal Task DropRestoredNotificationsAsync(string database)
+    {
+        if (!database.StartsWith("notifications_restore_", StringComparison.Ordinal)) { throw new ArgumentException("Exige banco restaurado pela fixture."); }
+        return ExecuteAdminAsync("postgres", $"DROP DATABASE \"{database}\" WITH (FORCE)");
+    }
 
     public async Task<ScriptResult> ProvisionAsync(IReadOnlyDictionary<string, string>? environment = null)
     {

@@ -1,6 +1,6 @@
 # Contrato e política de entrega confiável
 
-Decisão da [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79), subordinada à [#69](microservices.md). Define o contrato lógico e os requisitos de entrega confiável. A #85 implementa a [outbox protegida de Identity](../identity/email-outbox.md); a #86 publica com confirmação e recuperação; processamento durável/deduplicação continua na #87. A disponibilidade completa do checkout está no [estado de implementação](../implementation-status.md).
+Decisão da [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79), subordinada à [#69](microservices.md). Define o contrato lógico e os requisitos de entrega confiável. A #85 implementa a [outbox protegida de Identity](../identity/email-outbox.md); a #86 publica com confirmação e recuperação; a #87 implementa [aceitação durável, deduplicação e recuperação de Notifications](../notifications/durable-processing.md). A disponibilidade completa do checkout está no [estado de implementação](../implementation-status.md).
 
 ## Fronteiras e contrato v1
 
@@ -17,7 +17,7 @@ O contrato lógico `notification.email.requested`, versão inteira `1`, exige:
 | `correlationId`, `causationId` | Identificadores opacos de correlação e causa; nunca tokens ou dados pessoais. |
 | `payload` | Destinatário único, assunto, texto e finalidade (`registration` ou `password-reset`); nenhuma senha/hash de senha ou id interno. Inclui o link secreto já composto por Identity. |
 
-Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; o receptor da #72 já autentica e decifra conteúdo, a origem da #85 já cifra/persiste intenções, a publicação confirmada está na #86 e a inbox ainda depende da #87 para completar o fluxo confiável.
+Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; o receptor da #72 já autentica e decifra conteúdo, a origem da #85 já cifra/persiste intenções, a publicação confirmada está na #86 e Notifications possui inbox/execução duráveis da #87, sem garantir exactly-once no provedor.
 
 ## Estado local e publicação
 
@@ -29,7 +29,7 @@ Publicação tem backoff exponencial limitado a cinco minutos, com jitter; indis
 
 ## Aceitação durável e processamento
 
-Na #87, Notifications valida o envelope e persiste a aceitação e o payload protegido no próprio banco, com unicidade de `messageId`, antes de enviar ACK ao RabbitMQ. Falha antes do commit não recebe ACK; falha após commit e antes do ACK resulta em reentrega reconhecida como duplicata. Duplicatas com identidade e conteúdo iguais recebem ACK sem criar novo trabalho; mesma identidade com conteúdo diferente é conflito permanente, sem sobrescrever nem enviar, com diagnóstico sanitizado. Não existe transação distribuída entre banco e broker.
+Na implementação da #87, Notifications valida o envelope e persiste a aceitação e o payload protegido no próprio banco, com unicidade de `messageId`, antes de enviar ACK ao RabbitMQ. Falha antes do commit não recebe ACK; falha após commit e antes do ACK resulta em reentrega reconhecida como duplicata. Duplicatas com identidade e conteúdo iguais recebem ACK sem criar novo trabalho; mesma identidade com conteúdo diferente é conflito permanente, sem sobrescrever nem enviar, com diagnóstico sanitizado. Não existe transação distribuída entre banco e broker.
 
 Aceitação durável significa responsabilidade local pelo processamento, não entrega ao provedor. Um executor reivindica o registro com lease e atualização condicional, libera a transação e chama o provedor com timeout inferior ao lease; conclusão usa a versão da reivindicação para impedir um executor antigo de concluir a de outro. Após reinício, lease vencido é recuperável. Execução concorrente não reivindica a mesma tentativa; a ambiguidade externa descrita abaixo permanece.
 

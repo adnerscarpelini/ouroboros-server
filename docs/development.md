@@ -66,7 +66,7 @@ A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio de
 
 ## RabbitMQ local
 
-O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity tem publicador da outbox habilitável explicitamente. O worker da #72 tem consumo direto restrito a Development; aceitação durável/deduplicação dependem da #87. [Topologia, contratos e limites](architecture/messaging.md).
+O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity tem publicador da outbox habilitável explicitamente. O worker da #87 tem aceitação/deduplicação persistentes; seu provedor local continua restrito a Development. [Topologia, contratos e limites](architecture/messaging.md).
 
 1. Se ainda não existe `.env`, copie `.env.example` uma vez, sem sobrescrever um arquivo existente. Troque as quatro senhas do broker por valores aleatórios **distintos**, de pelo menos 32 caracteres; placeholders `troque-` são recusados pelo provisionador. Use, por exemplo, quatro valores hexadecimais gerados pelo gerenciador de segredos. Hexadecimal evita diferenças de interpretação de `$`/aspas entre o Compose e o leitor literal de `-EnvFile`. Não imprima nem registre senhas em histórico, transcript ou argumentos.
 
@@ -100,7 +100,7 @@ O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbi
 
 4. Para testar reinício local sem descartar persistência, use `docker compose restart rabbitmq` e reexecute o provisionador. Para parar somente o broker, use `docker compose stop rabbitmq`. `docker compose down` mantém os volumes, mas para todos os containers do projeto. Preserve `rabbitmq-data`, `postgres-data` e backups; os comandos documentados não removem volumes.
 
-A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. O consumidor inicial da #72 só funciona em Development e reconhece expiração sem persistência; limpeza/classificação durável dependem da #87 antes de habilitar o fluxo operacional. A recuperação por outbox é a #86.
+A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. O consumidor da #87 persiste aceitação/expiração/classificação antes do ACK; o executor chama o provedor separadamente com tentativas limitadas. O pickup disponível continua restrito a Development. A recuperação da publicação de origem é a #86; [recuperação do consumidor](#recuperar-processamento-e-referências-de-falha) usa scripts próprios.
 
 Testes focados, com Docker e `pwsh` disponíveis, sem usar esse broker ou `.env`:
 
@@ -480,7 +480,20 @@ Todo endpoint exige um access token válido da audiência do listener (`Authoriz
 
 ## Executar o worker de Notifications
 
-`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity grava intenções protegidas na outbox e pode publicá-las quando o publicador estiver habilitado. [Comportamento e limites do worker](notifications/worker.md).
+`Ouroboros.Notifications.Worker` é um processo separado, sem API de negócio, com banco/migrations próprios e aceitação durável da #87. O consumidor vem desligado; habilitá-lo exige as dependências abaixo e provedor explícito. O único provedor disponível, `PickupDirectory`, é restrito a Development. Identity grava/publica intenções pela outbox das #85/#86. [Comportamento do worker](notifications/worker.md) e [deduplicação/recuperação](notifications/durable-processing.md).
+
+### Banco e migrations de Notifications
+
+Provisione `ouroboros_notifications`, `notifications_runtime` e `notifications_migrator` pelo [procedimento da #92](#provisionar-bancos-e-roles-por-serviço). Não use connection string de Identity nem fallback legado. O design-time lê **somente a variável** `ConnectionStrings__Notifications`; user-secrets não substituem essa variável para gerar/aplicar migrations. Na sessão de operação, forneça a conexão da role **`notifications_migrator`**, sem expô-la em argumento/histórico:
+
+```powershell
+$env:ConnectionStrings__Notifications = [Net.NetworkCredential]::new('', (Read-Host 'Conexão própria de migration de Notifications' -AsSecureString)).Password
+dotnet tool restore
+dotnet ef database update --project src/Services/Notifications/Ouroboros.Notifications --startup-project src/Services/Notifications/Ouroboros.Notifications.Worker --context NotificationsDbContext
+Remove-Item Env:ConnectionStrings__Notifications
+```
+
+`20261026081751_InitialNotificationsInbox` cria `notifications.inbox`, `supersessions`, `failure_outbox` e `processing_recoveries`, com histórico no mesmo schema; revoga seu acesso de runtime. Reaplique o provisionamento de privilégios após migrations conforme a operação dos bancos. Para executar, use **`notifications_runtime`** em `ConnectionStrings:Notifications` — também por variável `ConnectionStrings__Notifications` ou user-secrets próprios em Development. O validador recusa outra identidade de banco; runtime não aplica migrations, executa DDL ou lê o histórico. Não deixe a conexão de migration no ambiente do worker.
 
 ### Chaves de proteção de Notifications
 
@@ -493,7 +506,18 @@ pwsh -NoProfile -File scripts/messaging/new-notification-protection-key.ps1 -Dir
 
 O resultado é RSA3072, um PEM privado, `public.json` (`activeKeyId`, `keys` com `keyId`, `n`, `e`) e `private.json` (`keys` com `keyId`, `privateKeyPath`). No Windows, o diretório perde herança ampla e recebe ACL da conta que executou o gerador; no Linux, diretório `0700` e arquivos `0600`. Confira dono e permissões. Só Notifications recebe o manifesto/PEM privados; a operação entregará **somente `public.json`** ao produtor na #85. Para runtime sob outra conta, conceda leitura e travessia específicas, sem escrita ou acesso amplo. Nenhuma chave entra na imagem, Git ou logs.
 
-Rotação é operacional: gere um próximo par em outro diretório novo, com `keyId` novo, distribua a pública antes de ativá-la na origem e conserve no manifesto privado as entradas ainda necessárias para mensagens válidas. Não retire uma privada enquanto houver mensagem recuperável que precise dela, considerando prazos e a futura retenção das #85/#87. Não reutilize chaves de assinatura JWT. O leitor aceita até 16 entradas únicas e relê o manifesto; não há rotação, distribuição ou remoção automática de chaves. Os manifests atualizados devem ser substituídos atomicamente, com as mesmas permissões; o gerador não mescla arquivos existentes.
+Rotação é operacional: gere um próximo par em outro diretório novo, com `keyId` novo, distribua a pública antes de ativá-la na origem e conserve no manifesto privado as entradas ainda necessárias para mensagens válidas. Não retire uma privada enquanto houver mensagem recuperável que precise dela, considerando prazos e a retenção das #85/#87. Não reutilize chaves de assinatura JWT. O leitor aceita até 16 entradas únicas e relê o manifesto; não há rotação, distribuição ou remoção automática de chaves. Os manifests atualizados devem ser substituídos atomicamente, com as mesmas permissões; o gerador não mescla arquivos existentes.
+
+### Chaves de fingerprint de Notifications
+
+A deduplicação usa outro segredo HMAC de 32 bytes, exclusivo de Notifications. Gere-o em diretório **novo**, externo ao Git e ao contexto de build:
+
+```powershell
+$fingerprintDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para fingerprint de Notifications'))
+pwsh -NoProfile -File scripts/messaging/new-notification-fingerprint-key.ps1 -Directory $fingerprintDirectory
+```
+
+O script cria uma chave e `fingerprint.json` com `activeKeyId` e entradas `keyId`/`keyPath`, usando ACL da conta no Windows e diretório `0700`/arquivos `0600` no Linux. Configure `Notifications:FingerprintKeyRingPath` com caminho absoluto do manifesto. Conserve as entradas antigas enquanto houver tombstones que dependam delas, até 30 dias após o prazo absoluto; o leitor escolhe o `keyId` original ao comparar duplicatas. Admite até 16 entradas e não faz rotação automática. Não compartilhe esse segredo com Identity nem reutilize RSA, assinatura JWT, HMAC de alias ou chave AES de backup. Para outra conta/UID, conceda leitura/travessia específicas; ao montar no container, adapte os `keyPath` absolutos para o local interno, como no manifesto privado RSA.
 
 ### Configurar e iniciar
 
@@ -501,17 +525,21 @@ O worker tem `UserSecretsId` próprio, `ouroboros-notifications-development`. N�
 
 | Opção em `Notifications` | Padrão e efeito |
 | --- | --- |
-| `Consumer:Enabled` | `false`; habilitar exige Development, provedor e proteção/broker válidos |
+| `Consumer:Enabled` | `false`; habilitar exige provedor, banco, proteção/fingerprint e brokers válidos |
 | `Email:Provider` | `None`; `PickupDirectory` é aceito somente em Development; valor desconhecido é recusado |
 | `Email:From` | `nao-responda@ouroboros.local`; endereço único, sem CR/LF |
 | `Email:PickupDirectory` | `.local/notifications-emails`, relativa ao diretório compilado/publicado do worker; prefira pasta absoluta externa e restrita |
 | `Broker:Host` / `Broker:Port` | `localhost` / `5672` para processo local |
 | `Broker:User` / `Broker:Password` | `notifications_consumer` / externa; não usar operador nem credencial de falhas |
 | `PrivateKeyRingPath` | Caminho absoluto de `private.json`, externo e legível somente pelo receptor autorizado |
+| `FingerprintKeyRingPath` | Caminho absoluto de `fingerprint.json`, com chaves HMAC retidas para deduplicação |
+| `FailuresBroker:Host` / `Port` / `User` / `Password` | `localhost` / `5672` / `notifications_failures` / externa; senha distinta da credencial de consumo |
+| `ProcessingPollSeconds` | `1`, permitido de 1 a 30; intervalo do executor/relay |
+| `BackupDirectory` | Opcional; diretório gerenciado de backups **próprio de Notifications** para purga automática |
 
-`Identity:Email` no worker é erro de configuração. `None` não envia nem simula sucesso. A configuração é validada na subida; senha de broker ausente/curta, usuário incorreto ou caminho privado não absoluto impedem habilitar consumo. Arquivo privado ilegível ou conteúdo inválido suspendem a entrega quando necessários, sem expor o conteúdo.
+`Identity:Email` no worker é erro de configuração. `None` não envia nem simula sucesso. A configuração é validada na subida; senha de broker ausente/curta, usuário incorreto ou caminho privado não absoluto impedem habilitar consumo. Privada indisponível/incorreta suspende o processamento sem gastar chamada ao provedor; conteúdo ou tag AES inválidos terminam como `invalid-contract`, sem expor o conteúdo.
 
-Com RabbitMQ [iniciado e provisionado](#rabbitmq-local), chaves geradas e uma pasta de pickup externa já protegida com ACL/permissões da conta do worker:
+Com banco migrado, RabbitMQ [iniciado/provisionado](#rabbitmq-local), chaves geradas e pasta de pickup externa restrita à conta do worker:
 
 ```powershell
 $env:DOTNET_ENVIRONMENT = 'Development'
@@ -519,12 +547,41 @@ $env:Notifications__Consumer__Enabled = 'true'
 $env:Notifications__Email__Provider = 'PickupDirectory'
 $env:Notifications__Email__PickupDirectory = [IO.Path]::GetFullPath((Read-Host 'Pasta externa restrita para os e-mails'))
 $env:Notifications__PrivateKeyRingPath = Join-Path $protectionDirectory 'private.json'
+$env:Notifications__FingerprintKeyRingPath = Join-Path $fingerprintDirectory 'fingerprint.json'
+$env:ConnectionStrings__Notifications = [Net.NetworkCredential]::new('', (Read-Host 'Conexão própria de notifications_runtime' -AsSecureString)).Password
 # O gerenciador de segredos pode definir esta variável; a leitura abaixo não grava a senha no histórico.
 $env:Notifications__Broker__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha de notifications_consumer' -AsSecureString)).Password
+$env:Notifications__FailuresBroker__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha distinta de notifications_failures' -AsSecureString)).Password
 dotnet run --project src/Services/Notifications/Ouroboros.Notifications.Worker
 ```
 
-O worker não publica mensagens de teste nem solicitações de Identity. Ele aguarda o contrato protegido na fila `notifications.email.v1`. `.eml` preserva link secreto em claro como artefato de entrega: não copie seu conteúdo a logs/issues, restrinja acesso e remova os arquivos quando o ensaio terminar. O arquivo estável `<messageId sem hífens>.eml` evita sobrescrita local; não constitui a deduplicação persistente futura. Após o processo encerrar, retire a senha do ambiente da sessão, se foi definida para o ensaio: `Remove-Item Env:Notifications__Broker__Password`.
+O worker recebe o contrato protegido na fila `notifications.email.v1`, persiste antes do ACK e envia pelo executor; o relay publica somente referências sanitizadas de falha. Ajuste `Notifications__Broker__Host`/`Port` **e** `Notifications__FailuresBroker__Host`/`Port` ao ambiente; defaults `localhost:5672` servem para processo local. Fora de Development, os brokers exigem TLS/certificados válidos, sem declarar topologia pelo runtime. `.eml` contém link secreto em claro como artefato de entrega: restrinja a pasta e não copie conteúdo a logs/issues. A idempotência do arquivo complementa a inbox, sem prometer exactly-once. Depois do ensaio, retire da sessão as duas senhas e `ConnectionStrings__Notifications` se foram definidas para ele.
+
+### Recuperar processamento e referências de falha
+
+Primeiro corrija a chave/configuração e reinicie o processo se alterou opções. Trabalho `Accepted` suspenso por proteção indisponível pode ser retomado explicitamente, sem ler conteúdo. Com conexão libpq autorizada do **banco de Notifications**, execute por id público:
+
+```powershell
+$messageId = [Guid]::Parse((Read-Host 'Id da mensagem suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file scripts/messaging/resume-notification-processing.sql
+```
+
+Só retoma suspensa ainda válida, com conteúdo, sem lease e com menos de cinco chamadas. Preserva identidade, contagem e prazo e audita `current_user` em `processing_recoveries`. Zero linhas não autoriza forçar terminal/contador. `Delivered`, `Failed`, `Expired` e `Cancelled` não são reabertos; recusa permanente ou esgotamento descartam conteúdo e exigem nova intenção de negócio. [Estados e tentativas](notifications/durable-processing.md#executor-tentativas-e-ambiguidade).
+
+Uma referência sanitizada suspensa por rota/autenticação/topologia do broker de falhas tem retomada separada, depois do reparo:
+
+```powershell
+$failureId = [Guid]::Parse((Read-Host 'Id da referência de falha suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=failure_id=$failureId --file scripts/messaging/resume-notification-failure-publication.sql
+```
+
+A operação também é auditada; só retoma referência não publicada, suspensa, sem lease e dentro da retenção. Não altera o e-mail nem reenvia seu conteúdo. Não copie o corpo/ciphertext para a fila de falhas nem republique uma referência na fila principal para fazer replay. A fila recebe somente ids/códigos/prazos; o TTL usa o tempo restante, não um novo prazo de 30 dias.
+
+### Backup e restauração de Notifications
+
+Use o mesmo [wrapper de backup protegido](#backup-protegido-das-intenções-de-e-mail) com dump do banco de Notifications, chave AES externa própria e diretório gerenciado **separado** do de Identity. Configure `Notifications:BackupDirectory` (ou `Notifications__BackupDirectory`) para purgar esses arquivos; a limpeza é tentada antes do SQL, independentemente do executor/banco. O formato continua `email-intents-*.json`, com marcador do wrapper: não renomeie arquivos para induzir adoção de backups legados.
+
+Restaure com `Notifications:Consumer:Enabled=false`, credencial própria e destinos controlados; preserve os terminais e não zere tentativas nem estenda expiração. Depois do restore, mantenha consumidor/executor/relay desabilitados e execute a manutenção com a conexão de runtime válida para reaplicar expiração/limpeza antes de habilitar. A manutenção roda mesmo com consumo desligado quando a conexão está configurada. Não há promessa de RPO zero. Auditoria do wrapper cobre suas operações; acesso direto a arquivos requer controles do operador.
 
 ### Imagem Linux de Notifications
 
@@ -538,7 +595,7 @@ docker run --rm --name ouroboros-notifications-local ouroboros-notifications-loc
 
 O último comando inicia o host com consumo desabilitado; encerre com Ctrl+C. O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; o processo executa como UID 1654, com pickup padrão gravável. O Dockerfile tem ignore próprio para excluir `.env`, PEM, chaves, `.local`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
 
-Para habilitar o consumo da imagem em Development, forneça configuração de broker acessível pelo container e monte chaves externas somente de leitura. **`private.json` gerado no host contém caminhos absolutos do host**: se montar em `/keys`, prepare uma cópia operacional do manifesto com `privateKeyPath=/keys/<keyId>.pem`, um caminho absoluto válido dentro do container. O gerador não reescreve isso automaticamente. Conceda leitura dos arquivos e travessia do diretório ao UID 1654, preservando escrita exclusiva da operação; somente Notifications recebe essa montagem. Pickup externo também precisa de permissão de escrita desse UID e acesso restrito. Não há Compose de serviços ou probes nesta entrega, nem publicação automática da imagem.
+Para habilitar o consumo da imagem em Development, forneça configuração de broker acessível pelo container e monte chaves externas somente de leitura. **`private.json` gerado no host contém caminhos absolutos do host**: se montar em `/keys`, prepare uma cópia operacional do manifesto com `privateKeyPath=/keys/<keyId>.pem`, um caminho absoluto válido dentro do container. O gerador não reescreve isso automaticamente. Conceda leitura dos arquivos e travessia do diretório ao UID 1654, preservando escrita exclusiva da operação; somente Notifications recebe essa montagem. Aplique o mesmo ajuste de caminhos/leitura ao manifesto HMAC `fingerprint.json`; não monte segredos de Identity. Configure banco próprio e os dois hosts de broker para os endereços alcançáveis no container. Pickup externo também precisa de permissão de escrita desse UID e acesso restrito. Não há Compose de serviços ou probes nesta entrega, nem publicação automática da imagem.
 
 Teste reproduzível do worker com broker real e processo filho, sem alterar o `.env` ou broker local:
 
@@ -602,7 +659,7 @@ $env:Identity__EmailPublisher__Password = [Net.NetworkCredential]::new('', (Read
 dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
 ```
 
-`dotnet run` usa o perfil Development padrão. Fora do ambiente local, configure `Identity__EmailPublisher__Host`/`Port` para o listener TLS; não desabilite a validação do certificado. O processo não declara topologia: faça a correção pelo provisionador/operador. Para ver `.eml` em Development, inicie separadamente o [worker](#executar-o-worker-de-notifications) com as privadas de proteção necessárias. Esse consumidor ainda não tem inbox/deduplicação persistente; a #87 completa a responsabilidade durável. Após o ensaio, remova a senha da sessão se foi definida localmente: `Remove-Item Env:Identity__EmailPublisher__Password`.
+`dotnet run` usa o perfil Development padrão. Fora do ambiente local, configure `Identity__EmailPublisher__Host`/`Port` para o listener TLS; não desabilite a validação do certificado. O processo não declara topologia: faça a correção pelo provisionador/operador. Para ver `.eml` em Development, inicie separadamente o [worker](#executar-o-worker-de-notifications) com as privadas de proteção necessárias. O consumidor da #87 persiste aceitação/deduplicação antes do ACK; configure seu banco, fingerprint e broker de falhas conforme a seção do worker. Após o ensaio, remova a senha da sessão se foi definida localmente: `Remove-Item Env:Identity__EmailPublisher__Password`.
 
 Broker parado/timeout gera retry com recursos limitados e preserva a intenção até o prazo. `basic.nack` por capacidade é transitório. Autenticação, certificado, permissão/topologia conhecida ou retorno por ausência do binding fixo suspendem a intenção com `last_failure_code=configuration-suspended`: **corrigir e reiniciar não retoma a linha automaticamente**. Corrija a causa, reinicie Identity se alterou opções/credenciais e execute a retomada explícita pela conexão autorizada do banco de Identity. Com autenticação libpq já configurada pelo operador, sem credenciais em argumentos:
 
@@ -660,11 +717,11 @@ Backups antigos de `transfer-identity.sh` e seus CSVs de reconciliação não s�
 
 ## E-mails em desenvolvimento
 
-Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática exige [habilitar o publicador](#publicar-e-retomar-a-outbox-de-identity); a responsabilidade durável de Notifications ainda depende da #87. Não leia ou registre o token da outbox para contornar essa etapa.
+Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática exige [habilitar o publicador](#publicar-e-retomar-a-outbox-de-identity); Notifications persiste aceitação/deduplicação pela #87, sem prometer exactly-once no provedor. Não leia ou registre o token da outbox para contornar essa etapa.
 
 ## Cadastrar um cliente e entrar
 
-O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. O primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção. O caso de uso HTTP não gera `.eml`: em Development, habilite [publicador](#publicar-e-retomar-a-outbox-de-identity) e [worker](#executar-o-worker-de-notifications) para receber o arquivo no pickup de Notifications. A aceitação durável continua pendente da #87.
+O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. O primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção. O caso de uso HTTP não gera `.eml`: em Development, habilite [publicador](#publicar-e-retomar-a-outbox-de-identity) e [worker](#executar-o-worker-de-notifications) para receber o arquivo no pickup de Notifications. Notifications reconhece a mensagem somente depois de persistir sua aceitação/classificação, conforme a #87.
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
@@ -680,7 +737,7 @@ Com uma conta de cliente criada, solicite a redefinição pelo listener público
 Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
 ```
 
-A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Com publicador/worker desabilitados, não há `.eml`; para o ensaio local, habilite os dois conforme [publicação](#publicar-e-retomar-a-outbox-de-identity) e [Notifications](#executar-o-worker-de-notifications). A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A publicação é confirmada na #86, mas a entrega com aceitação/deduplicação durável ainda depende da #87.
+A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Com publicador/worker desabilitados, não há `.eml`; para o ensaio local, habilite os dois conforme [publicação](#publicar-e-retomar-a-outbox-de-identity) e [Notifications](#executar-o-worker-de-notifications). A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A publicação é confirmada na #86, e a aceitação/deduplicação durável está na #87, com possível ambiguidade na entrega ao provedor.
 
 ## Exemplos HTTP por funcionalidade
 

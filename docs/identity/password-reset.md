@@ -26,7 +26,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é `identity.email_tokens`, criada por `AddEmailTokens`, e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para Identity. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
-- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é a #87.
+- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é implementado pela #87.
 
 ## Configuração
 
@@ -43,7 +43,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; a responsabilidade durável de Notifications ainda é a #87.
+O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; Notifications persiste aceitação/deduplicação pela #87.
 
 ## Solicitar a redefinição
 
@@ -71,7 +71,7 @@ A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que pro
 http://localhost:3000/senha/redefinir?token=<token>
 ```
 
-A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. A API não gera `.eml`; a entrega exige publicador/worker configurados, com responsabilidade durável ainda pendente da #87 ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
+A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. A API não gera `.eml`; a entrega exige publicador/worker configurados, com responsabilidade durável implementada na #87 ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
 
 ### E-mail inválido (400)
 
@@ -230,7 +230,7 @@ Os dois parâmetros e seu histórico pertencem a Identity desde `OwnIdentityPara
 - **Invalidação por terceiros.** Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP. A senha atual continua valendo.
 - **Access tokens sobrevivem à redefinição.** Os refresh tokens são revogados, mas um access token emitido antes vale até expirar (15 minutos), porque a validação do JWT não consulta a sessão ([Fazer login](login.md#limitações)).
 - **Sem recuperação para administradores** (veja [Contas de backoffice](#contas-de-backoffice)).
-- **Entrega confiável parcial.** O publicador vem desabilitado por padrão; quando habilitado, publica com confirmação e recuperação. Aceitação durável/deduplicação de Notifications ainda é a #87 ([Outbox](email-outbox.md)).
+- **Entrega exige processos configurados.** Publicador e consumidor vêm desabilitados por padrão. Quando habilitados, a publicação é confirmada e a aceitação é durável/deduplicada; a fronteira com o provedor ainda admite duplicação ([Outbox](email-outbox.md), [processamento](../notifications/durable-processing.md)).
 - **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Sem aviso de "senha alterada"** por e-mail.
 - **Sem front-end.** O link aponta para `http://localhost:3000/senha/redefinir`, que não faz parte deste repositório.

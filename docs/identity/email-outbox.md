@@ -4,7 +4,7 @@
 
 Na solicitação de cadastro ou redefinição de senha, Identity grava token e intenção protegida de e-mail na mesma transação local. A intenção fica em `identity.email_intents`, criada pela migration `20261026015350_AddEmailIntents`; a migration `20261026025858_AddEmailPublicationLeases` acrescenta progresso de publicação. O caso de uso HTTP não chama broker nem provedor, e o envio local foi retirado de Identity. Origens: [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85) e [#86](https://github.com/adnerscarpelini/ouroboros-server/issues/86), sobre a [política da #79](../architecture/reliable-delivery.md).
 
-A intenção confirmada é recuperável após queda do processo. `EmailOutboxPublisher`, serviço hospedado isolado dentro de Identity, publica no RabbitMQ quando explicitamente habilitado; vem desabilitado por padrão. O worker da #72 pode receber essas mensagens em Development, mas aceitação durável, deduplicação e retries persistidos de Notifications continuam na #87. O fluxo confiável completo ainda não está concluído. `202` não comprova persistência nem entrega e mantém o mesmo corpo contra enumeração.
+A intenção confirmada é recuperável após queda do processo. `EmailOutboxPublisher`, serviço hospedado isolado dentro de Identity, publica no RabbitMQ quando explicitamente habilitado; vem desabilitado por padrão. O worker com a #87 persiste aceitação/deduplicação antes do ACK e controla tentativas em banco próprio. O provedor local continua restrito a Development, e aceitação não significa entrega única ([processamento](../notifications/durable-processing.md)). `202` não comprova persistência nem entrega e mantém o mesmo corpo contra enumeração.
 
 ## Atomicidade e substituição
 

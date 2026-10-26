@@ -12,6 +12,8 @@ internal sealed class NotificationTestKeys : IDisposable
     internal string DirectoryPath { get; } = Path.Combine(Path.GetTempPath(), "ouroboros-notifications-" + Guid.NewGuid().ToString("N"));
     internal string RingPath => Path.Combine(DirectoryPath, "private.json");
     internal string EmailsPath => Path.Combine(DirectoryPath, "emails");
+    internal string FingerprintRingPath => Path.Combine(DirectoryPath, "fingerprint.json");
+    private readonly List<(string Id, string Path)> _fingerprints = [];
     internal const string KeyId = "notifications-test-key";
     internal static readonly EmailContent Content = new("receiver@example.com", "Confirme seu e-mail", "Use http://localhost/confirm?token=private-test-token e a solicitação mais recente.", "registration");
 
@@ -23,6 +25,19 @@ internal sealed class NotificationTestKeys : IDisposable
         File.WriteAllText(RingPath, JsonSerializer.Serialize(new
         {
             keys = new[] { new { keyId = KeyId, privateKeyPath = path } },
+        }));
+        RotateFingerprintKey("first");
+    }
+
+    internal void RotateFingerprintKey(string keyId)
+    {
+        var path = Path.Combine(DirectoryPath, keyId + ".key");
+        File.WriteAllBytes(path, RandomNumberGenerator.GetBytes(32));
+        _fingerprints.Add((keyId, path));
+        File.WriteAllText(FingerprintRingPath, JsonSerializer.Serialize(new
+        {
+            activeKeyId = keyId,
+            keys = _fingerprints.Select(entry => new { keyId = entry.Id, keyPath = entry.Path }),
         }));
     }
 

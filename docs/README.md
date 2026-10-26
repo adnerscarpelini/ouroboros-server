@@ -12,10 +12,11 @@
 As funcionalidades ficam em `<service-name>/<feature-name>.md`, na pasta do serviço proprietário:
 
 - Notifications
-  - [Worker de entrega de e-mail](notifications/worker.md): processo separado, conteúdo protegido, adaptador local, falhas e limites anteriores à aceitação durável.
+  - [Aceitação durável e processamento](notifications/durable-processing.md): inbox, deduplicação, tentativas, referências sanitizadas e recuperação auditada, com banco próprio.
+  - [Worker de entrega de e-mail](notifications/worker.md): processo separado, conteúdo protegido, adaptador local e imagem Linux.
 
 - Identity
-  - [Outbox e publicação confirmada de e-mail](identity/email-outbox.md): token/intenção no mesmo commit, confirmação recuperável, substituição, expiração, retenção e backups; deduplicação persistente ainda pendente.
+  - [Outbox e publicação confirmada de e-mail](identity/email-outbox.md): token/intenção no mesmo commit, confirmação recuperável, substituição, expiração, retenção e backups; aceitação/deduplicação persistentes em Notifications.
   - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, preservação do histórico, procedimento com backup/restauração antes do corte e relação com a transferência do banco.
   - [Portas de leitura e escrita de parâmetros](identity/parameter-ports.md): contratos internos de Application e adaptadores locais, com leitura sem cache e valor, autor, revisão e histórico confirmados atomicamente.
   - [Persistência do ciclo de sessões por portas](identity/session-persistence.md): orquestração em Application, EF e SQL em Infrastructure, unidade de trabalho completa e locks compartilhados com a redefinição de senha.

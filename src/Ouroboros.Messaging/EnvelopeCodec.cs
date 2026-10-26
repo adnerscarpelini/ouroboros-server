@@ -31,11 +31,13 @@ public static class EnvelopeCodec
 
     public static byte[] EncodeFailure(MessageFailureReference reference, DateTimeOffset originalExpiresAt)
     {
+        var retentionLimit = originalExpiresAt > DateTimeOffset.MaxValue.AddDays(-30)
+            ? DateTimeOffset.MaxValue : originalExpiresAt.AddDays(30);
         if (reference.FailureId == Guid.Empty || reference.MessageId == Guid.Empty
             || reference.Code is not ("invalid-contract" or "unsupported-version" or "content-conflict"
                 or "provider-permanent" or "retry-exhausted" or "expired" or "protection-unavailable")
             || reference.OccurredAt.Offset != TimeSpan.Zero || reference.RetainUntil.Offset != TimeSpan.Zero
-            || reference.RetainUntil <= reference.OccurredAt || reference.RetainUntil > originalExpiresAt.AddDays(30))
+            || reference.RetainUntil <= reference.OccurredAt || reference.RetainUntil > retentionLimit)
         {
             throw new ArgumentException("Referência de falha inválida.");
         }

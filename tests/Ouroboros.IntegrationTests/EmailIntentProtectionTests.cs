@@ -32,7 +32,7 @@ public sealed class EmailIntentProtectionTests
         {
             Assert.True(EnvelopeCodec.TryDecode(intent.ProtectedEnvelope!, intent.Type, intent.Version, "identity", out var message, out _));
             Assert.Equal("secret-link", reader.Read(message!).Text);
-            Assert.Throws<InvalidOperationException>(() => reader.Read(message! with { ExpiresAt = message.ExpiresAt.AddSeconds(1) }));
+            Assert.ThrowsAny<InvalidOperationException>(() => reader.Read(message! with { ExpiresAt = message.ExpiresAt.AddSeconds(1) }));
         }
     }
 

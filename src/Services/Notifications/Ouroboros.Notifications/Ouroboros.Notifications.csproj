@@ -2,6 +2,8 @@
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="../../../Ouroboros.Messaging/Ouroboros.Messaging.csproj" />
+    <ProjectReference Include="../../../Ouroboros.BuildingBlocks/Ouroboros.BuildingBlocks.csproj" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <InternalsVisibleTo Include="Ouroboros.IntegrationTests" />
   </ItemGroup>
 </Project>

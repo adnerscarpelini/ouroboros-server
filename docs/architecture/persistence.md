@@ -51,6 +51,8 @@ O procedimento `scripts/database`, executado pela credencial administrativa da i
 
 ## Migrations geradas
 
+Notifications possui `NotificationsDbContext` e migrations em `src/Services/Notifications/Ouroboros.Notifications/Infrastructure/Persistence/Migrations`, começando por `20261026081751_InitialNotificationsInbox`. Usa somente `ConnectionStrings:Notifications`, schema `notifications` e roles `notifications_runtime`/`notifications_migrator`, sem fallback para Identity. A factory design-time exige a variável `ConnectionStrings__Notifications` da operação de migration; runtime não migra, não faz DDL nem lê o histórico. [Execução e recuperação](../development.md#banco-e-migrations-de-notifications).
+
 Histórico pertence ao serviço. Aplicar migrations explicitamente por comando, script ou bundle, sem execução automática na subida da API. Classes geradas podem ser públicas para descoberta do EF; não são contratos de integração.
 
 As migrations de Identity ficam em `src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations`. O modelo de dados não depende do caminho, do assembly nem do namespace da biblioteca: `IdentityDbContext`, o schema `identity`, a tabela de histórico, os ids das migrations e o snapshot são os mesmos de bancos já migrados, e o EF não encontra mudanças pendentes no modelo. [`IdentityModelStabilityTests`](../../tests/Ouroboros.IntegrationTests/IdentityModelStabilityTests.cs) verifica ids, schema e ausência de mudanças pendentes; reorganizar pastas ou namespaces não deve gerar migration.

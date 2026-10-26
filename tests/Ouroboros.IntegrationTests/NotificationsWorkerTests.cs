@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,11 +11,13 @@ using Ouroboros.Notifications;
 using Ouroboros.Notifications.Application;
 using Ouroboros.Notifications.Contracts;
 using Ouroboros.Notifications.Infrastructure;
+using Ouroboros.Notifications.Infrastructure.Persistence;
 using RabbitMQ.Client;
 
 namespace Ouroboros.IntegrationTests;
 
-public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFixture<RabbitMqFixture>
+public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, ProvisionedInstance database)
+    : IClassFixture<RabbitMqFixture>, IClassFixture<ProvisionedInstance>
 {
     [Fact]
     public async Task Protected_content_is_preserved_in_eml_and_repetition_keeps_stable_file()
@@ -43,7 +46,7 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         using var scope = host.Services.CreateScope();
         var delivery = scope.ServiceProvider.GetRequiredService<INotificationDelivery>();
         var message = keys.Message();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
+        var error = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
             message with { ExpiresAt = message.ExpiresAt.AddMinutes(1) }, TestContext.Current.CancellationToken));
         Assert.DoesNotContain(NotificationTestKeys.Content.Text, error.ToString());
         Assert.DoesNotContain(message.Payload.Ciphertext, error.ToString());
@@ -57,9 +60,9 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         using var host = Host(keys);
         using var scope = host.Services.CreateScope();
         var delivery = scope.ServiceProvider.GetRequiredService<INotificationDelivery>();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
             keys.Message(NotificationTestKeys.Content with { Subject = "subject\r\nBcc: other@example.com" }), TestContext.Current.CancellationToken));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => delivery.ExecuteAsync(
             keys.Message(changeMetadata: metadata => metadata with { Version = 2 }), TestContext.Current.CancellationToken));
         var expired = keys.Message(changeMetadata: metadata => metadata with { OccurredAt = DateTimeOffset.UtcNow.AddHours(-1), ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) });
         Assert.Equal(NotificationDeliveryResult.Expired, await delivery.ExecuteAsync(expired, TestContext.Current.CancellationToken));
@@ -94,6 +97,7 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         using var keys = new NotificationTestKeys();
         var message = keys.Message();
         await PurgeAsync();
+        await NotificationDatabaseScenario.ResetAsync(database);
         using var process = StartWorker(keys);
         var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
         var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
@@ -118,36 +122,42 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
     }
 
     [Fact]
-    public async Task Incompatible_message_suspends_process_without_ack_or_original_dead_letter()
+    public async Task Incompatible_message_is_durably_classified_and_acked_without_copying_original_to_failure_queue()
     {
         using var keys = new NotificationTestKeys();
         var message = keys.Message(changeMetadata: metadata => metadata with { Version = 2 });
         await PurgeAsync();
+        await NotificationDatabaseScenario.ResetAsync(database);
         using var process = StartWorker(keys);
         var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
         var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
         try
         {
             await PublishAsync(EnvelopeCodec.Encode(message));
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            await process.WaitForExitAsync(timeout.Token);
-            Assert.NotEqual(0, process.ExitCode);
+            await WaitAsync(async () =>
+            {
+                await using var context = NotificationDatabaseScenario.Context(database);
+                return await context.Failures.AnyAsync(row => row.Code == "unsupported-version", TestContext.Current.CancellationToken);
+            });
+            await using var connection = await broker.ConnectAsync();
+            await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(RabbitMqFixture.FailuresQueue, TestContext.Current.CancellationToken)).MessageCount > 0);
+            var reference = await channel.BasicGetAsync(RabbitMqFixture.FailuresQueue, true, TestContext.Current.CancellationToken);
+            Assert.NotNull(reference);
+            var text = System.Text.Encoding.UTF8.GetString(reference.Body.Span);
+            Assert.Contains("unsupported-version", text);
+            Assert.DoesNotContain(message.Payload.Ciphertext, text);
+            Assert.DoesNotContain(NotificationTestKeys.Content.Recipient, text);
+            Assert.Null(await channel.BasicGetAsync(RabbitMqFixture.Queue, true, TestContext.Current.CancellationToken));
+            Assert.False(process.HasExited);
         }
         finally
         {
             if (!process.HasExited) { process.Kill(entireProcessTree: true); }
             await process.WaitForExitAsync(TestContext.Current.CancellationToken);
         }
-        Assert.Contains("unsupported-version", await output + await error);
+        Assert.DoesNotContain("private-test-token", await output + await error);
         Assert.False(Directory.Exists(keys.EmailsPath));
-        await using var connection = await broker.ConnectAsync();
-        await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
-        await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(RabbitMqFixture.Queue, TestContext.Current.CancellationToken)).ConsumerCount == 0);
-        var redelivered = await channel.BasicGetAsync(RabbitMqFixture.Queue, true, TestContext.Current.CancellationToken);
-        Assert.NotNull(redelivered);
-        Assert.Equal(EnvelopeCodec.Encode(message), redelivered.Body.ToArray());
-        Assert.True(redelivered.Redelivered);
     }
 
     private static IHost Host(NotificationTestKeys keys, Dictionary<string, string?>? changes = null)
@@ -171,7 +181,7 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         return builder.Build();
     }
 
-    private Process StartWorker(NotificationTestKeys keys)
+    private Process StartWorker(NotificationTestKeys keys, IReadOnlyDictionary<string, string>? overrides = null)
     {
         var configuration = typeof(NotificationsWorkerTests).Assembly.GetCustomAttribute<AssemblyConfigurationAttribute>()!.Configuration;
         var path = RepositoryRoot.Resolve("src", "Services", "Notifications", "Ouroboros.Notifications.Worker", "bin", configuration, "net10.0", "Ouroboros.Notifications.Worker.dll");
@@ -185,9 +195,15 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         start.Environment["Notifications__Email__Provider"] = "PickupDirectory";
         start.Environment["Notifications__Email__PickupDirectory"] = keys.EmailsPath;
         start.Environment["Notifications__PrivateKeyRingPath"] = keys.RingPath;
+        start.Environment["Notifications__FingerprintKeyRingPath"] = keys.FingerprintRingPath;
+        start.Environment["ConnectionStrings__Notifications"] = database.ConnectionStringFor(ProvisionedInstance.NotificationsRuntime, ProvisionedInstance.NotificationsDatabase);
         start.Environment["Notifications__Broker__Host"] = broker.Host;
         start.Environment["Notifications__Broker__Port"] = broker.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
         start.Environment["Notifications__Broker__Password"] = broker.ConsumerPassword;
+        start.Environment["Notifications__FailuresBroker__Host"] = broker.Host;
+        start.Environment["Notifications__FailuresBroker__Port"] = broker.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        start.Environment["Notifications__FailuresBroker__Password"] = broker.FailuresPassword;
+        foreach (var pair in overrides ?? new Dictionary<string, string>()) { start.Environment[pair.Key] = pair.Value; }
         return Process.Start(start) ?? throw new InvalidOperationException("Worker não iniciou.");
     }
 
@@ -204,6 +220,7 @@ public sealed class NotificationsWorkerTests(RabbitMqFixture broker) : IClassFix
         await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
         await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(RabbitMqFixture.Queue, TestContext.Current.CancellationToken)).ConsumerCount == 0);
         await channel.QueuePurgeAsync(RabbitMqFixture.Queue, cancellationToken: TestContext.Current.CancellationToken);
+        await channel.QueuePurgeAsync(RabbitMqFixture.FailuresQueue, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     private static async Task WaitAsync(Func<Task<bool>> condition)

@@ -3,7 +3,7 @@ using Ouroboros.Notifications.Contracts;
 
 namespace Ouroboros.Notifications.Application;
 
-// Entrega direta de desenvolvimento. A aceitação durável e o executor persistente são a #87.
+// Primitiva de entrega; aceitação durável e concorrência pertencem à inbox e ao executor.
 internal sealed class NotificationDelivery(IEmailPayloadReader payloads, IEmailTransport transport, TimeProvider clock) : INotificationDelivery
 {
     public async Task<NotificationDeliveryResult> ExecuteAsync(MessageEnvelope message, CancellationToken cancellationToken)

@@ -3,13 +3,13 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Ouroboros.Messaging;
-using Ouroboros.Notifications.Contracts;
+using Ouroboros.Notifications.Infrastructure.Persistence;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
 namespace Ouroboros.Notifications.Infrastructure;
 
-// Sem inbox até a #87. Falha suspende o processo e devolve o original ao broker sem ACK.
+// Aceitação local durável antecede o ACK; envio ao provedor ocorre em outro executor.
 internal sealed partial class EmailConsumer(IOptions<NotificationOptions> options, IHostEnvironment environment,
     IServiceScopeFactory scopes, ILogger<EmailConsumer> logger) : BackgroundService
 {
@@ -27,11 +27,6 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
                 await ConsumeAsync(factory, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (DeliverySuspendedException)
-            {
-                Environment.ExitCode = 1;
-                throw new InvalidOperationException("Notifications suspenso após falha de contrato/provedor; mensagem não reconhecida.");
-            }
             catch (Exception exception) when (exception is RabbitMQ.Client.Exceptions.RabbitMQClientException or IOException or TimeoutException)
             {
                 LogBrokerUnavailable(logger);
@@ -54,32 +49,26 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
             Guid? id = null;
             try
             {
-                if (!EnvelopeCodec.TryDecode(delivery.Body, "notification.email.requested", 1, "identity", out var message, out var code))
-                {
-                    LogSuspended(logger, null, code);
-                    ended.TrySetException(new DeliverySuspendedException());
-                    return;
-                }
-                id = message!.MessageId;
+                id = Guid.TryParse(delivery.BasicProperties.MessageId, out var parsed) ? parsed : null;
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 timeout.CancelAfter(TimeSpan.FromSeconds(10));
                 await using var scope = scopes.CreateAsyncScope();
-                var result = await scope.ServiceProvider.GetRequiredService<INotificationDelivery>().ExecuteAsync(message, timeout.Token);
+                var result = await scope.ServiceProvider.GetRequiredService<InboxAcceptance>()
+                    .AcceptAsync(delivery.Body, delivery.BasicProperties.MessageId, timeout.Token);
                 await channel.BasicAckAsync(delivery.DeliveryTag, false, stoppingToken);
-                LogHandled(logger, message.MessageId, result.ToString());
+                LogHandled(logger, id, result.ToString());
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             catch (Exception)
             {
-                LogSuspended(logger, id, "delivery-failed");
-                ended.TrySetException(new DeliverySuspendedException());
+                LogSuspended(logger, id, "acceptance-unavailable");
+                ended.TrySetException(new IOException("acceptance-unavailable"));
             }
         };
         await channel.BasicConsumeAsync("notifications.email.v1", false, consumer, stoppingToken);
         await ended.Task.WaitAsync(stoppingToken);
     }
 
-    private sealed class DeliverySuspendedException : Exception;
     [LoggerMessage(Level = LogLevel.Information, Message = "Consumo de Notifications desabilitado.")]
     private static partial void LogDisabled(ILogger logger);
     [LoggerMessage(Level = LogLevel.Warning, Message = "Broker de Notifications indisponível; nova conexão será tentada.")]
@@ -87,5 +76,5 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
     [LoggerMessage(Level = LogLevel.Error, Message = "Notifications suspenso para {MessageId}: {Code}. Nenhum ACK.")]
     private static partial void LogSuspended(ILogger logger, Guid? messageId, string code);
     [LoggerMessage(Level = LogLevel.Information, Message = "Notifications processou {MessageId}: {State}.")]
-    private static partial void LogHandled(ILogger logger, Guid messageId, string state);
+    private static partial void LogHandled(ILogger logger, Guid? messageId, string state);
 }

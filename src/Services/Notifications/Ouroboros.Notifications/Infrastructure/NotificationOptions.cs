@@ -2,6 +2,7 @@ using System.Net.Mail;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Npgsql;
 
 namespace Ouroboros.Notifications.Infrastructure;
 
@@ -12,6 +13,10 @@ internal sealed class NotificationOptions
     public BrokerSettings Broker { get; set; } = new();
     public EmailSettings Email { get; set; } = new();
     public string PrivateKeyRingPath { get; set; } = "";
+    public string FingerprintKeyRingPath { get; set; } = "";
+    public string? BackupDirectory { get; set; }
+    public int ProcessingPollSeconds { get; set; } = 1;
+    public BrokerSettings FailuresBroker { get; set; } = new() { User = "notifications_failures" };
 }
 
 internal sealed class ConsumerSettings { public bool Enabled { get; set; } }
@@ -51,9 +56,9 @@ internal sealed class NotificationOptionsValidator(IConfiguration configuration,
         {
             return ValidateOptionsResult.Fail("Notifications:Email:From inválido.");
         }
-        if (options.Consumer.Enabled && (!environment.IsDevelopment() || options.Email.Provider == "None"))
+        if (options.Consumer.Enabled && options.Email.Provider == "None")
         {
-            return ValidateOptionsResult.Fail("Entrega direta exige Development e provedor explícito; aceitação durável ainda não está disponível.");
+            return ValidateOptionsResult.Fail("Processamento exige um provedor explícito de Notifications.");
         }
         if (options.Consumer.Enabled && (string.IsNullOrWhiteSpace(options.PrivateKeyRingPath)
             || !Path.IsPathFullyQualified(options.PrivateKeyRingPath) || options.Broker.User != "notifications_consumer"
@@ -61,6 +66,25 @@ internal sealed class NotificationOptionsValidator(IConfiguration configuration,
             || string.IsNullOrWhiteSpace(options.Broker.Host) || options.Broker.Port is < 1 or > 65535))
         {
             return ValidateOptionsResult.Fail("Configuração de consumo/proteção de Notifications incompleta ou inválida.");
+        }
+        if (options.Consumer.Enabled)
+        {
+            if (!Path.IsPathFullyQualified(options.FingerprintKeyRingPath) || options.ProcessingPollSeconds is < 1 or > 30
+                || options.FailuresBroker.User != "notifications_failures" || options.FailuresBroker.Password.Length < 32
+                || options.FailuresBroker.Password == options.Broker.Password || string.IsNullOrWhiteSpace(options.FailuresBroker.Host)
+                || options.FailuresBroker.Port is < 1 or > 65535)
+            { return ValidateOptionsResult.Fail("Configuração de impressão, execução ou publicação sanitizada incompleta."); }
+        }
+        if (options.Consumer.Enabled || !string.IsNullOrWhiteSpace(configuration.GetConnectionString("Notifications")))
+        {
+            try
+            {
+                var database = new NpgsqlConnectionStringBuilder(configuration.GetConnectionString("Notifications"));
+                if (database.Username != "notifications_runtime" || string.IsNullOrWhiteSpace(database.Password)
+                    || string.IsNullOrWhiteSpace(database.Database) || string.IsNullOrWhiteSpace(database.Host))
+                { return ValidateOptionsResult.Fail("Configure somente a conexão própria de runtime de Notifications."); }
+            }
+            catch (ArgumentException) { return ValidateOptionsResult.Fail("Conexão própria de Notifications inválida."); }
         }
         return ValidateOptionsResult.Success;
     }
