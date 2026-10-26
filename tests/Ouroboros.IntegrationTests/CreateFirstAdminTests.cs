@@ -198,7 +198,14 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
                     AND query LIKE '%identity:create-first-admin%'
                 """))
             {
-                Assert.False(first.HasExited || second.HasExited, "Os dois comandos devem aguardar o advisory lock global.");
+                if (first.HasExited || second.HasExited)
+                {
+                    var exited = first.HasExited ? 0 : 1;
+                    var diagnostic = (await outputs[exited]) + (await errors[exited]);
+                    diagnostic = diagnostic.Replace(ConnectionString, "[connection]", StringComparison.Ordinal)
+                        .Replace(ProcessPassword, "[password]", StringComparison.Ordinal);
+                    Assert.Fail("Processo isolado encerrou antes do lock: " + diagnostic);
+                }
                 await Task.Delay(20, timeout.Token);
             }
 
@@ -265,7 +272,7 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            WorkingDirectory = AppContext.BaseDirectory,
+            WorkingDirectory = RepositoryRoot.Resolve("src", "Services", "Identity", "Ouroboros.Identity.Api"),
         };
         start.ArgumentList.Add(typeof(CreateAdminCommand).Assembly.Location);
         start.ArgumentList.Add("create-admin");
@@ -275,6 +282,9 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
         start.Environment["ASPNETCORE_ENVIRONMENT"] = "Testing";
         start.Environment["ConnectionStrings__Ouroboros"] = ConnectionString;
         start.Environment["Authentication__Jwt__KeyRingPath"] = TestSigningKeys.ManifestPath;
+        start.Environment["Identity__EmailIntents__PublicKeyRingPath"] = TestSigningKeys.EmailPublicKeyRingPath;
+        start.Environment["Identity__EmailIntents__SupersessionKeyPath"] = TestSigningKeys.SupersessionKeyPath;
+        start.Environment["Identity__EmailIntents__MaintenanceEnabled"] = "false";
         start.Environment[CreateAdminCommand.PasswordVariable] = ProcessPassword;
         return Process.Start(start) ?? throw new InvalidOperationException("Não foi possível iniciar o comando de teste.");
     }

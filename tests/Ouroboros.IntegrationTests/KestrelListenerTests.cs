@@ -126,6 +126,9 @@ public sealed class KestrelListenerTests(PostgresFixture postgres) : Integration
             {
                 ["ConnectionStrings:Ouroboros"] = ConnectionString,
                 ["Authentication:Jwt:KeyRingPath"] = TestSigningKeys.ManifestPath,
+                ["Identity:EmailIntents:PublicKeyRingPath"] = TestSigningKeys.EmailPublicKeyRingPath,
+                ["Identity:EmailIntents:SupersessionKeyPath"] = TestSigningKeys.SupersessionKeyPath,
+                ["Identity:EmailIntents:MaintenanceEnabled"] = "false",
                 ["Identity:Listeners:Public:Urls:0"] = $"http://127.0.0.1:{publicPort}",
                 ["Identity:Listeners:Admin:Urls:0"] = adminUrl ?? $"http://127.0.0.1:{adminPort}",
                 ["Identity:Listeners:Admin:AllowNonLoopback"] = allowNonLoopback.ToString(),

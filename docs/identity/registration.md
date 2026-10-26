@@ -25,7 +25,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): `AddEmailTokens` cria a tabela dos tokens e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para o proprietário. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova. A conclusão não tem migration própria.
-- Para ver o e-mail enviado em desenvolvimento, a API de Identity no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202` (veja [Regras da solicitação](#regras-da-solicitação)).
+- A migration `AddEmailIntents` e a [proteção da outbox](email-outbox.md) configuradas. A API persiste intenção junto do token e não gera `.eml`; publicação é a #86 e processamento durável é a #87.
 
 ## Configuração
 
@@ -42,7 +42,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com leitura do token no .eml e conclusão pela API.
+O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com a solicitação disponível e o limite atual de entrega: a publicação da intenção ainda depende da #86.
 
 ## Solicitar o cadastro
 
@@ -64,13 +64,13 @@ O corpo aceita só `email`. Outros campos, como `role`, são ignorados: o contra
 }
 ```
 
-A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que o envio do e-mail falhe, para não revelar quais e-mails já têm conta. Quando o e-mail está livre, chega à caixa de entrada uma mensagem com o assunto `Conclua o seu cadastro no Ouroboros` e um link como:
+A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que proteção/gravação da intenção falhem, para não revelar quais e-mails já têm conta. Quando o e-mail está livre e a transação confirma, a intenção cifrada guarda uma mensagem com o assunto `Conclua o seu cadastro no Ouroboros` e um link como:
 
 ```text
 http://localhost:3000/cadastro/concluir?token=<token>
 ```
 
-A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Em desenvolvimento, abra o `.eml` mais recente de `.local/emails/`.
+A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Nesta entrega, a API não gera `.eml`: a publicação/entrega do link ainda depende das #86/#87.
 
 ### E-mail inválido (400)
 
@@ -101,16 +101,17 @@ Acima de 5 solicitações por minuto do mesmo IP, a resposta é `429` com `Retry
 
 1. **Parâmetros primeiro.** O caso de uso lê `TokenLifetimeHours` e `CompletionUrl` antes de qualquer decisão. Parâmetro ausente ou com validade fora de 1 a 168 lança exceção, e toda solicitação responde `500`, qualquer que seja o e-mail; assim, a falha também não distingue e-mail livre de ocupado.
 2. **Normalização e formato.** O e-mail é normalizado como no domínio (sem espaços nas pontas e em minúsculas) e precisa atender à [regra estrita](#regra-estrita-de-e-mail); senão, `400`.
-3. **E-mail já usado: nada acontece.** Se o e-mail normalizado já pertence a um usuário, de qualquer papel, nenhum token é gerado e nenhum e-mail é enviado, e a resposta é o mesmo `202`. O dono do e-mail não é avisado da tentativa.
+3. **E-mail já usado: nada acontece.** Se o e-mail normalizado já pertence a um usuário, de qualquer papel, nenhum token ou intenção é persistido, e a resposta é o mesmo `202`. O dono do e-mail não é avisado da tentativa.
 4. **Token novo invalida os pendentes.** Para um e-mail livre, numa única transação:
    - um `pg_advisory_xact_lock` sobre o e-mail serializa solicitações simultâneas para o mesmo endereço;
    - os tokens de cadastro ainda pendentes desse e-mail (sem `used_at` nem `revoked_at`) recebem `revoked_at`;
-   - o token novo é gravado, com validade de `TokenLifetimeHours` a partir de agora.
+   - as intenções `Pending` dos tokens substituídos são canceladas e têm conteúdo/alias/contexto descartados;
+   - o token novo e sua intenção cifrada são gravados juntos, com a mesma validade de `TokenLifetimeHours` a partir de agora.
 
    Por isso sobra sempre um único token pendente por e-mail, mesmo com solicitações simultâneas, e o link de uma solicitação anterior deixa de valer na conclusão.
-5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo mesmo `OpaqueTokens` do refresh token; o banco guarda só o SHA-256 (veja [Persistência](#persistência)).
-6. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md)).
-7. **Falha no envio não muda a resposta.** Se o envio falhar, a falha vai para o log em nível `Error` (`Falha ao enviar o e-mail de cadastro (<tipo da exceção>).`), sem o e-mail, o link, o token nem a mensagem da exceção, e a resposta continua `202`. O token gravado fica pendente; para receber um link, a pessoa faz nova solicitação. Um cancelamento da requisição não é tratado como falha de envio.
+5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo mesmo `OpaqueTokens` do refresh token; `identity.email_tokens` guarda seu SHA-256 e a outbox guarda o link somente cifrado (veja [Persistência](#persistência)).
+6. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A API não chama broker ou provedor. A publicação recuperável pertence à #86 ([Outbox](email-outbox.md)).
+7. **Falha de proteção/gravação não muda a resposta genérica.** A solicitação continua `202` e registra somente `Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.`, sem conteúdo ou detalhes da exceção. Rollback não deixa uma intenção nova publicável; o estado anterior permanece. Cancelamento da requisição continua sendo cancelamento.
 8. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 9. **Nenhum usuário é criado.** A conta só nasce na [conclusão](#concluir-o-cadastro).
 
@@ -205,7 +206,7 @@ Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IRequestRegistration`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Registrations/IRequestRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(RequestRegistrationRequest(Email))`, que devolve `RequestRegistrationResult`: `Accepted` (com ou sem envio do link) ou `InvalidEmail` (formato fora da regra estrita). |
+| [`IRequestRegistration`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Registrations/IRequestRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(RequestRegistrationRequest(Email))`, que devolve `RequestRegistrationResult`: `Accepted` (resposta genérica sem comprovar entrega) ou `InvalidEmail` (formato fora da regra estrita). |
 | [`RequestRegistration`](../../src/Services/Identity/Ouroboros.Identity/Application/Registrations/RequestRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da solicitação, registrada como scoped em `AddIdentityModule`. Declara as chaves dos dois parâmetros. |
 | [`ICompleteRegistration`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Registrations/ICompleteRegistration.cs) | `Contracts/Registrations` (`public`) | `ExecuteAsync(CompleteRegistrationRequest(Token, Password))`, que devolve `CompleteRegistrationResult(Outcome, Message)`. `CompleteRegistrationOutcome`: `Completed`, `InvalidToken` ou `PasswordRejected` (com a regra violada em `Message`). |
 | [`CompleteRegistration`](../../src/Services/Identity/Ouroboros.Identity/Application/Registrations/CompleteRegistration.cs) | `Application/Registrations` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
@@ -217,11 +218,11 @@ Os dados do cliente (nome, documento etc.) ficam fora deste fluxo e pertencem ao
 
 ## Persistência
 
-Desde a [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75), `RequestRegistration` e `CompleteRegistration` coordenam a persistência pela porta interna `IRegistrationStore`, registrada com o adaptador `RegistrationStore` em `AddIdentityModule`. A solicitação mantém normalização, regras, geração do token e composição/envio na Application; a conclusão mantém a política de senha, o hash e a criação do usuário. Nenhum dos dois casos de uso conhece DbContext, EF, SQL ou erros PostgreSQL.
+Desde a [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75), `RequestRegistration` e `CompleteRegistration` coordenam a persistência pela porta interna `IRegistrationStore`, registrada com o adaptador `RegistrationStore` em `AddIdentityModule`. A solicitação mantém normalização, regras, geração do token e composição da comunicação na Application, com proteção pela porta `IEmailIntentFactory`; a conclusão mantém a política de senha, o hash e a criação do usuário. Nenhum dos dois casos de uso conhece DbContext, EF, SQL ou erros PostgreSQL.
 
-Cada operação de escrita da porta preserva a unidade de trabalho inteira. `ReplacePendingTokenAsync` confirma advisory lock por e-mail, revogação dos pendentes e inserção do novo token juntos. `CompleteAsync` confirma consumo condicional e inserção do usuário juntos; devolve `false` para consumo perdido ou conflito de e-mail, com rollback por descarte sem commit. Outras falhas propagam e também desfazem a transação. O hash da senha é calculado antes de chamar a escrita; senha recusada não chega a ela.
+Cada operação de escrita da porta preserva a unidade de trabalho inteira. `ReplacePendingTokenAsync` confirma advisory lock por e-mail, revogação dos pendentes, cancelamento das intenções anteriores e inserção do token/intenção novos juntos. `CompleteAsync` confirma consumo condicional e inserção do usuário juntos; devolve `false` para consumo perdido ou conflito de e-mail, com rollback por descarte sem commit. Outras falhas propagam e também desfazem a transação. O hash da senha é calculado antes de chamar a escrita; senha recusada não chega a ela.
 
-O transporte continua pela porta local `IEmailSender`, chamada somente após o retorno confirmado de `ReplacePendingTokenAsync`, sem locks mantidos durante envio. Não há outbox nesta entrega; a [política da #79](../architecture/reliable-delivery.md) será integrada pela #85. A #81 transferiu a leitura de parâmetros para o [proprietário Identity](parameters.md), no mesmo contexto.
+A #85 retirou o envio local: `IEmailIntentFactory` prepara o envelope e `RegistrationStore` confirma token/intenção no mesmo `IdentityDbContext`. A [política da #79](../architecture/reliable-delivery.md) guia cancelamento, expiração, proteção e retenção da [outbox](email-outbox.md). A #81 mantém parâmetros no [proprietário Identity](parameters.md).
 
 A migration `AddEmailTokens` cria a tabela `identity.email_tokens`, da entidade [`EmailToken`](../../src/Services/Identity/Ouroboros.Identity/Domain/EmailTokens/EmailToken.cs) (`Domain/EmailTokens`), mapeada por [`EmailTokenConfiguration`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Configurations/EmailTokenConfiguration.cs). É genérica: guarda os tokens de uso único enviados por e-mail, hoje os de cadastro e os da [redefinição de senha](password-reset.md#persistência) ([#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22)). Os dois tipos são independentes: uma solicitação de um tipo só revoga os pendentes do mesmo tipo. Além de `id`, `external_id`, `created_at` e `updated_at` das [convenções das entidades](../architecture/entity-conventions.md):
 
@@ -239,26 +240,26 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 
 ## Limitações
 
-- **Diferença de tempo na solicitação.** A resposta é a mesma, mas um e-mail livre custa mais (transação, gravação e envio) que um ocupado; medindo o tempo de resposta, ainda é possível inferir se um e-mail tem conta. É uma limitação conhecida, registrada na #20; o limite por IP só reduz a escala da sondagem.
+- **Diferença de tempo na solicitação.** A resposta é a mesma, mas um e-mail livre custa mais (transação e gravação) que um ocupado; medindo o tempo de resposta, ainda é possível inferir se um e-mail tem conta. É uma limitação conhecida, registrada na #20; o limite por IP só reduz a escala da sondagem.
 - **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado.
 - **Sem reenvio.** Uma nova solicitação cumpre esse papel e invalida o link anterior. Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP.
 - **E-mail que ganhou conta depois da solicitação.** A conclusão responde token inválido e, como a transação é desfeita, o token continua pendente até expirar, mas nunca mais conclui. Uma nova solicitação para esse e-mail não gera token, porque ele já tem conta.
-- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
-- **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; sem provedor, todo envio falha (com o mesmo `202`) e vai para o log, e ninguém consegue concluir um cadastro nesses ambientes.
+- **Publicação ainda pendente.** A intenção confirmada é recuperável e protegida, mas não há entrega automática até a #86; o processamento durável/deduplicação de Notifications é a #87 ([Outbox](email-outbox.md)).
+- **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Log `fail` do EF Core na corrida pelo e-mail.** A violação de unicidade tratada como token inválido ainda gera um log de nível `Error` (`fail`) do EF Core ao salvar, sem dado sensível. Na operação, esse log isolado na conclusão do cadastro é uma corrida esperada, não uma falha do sistema.
-- **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório; em desenvolvimento, o token é copiado do `.eml` ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
+- **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório; a entrega automática do link ainda depende das #86/#87 ([Fluxo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
 - **Dados de cliente** (serviço Customers, ainda inexistente) estão fora do escopo.
 
 ## Como verificar
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-Os testes rodam contra o PostgreSQL real e substituem o `IEmailSender` pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs), que guarda as mensagens (e pode simular falha) para ler o token do link, porque o adaptador `.eml` só existe em `Development`.
+Os testes usam PostgreSQL real e o helper [`TestOutbox`](../../tests/Ouroboros.IntegrationTests/TestOutbox.cs) para ler intenções protegidas e decifrá-las somente com chaves efêmeras de teste. Não há provedor de envio na API; os cenários de atomicidade, proteção, limpeza e recuperação são detalhados em [Outbox](email-outbox.md#como-verificar).
 
 [`RegistrationRequestTests`](../../tests/Ouroboros.IntegrationTests/RegistrationRequestTests.cs), da solicitação:
 
-- e-mail livre, com espaços e maiúsculas, recebe `202`, um único e-mail para o endereço normalizado com o link `http://localhost:3000/cadastro/concluir?token=`, um token de 32 bytes cujo SHA-256 está gravado com finalidade `Registration`, validade de 24 horas e nenhum usuário criado;
-- e-mail de um usuário existente recebe o mesmo corpo de resposta de um e-mail livre, sem e-mail enviado nem token gravado;
+- e-mail livre, com espaços e maiúsculas, recebe `202`, uma intenção protegida para o endereço normalizado com o link `http://localhost:3000/cadastro/concluir?token=`, um token de 32 bytes cujo SHA-256 está gravado com finalidade `Registration`, validade de 24 horas e nenhum usuário criado;
+- e-mail de um usuário existente recebe o mesmo corpo de resposta de um e-mail livre, sem intenção nem token gravados;
 - uma segunda solicitação gera outro token, e o primeiro fica com `revoked_at`;
 - oito solicitações simultâneas para o mesmo e-mail gravam oito tokens, com um só pendente;
 - `"vitima"@example.com` e `vitima@example.com.`, equivalentes ao e-mail de um usuário existente, recebem `400`, sem e-mail nem token;
@@ -266,7 +267,7 @@ Os testes rodam contra o PostgreSQL real e substituem o `IEmailSender` pelo [`Ca
 - recebem `400`, sem e-mail nem token: `nao-e-email`, vazio, nulo, parte local entre aspas, ponto final no domínio, espaço na parte local, nome de exibição, `>` sobrando, `localhost`, literal de IP e comentário;
 - com a política `identity-registration` limitada a 1, a segunda solicitação recebe `429`;
 - o token não aparece no corpo da resposta nem em nenhum log (nível mínimo `Trace`);
-- com falha simulada no envio, a resposta continua `202`, e o log registra a falha.
+- com falha simulada de proteção, a resposta continua `202` e não há escrita parcial.
 
 [`RegistrationCompletionTests`](../../tests/Ouroboros.IntegrationTests/RegistrationCompletionTests.cs), da conclusão, com o token obtido por uma solicitação real e um `FakeTimeProvider`:
 
@@ -296,6 +297,7 @@ Os testes de arquitetura verificam a retirada das exceções de persistência da
 - [#20](https://github.com/adnerscarpelini/ouroboros-server/issues/20): solicitar cadastro de cliente por e-mail.
 - [#21](https://github.com/adnerscarpelini/ouroboros-server/issues/21): concluir o cadastro de cliente definindo a senha.
 - [#75](https://github.com/adnerscarpelini/ouroboros-server/issues/75): persistência por porta interna, com locks e unidades de trabalho locais preservados.
+- [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85): token e intenção protegida na mesma transação.
 - Depende de [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10) (envio de e-mail), [#11](https://github.com/adnerscarpelini/ouroboros-server/issues/11) (política de senha) e [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) (limite de requisições por IP).
 
 [Voltar à documentação](../README.md)

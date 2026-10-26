@@ -22,7 +22,6 @@ public sealed class PasswordResetRaceTests(PostgresFixture postgres) : Integrati
     private const string NewPassword = "outra frase longa e bem diferente agora";
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(30);
 
-    private readonly CapturingEmailSender _emails = new();
     private readonly PausingPasswordHasher _hasher = new();
 
     // Login com a senha antiga conferida antes da redefinição, mas que abriria a sessão depois dela.
@@ -112,14 +111,13 @@ public sealed class PasswordResetRaceTests(PostgresFixture postgres) : Integrati
         var response = await client.PostAsJsonAsync("/api/v1/identity/password-resets", new { Email }, timeout.Token);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Single(_emails.Messages);
+        Assert.Single((await TestOutbox.ReadAsync(Api.Services)));
         await transaction.RollbackAsync(TestContext.Current.CancellationToken);
     }
 
     private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IEmailSender>(_emails);
             services.AddSingleton<IPasswordHasher>(_hasher);
         }));
 
@@ -135,7 +133,7 @@ public sealed class PasswordResetRaceTests(PostgresFixture postgres) : Integrati
     {
         var response = await client.PostAsJsonAsync("/api/v1/identity/password-resets", new { Email }, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        return _emails.TokenSentTo(Email);
+        return await TestOutbox.TokenAsync(Api.Services, Email);
     }
 
     private static Task<HttpResponseMessage> CompleteAsync(HttpClient client, string token, string password) =>

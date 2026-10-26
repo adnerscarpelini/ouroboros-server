@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../Ouroboros.BuildingBlocks/Ouroboros.BuildingBlocks.csproj" />
+    <ProjectReference Include="../../../Ouroboros.Messaging/Ouroboros.Messaging.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Application\Security\common-passwords.txt" />

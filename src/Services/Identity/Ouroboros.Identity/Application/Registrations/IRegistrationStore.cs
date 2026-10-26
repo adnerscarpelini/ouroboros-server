@@ -1,4 +1,5 @@
 using Ouroboros.Identity.Domain.EmailTokens;
+using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Domain.Users;
 
 namespace Ouroboros.Identity.Application.Registrations;
@@ -8,7 +9,7 @@ internal interface IRegistrationStore
 {
     Task<bool> EmailExistsAsync(string email, CancellationToken cancellationToken);
     Task<RegistrationToken?> FindPendingTokenAsync(byte[] hash, DateTimeOffset now, CancellationToken cancellationToken);
-    Task ReplacePendingTokenAsync(EmailToken token, DateTimeOffset now, CancellationToken cancellationToken);
+    Task ReplacePendingTokenAsync(EmailToken token, EmailIntent intent, DateTimeOffset now, CancellationToken cancellationToken);
     Task<bool> CompleteAsync(long tokenId, User user, DateTimeOffset now, CancellationToken cancellationToken);
 }
 

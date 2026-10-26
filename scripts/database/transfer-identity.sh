@@ -214,6 +214,7 @@ A origem permanece intacta e somente leitura. Para voltar: 1) pare as APIs de Id
 cmd_rollback() {
   require_id "${1:-}"
   [ -f "$DIR/baseline.tsv" ] || fail "a transferência não foi validada; não há linha de base."
+  ensure_matching_migrations
   ensure_no_sessions "$TARGET_DATABASE"
   local delta="$DIR/reconcile" table script total_delta=0 total_missing=0 count
   rm -rf "$delta"
@@ -250,18 +251,22 @@ sequence_positions() {
   scalar "$1" "SELECT sequencename || '|' || coalesce(last_value, 0) FROM pg_sequences WHERE schemaname = 'identity' ORDER BY sequencename"
 }
 
+ensure_matching_migrations() {
+  [ "$(scalar "$SOURCE_DATABASE" "SELECT count(*) FROM pg_class WHERE relnamespace = 'identity'::regnamespace AND relname = '__EFMigrationsHistory'")" = "1" ] || fail "origem sem histórico de migrations."
+  diff -q <(scalar "$SOURCE_DATABASE" "SELECT string_agg(\"MigrationId\", ',' ORDER BY \"MigrationId\") FROM identity.\"__EFMigrationsHistory\"") \
+          <(scalar "$TARGET_DATABASE" "SELECT string_agg(\"MigrationId\", ',' ORDER BY \"MigrationId\") FROM identity.\"__EFMigrationsHistory\"") >/dev/null \
+    || fail "o destino recebeu migrations depois da transferência; reconcilie manualmente antes de voltar a connection string."
+}
+
 cmd_reconcile() {
   require_id "${1:-}"
+  ensure_matching_migrations
   local delta="$DIR/reconcile" table columns script drift target_value was_frozen=0
   [ -f "$delta/report.txt" ] || fail "execute rollback antes de reconciliar."
   if [ -f "$DIR/reconciled" ] && [ "$DIR/reconciled" -nt "$delta/report.txt" ]; then
     info "As escritas do destino já foram aplicadas na origem (reconciliação anterior); nada a fazer. Depois de reconciliar não há um segundo ciclo de rollback e reconcile: a origem já difere da linha de base; para novas escritas no destino, avalie manualmente com os arquivos preservados."
     return 0
   fi
-  [ "$(scalar "$SOURCE_DATABASE" "SELECT count(*) FROM pg_class WHERE relnamespace = 'identity'::regnamespace AND relname = '__EFMigrationsHistory'")" = "1" ] || fail "origem sem histórico de migrations."
-  diff -q <(scalar "$SOURCE_DATABASE" "SELECT string_agg(\"MigrationId\", ',' ORDER BY \"MigrationId\") FROM identity.\"__EFMigrationsHistory\"") \
-          <(scalar "$TARGET_DATABASE" "SELECT string_agg(\"MigrationId\", ',' ORDER BY \"MigrationId\") FROM identity.\"__EFMigrationsHistory\"") >/dev/null \
-    || fail "o destino recebeu migrations depois da transferência; reconcilie manualmente."
   ensure_no_sessions "$SOURCE_DATABASE"
 
   # Conflito: a origem mudou depois da linha de base (alguém escreveu nela durante ou depois da troca).
@@ -317,6 +322,14 @@ END \$\$;
   date -u +%Y-%m-%dT%H:%M:%SZ > "$DIR/reconciled"
   info "Escritas do destino aplicadas na origem e verificadas. Agora remova ConnectionStrings:Identity para voltar à origem."
 }
+
+# A outbox só existe após a #85. Preservá-la em linha de base/rollback sem impedir transferir uma origem antiga.
+case "${1:-}" in
+  copy|validate|cutover|rollback|reconcile)
+    if [ "$(scalar "$SOURCE_DATABASE" "SELECT to_regclass('identity.email_intents') IS NOT NULL")" = "t" ]; then
+      TABLES+=(email_intents)
+    fi ;;
+esac
 
 case "${1:-}" in
   freeze) cmd_freeze "${2:-}" ;;

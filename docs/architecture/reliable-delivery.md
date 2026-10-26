@@ -1,6 +1,6 @@
 # Contrato e política de entrega confiável
 
-Decisão da [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79), subordinada à [#69](microservices.md). Define o contrato lógico e os requisitos das próximas entregas; não implementa outbox, broker, worker, publicador ou deduplicação. O envio disponível no checkout está no [estado de implementação](../implementation-status.md).
+Decisão da [#79](https://github.com/adnerscarpelini/ouroboros-server/issues/79), subordinada à [#69](microservices.md). Define o contrato lógico e os requisitos de entrega confiável. A #85 implementa a [outbox protegida de Identity](../identity/email-outbox.md); publicação confirmada e processamento durável/deduplicação continuam nas #86/#87. A disponibilidade completa do checkout está no [estado de implementação](../implementation-status.md).
 
 ## Fronteiras e contrato v1
 
@@ -17,11 +17,11 @@ O contrato lógico `notification.email.requested`, versão inteira `1`, exige:
 | `correlationId`, `causationId` | Identificadores opacos de correlação e causa; nunca tokens ou dados pessoais. |
 | `payload` | Destinatário único, assunto, texto e finalidade (`registration` ou `password-reset`); nenhuma senha/hash de senha ou id interno. Inclui o link secreto já composto por Identity. |
 
-Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; o receptor da #72 já autentica e decifra conteúdo, mas proteção/persistência da origem e inbox ainda dependem das #85/#87 antes de ativar o fluxo confiável.
+Campos desconhecidos opcionais são ignorados na v1; campos obrigatórios ausentes, valores inválidos, tipo ou versão desconhecidos não são processados como v1. Mudança incompatível exige nova versão e coexistência de consumidores durante a transição. Acrescentar campo não pode mudar o significado de campo existente. O [envelope da #93](messaging.md#contrato-e-compatibilidade) fixa e testa os limites de tamanho/serialização e encapsula o conteúdo lógico em payload protegido opaco; o receptor da #72 já autentica e decifra conteúdo, a origem da #85 já cifra/persiste intenções, mas publicação e inbox ainda dependem das #86/#87 antes de ativar o fluxo confiável.
 
 ## Estado local e publicação
 
-Na #85, alteração de negócio, token e intenção protegida são gravados na mesma transação de Identity. Rollback remove a intenção junto do estado: não há envio nem mensagem publicável. Nenhuma chamada ao broker ou provedor participa da transação ou mantém locks de negócio abertos.
+A #85 grava token e intenção protegida em `identity.email_intents` na mesma transação de Identity, preservando advisory locks. Rollback não deixa uma intenção nova publicável; substituição cancela as intenções pendentes anteriores e elimina conteúdo/alias/contexto atomicamente. Destinatário e link existem somente no payload cifrado da outbox; JWT, proteção RSA de Notifications e HMAC de alias usam chaves distintas. Não há mais envio direto na origem. Nenhuma chamada ao broker ou provedor participa da transação ou mantém locks de negócio abertos. [Configuração e verificação](../identity/email-outbox.md).
 
 Na #86, o publicador reivindica lotes limitados com lease persistente e prazo, encerra a transação e só então publica. Mensagens e filas são duráveis, publicação persistente, roteamento obrigatório e publisher confirms. Só confirma localmente a publicação após confirmação positiva e ausência de retorno por falta de rota; nack, retorno, timeout ou conexão perdida deixam a intenção recuperável com o mesmo `messageId`. Uma falha entre confirmação do broker e confirmação local provoca republicação, nunca uma nova identidade. Lease vencido permite recuperação após reinício, sem lock durante a rede. Broker indisponível não desfaz negócio nem bloqueia login.
 

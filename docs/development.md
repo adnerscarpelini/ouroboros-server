@@ -62,7 +62,7 @@ O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFix
 
 [IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) inicia a API de Identity (`Ouroboros.Identity.Api`) em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. `CreateClient()` fala com o listener público e `CreateAdminClient()`, com o administrativo; `BackofficeIntegrationApiFactory`, declarada no mesmo arquivo, faz todas as requisições do cliente chegarem ao listener administrativo. Como o `TestServer` não tem sockets, o listener é escolhido pelo cabeçalho de teste `X-Test-Listener` (`admin`), lido só por um resolvedor registrado no projeto de testes; a produção ignora o cabeçalho. A separação por portas é verificada em `KestrelListenerTests`, com Kestrel real. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios; `ForwardedHeadersTests` usa o cabeçalho de teste `X-Test-Client-IP` para definir o IP da conexão.
 
-A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
+A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [TestOutbox](../tests/Ouroboros.IntegrationTests/TestOutbox.cs) lê intenções e decifra conteúdo somente com chaves efêmeras de teste; NotificationsWorkerTests verifica o adaptador `.eml` no receptor. Isso não comprova entrega distribuída.
 
 ## RabbitMQ local
 
@@ -219,7 +219,7 @@ O provisionamento não altera nenhuma API nem host e não aplica migrations: nen
 
 ## Transferir o banco de Identity
 
-Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters`, `parameter_history` e `__EFMigrationsHistory`) do banco original da instância (`POSTGRES_DB`) para `ouroboros_identity`, em um único procedimento, sem estado intermediário com dois bancos. Está em `scripts/database/transfer-identity.sh` (com `identity-digest.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão, a validação e os limites do rollback estão em [Persistência](architecture/persistence.md#transferência-do-banco-de-identity).
+Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_tokens`, `email_tokens`, `email_intents` quando já migrada, `parameters`, `parameter_history` e `__EFMigrationsHistory`) do banco original da instância (`POSTGRES_DB`) para `ouroboros_identity`, em um único procedimento, sem estado intermediário com dois bancos. Está em `scripts/database/transfer-identity.sh` (com `identity-digest.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão, a validação e os limites do rollback estão em [Persistência](architecture/persistence.md#transferência-do-banco-de-identity).
 
 **Pré-requisitos**
 
@@ -269,7 +269,7 @@ docker compose --profile transfer run --rm -e FORCE_TERMINATE=1 transfer-identit
 
 **Backups.** Ficam em `./backups/identity-<id>/`, pasta ignorada pelo Git, montada no container como `/backups`: `source.dump`, os resumos comparados em cada etapa, a linha de base (`baseline.tsv`) e as marcas de etapa. O procedimento cria a pasta com permissão `700` e os arquivos com `600`; em host Linux eles pertencem ao `root` do container, e a leitura exige `sudo`. Os arquivos contêm hashes de senha e de token: trate-os como segredo e não os copie para logs, issues nem o repositório. Nada os remove.
 
-**Validação.** O resumo comparado entre origem e destino tem 20 facetas: contagens e linhas inteiras de `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`; identificadores públicos de usuários e sessões; hashes de senha; `token_hash` dos refresh tokens e dos tokens de e-mail; revisões dos parâmetros e do histórico; histórico de migrations; e a estrutura (colunas com tipos e defaults, índices, constraints, gatilhos, comentários e sequências). Qualquer diferença reprova a validação.
+**Validação.** O resumo comparado entre origem e destino tem 20 facetas: contagens e linhas inteiras de `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`; identificadores públicos de usuários e sessões; hashes de senha; `token_hash` dos refresh tokens e dos tokens de e-mail; revisões dos parâmetros e do histórico; histórico de migrations; e a estrutura (colunas com tipos e defaults, índices, constraints, gatilhos, comentários e sequências). Quando `email_intents` existe na origem, seu conteúdo integral também participa do resumo e da linha de base. Qualquer diferença reprova a validação.
 
 **Falha e repetição.** A falha de validação impede a troca e a origem fica intacta. Nada é excluído: nem a origem, nem volumes, nem a credencial antiga; o único banco removido é o de verificação criado pelo próprio `backup`. O `copy` recusa destino que já tem o schema `identity`, origem alterada depois do backup e senhas de runtime e de migration iguais; se falhar no meio, remove o schema parcial que ele mesmo criou no destino vazio. Para repetir depois de uma validação que falhou, avalie o destino e, conscientemente, esvazie-o antes de rodar o `copy` de novo (o comando aparece na recusa; ajuste usuário e banco se mudou o `.env`):
 
@@ -305,7 +305,7 @@ docker compose --profile transfer run --rm transfer-identity rollback <id>
 
   O `reconcile` reabre a escrita da origem para aplicar as linhas numa transação, em ordem de chaves estrangeiras, ajusta as sequências (inclusive as nunca usadas) e confere a equivalência com o destino. Mantenha as APIs paradas até remover `ConnectionStrings:Identity`. Se a origem foi escrita depois da linha de base, o `reconcile` recusa o conflito, mantém a janela sem escrita e nada é aplicado; reexecutá-lo depois de reconciliar não altera nada.
 
-Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se os históricos de migrations divergem, `rollback` e `reconcile` recusam e a reconciliação é manual. Aplicar #85 só no destino impede voltar diretamente à origem pré-#85; preserve a outbox e reconcilie schema/escritas antes de mudar a connection string.
 
 O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na origem (`FORCE_TERMINATE=1` as encerra, como no `freeze`). Os testes do procedimento estão descritos em [Testes](#testes).
 
@@ -453,7 +453,7 @@ O prazo HS256 não inclui tolerância extra para transição: tokens antigos ain
 
 ## Executar a API de Identity
 
-Com o banco e a chave de assinatura configurados, na raiz do repositório:
+Com banco, assinatura JWT e [proteção da outbox](#configurar-a-outbox-de-identity) configurados, na raiz do repositório:
 
 ```powershell
 dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
@@ -480,7 +480,7 @@ Todo endpoint exige um access token válido da audiência do listener (`Authoriz
 
 ## Executar o worker de Notifications
 
-`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity continua usando seu adaptador local, sem publicar no broker ainda. [Comportamento e limites do worker](notifications/worker.md).
+`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity grava intenções protegidas na outbox e ainda não publica no broker. [Comportamento e limites do worker](notifications/worker.md).
 
 ### Chaves de proteção de Notifications
 
@@ -546,87 +546,101 @@ Teste reproduzível do worker com broker real e processo filho, sem alterar o `.
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*NotificationsWorkerTests'
 ```
 
+## Configurar a outbox de Identity
+
+Identity exige configuração de proteção de intenção, além do banco e da assinatura JWT, antes de iniciar. `Identity:Email` foi removida e é recusada; remova a seção antiga de user-secrets/variáveis externas, sem migrar sua privada ou provedor para a origem. [Atomicidade, estados e limites](identity/email-outbox.md).
+
+| Opção em `Identity:EmailIntents` | Uso |
+| --- | --- |
+| `PublicKeyRingPath` | Caminho absoluto externo de uma cópia de `public.json` de Notifications |
+| `SupersessionKeyPath` | Caminho absoluto externo do segredo HMAC de substituição, exatamente 32 bytes |
+| `MaintenanceEnabled` | `true` por padrão; limpeza na subida e a cada 30 s, em lotes limitados |
+| `BackupDirectory` | Opcional; diretório dedicado reconhecido pelo wrapper de backup, necessário para purga automática desses arquivos |
+
+1. Gere o par de proteção de Notifications conforme [chaves do receptor](#chaves-de-proteção-de-notifications). Entregue à conta de Identity somente uma cópia de `public.json`, protegida contra escrita não autorizada. Não monte `private.json` ou PEM de Notifications em Identity. A origem recusa material privado no manifesto e reutilização de uma pública JWT conhecida. O receptor precisa conservar as privadas necessárias às intenções/backups ainda retidos; a troca de `activeKeyId` é operacional e não muda o segredo de substituição.
+2. Gere o segredo HMAC em outro diretório **novo**, externo ao código e ao contexto de build:
+
+   ```powershell
+   $aliasDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para o alias de e-mail'))
+   pwsh -NoProfile -File scripts/messaging/new-email-intent-alias-key.ps1 -Directory $aliasDirectory
+   ```
+
+   O script produz `supersession.key`, 32 bytes aleatórios, sem imprimir a chave. Aplica ACL da conta geradora no Windows, ou diretório `0700` e arquivo `0600` no Linux. Conceda somente leitura à conta de Identity quando distinta da operação; não entregue esse segredo a Notifications. Mantenha-o estável durante o ciclo das mensagens: mudar RSA não deve mudar o alias. Não há migração automática de aliases em rotação de HMAC.
+3. Configure os caminhos; os comandos abaixo armazenam apenas caminhos, sem conteúdo secreto:
+
+   ```powershell
+   $publicPath = [IO.Path]::GetFullPath((Read-Host 'Cópia pública de Notifications destinada a Identity'))
+   dotnet user-secrets set 'Identity:EmailIntents:PublicKeyRingPath' $publicPath --project src/Services/Identity/Ouroboros.Identity.Api
+   dotnet user-secrets set 'Identity:EmailIntents:SupersessionKeyPath' (Join-Path $aliasDirectory 'supersession.key') --project src/Services/Identity/Ouroboros.Identity.Api
+   ```
+
+   Fora de Development, use `Identity__EmailIntents__PublicKeyRingPath` e `Identity__EmailIntents__SupersessionKeyPath` com arquivos externos montados somente para a origem. A subida executa uma prova de proteção local, sem banco, mensagem real ou rede; configuração ilegível/inválida não é um modo de envio desprotegido.
+4. Aplique a migration `20261026015350_AddEmailIntents` por comando explícito com a role de migration, conforme [banco local](#banco-de-dados-local). Reexecute o provisionamento de privilégios depois da migration. A API não aplica migrations na subida. Em ambiente existente, preserve backups e confira o [limite de retorno entre schemas](#voltar-ao-banco-original).
+
+Após a migração, solicitação de cadastro/reset grava token e envelope cifrado na mesma transação; não cria `.eml` em Identity. A manutenção marca vencidas e elimina o conteúdo sem depender do broker. Desabilitá-la com `Identity__EmailIntents__MaintenanceEnabled=false` é opção de ensaio, sem satisfazer a limpeza operacional exigida. Para arquivos gerenciados, configure também `BackupDirectory` e dê à conta da manutenção somente as permissões necessárias à remoção; ela não precisa receber a chave que decifra os backups.
+
+### Backup protegido das intenções de e-mail
+
+O wrapper `scripts/messaging/protected-email-backup.ps1` protege um dump custom **já produzido** pelo operador, até 64 MiB. Não acessa o banco, não recebe sua connection string e não substitui a janela/validação do procedimento de transferência. Use diretório de backup novo/dedicado, fora do Git, com chave AES256 de **32 bytes externos** em outro diretório protegido. Essa chave e seu `KeyId` são próprios de backup, distintos de JWT, proteção RSA e HMAC de alias; gere/guarde pelo gerenciador de segredos, sem imprimir bytes ou usar valores em argumentos.
+
+Exemplo com clientes PostgreSQL locais e autenticação segura previamente configurada por libpq (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` e `PGPASSFILE`, conforme a credencial de backup autorizada). Restrinja também a pasta de dump temporário; o arquivo ainda é sensível:
+
+```powershell
+$sourceDump = [IO.Path]::GetFullPath((Read-Host 'Novo arquivo temporário restrito para pg_dump'))
+pg_dump --format=custom --no-owner --no-acl --file $sourceDump
+if ($LASTEXITCODE -ne 0) { throw 'Backup PostgreSQL não concluído' }
+$backupDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo/dedicado de backup protegido'))
+$backupKeyPath = [IO.Path]::GetFullPath((Read-Host 'Arquivo externo da chave de backup de 32 bytes'))
+pwsh -NoProfile -File scripts/messaging/protected-email-backup.ps1 -Mode Protect -SourceFile $sourceDump -Directory $backupDirectory -KeyPath $backupKeyPath -KeyId email-backup-v1
+```
+
+O diretório recebe marcador `.email-intent-backups`, ACL restrita ou `0700`; os arquivos protegidos usam `0600` no Linux e nome `email-intents-<UTC yyyyMMddHHmmss>-<UUID>.json`. AES-GCM autentica o dump e metadados de versão/chave/criação/expiração. O conteúdo protegido expira **30 dias após sua criação**. O wrapper não sobrescreve backups nem adota diretório existente sem marcador reconhecido. `-RemoveSource` é uma opção **explícita** para retirar o dump de entrada após Protect; sem ela, o dump temporário permanece e o operador precisa tratá-lo pela mesma política, sem considerá-lo protegido só porque uma cópia foi cifrada.
+
+Configure o mesmo diretório para a manutenção da API:
+
+```powershell
+dotnet user-secrets set 'Identity:EmailIntents:BackupDirectory' $backupDirectory --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+Fora de Development, use `Identity__EmailIntents__BackupDirectory`. A limpeza de arquivos gerenciados é tentada antes da limpeza de banco, em lotes limitados, inclusive se PostgreSQL estiver indisponível. Só remove nomes/prazos reconhecidos sob o marcador e não segue links. Sem essa configuração, a purga automática de arquivos não está ativa. A retenção de banco também não elimina cópias fora desse diretório.
+
+Para restaurar, selecione um arquivo protegido ainda válido, um `RestoreFile` **novo**, com pai restrito, e a chave correspondente. Não use saída do comando para transportar conteúdo:
+
+```powershell
+$protectedArchive = [IO.Path]::GetFullPath((Read-Host 'Arquivo de backup cifrado a restaurar'))
+$restoreDump = [IO.Path]::GetFullPath((Read-Host 'Novo arquivo temporário restrito para restaurar'))
+pwsh -NoProfile -File scripts/messaging/protected-email-backup.ps1 -Mode Restore -SourceFile $protectedArchive -Directory $backupDirectory -KeyPath $backupKeyPath -KeyId email-backup-v1 -RestoreFile $restoreDump
+```
+
+Restore autentica antes de escrever e recusa o prazo vencido, formato/chave errados ou destino existente. O resultado é novamente um dump sensível, não uma restauração automática no PostgreSQL. Mantenha processamento parado; restaure com o operador autorizado e reaplique expiração, estados terminais e limpeza antes de habilitar publicação/consumo. Não reabra mensagens canceladas ou vencidas, nem recrie seus prazos.
+
+O wrapper grava auditoria em `access-YYYYMMDD.jsonl`, com id da operação, Protect/Restore, início/sucesso/falha, instante UTC e ator, sem conteúdo ou caminhos. Cobre operações pelo wrapper; acesso direto ao filesystem exige controle/auditoria do operador e não fica automaticamente registrado nele. Os arquivos diários também entram na limpeza limitada: são elegíveis após 31 dias do início UTC do dia. Backups cifrados continuam com teto de 30 dias.
+
+Backups antigos de `transfer-identity.sh` e seus CSVs de reconciliação não são adotados, cifrados ou apagados por essa manutenção. O operador deve protegê-los, restringir acesso e retirar cópias temporárias/legadas conforme a política, sem apagar a origem ou artefatos de transferência incidentalmente. Não prometa que `BackupDirectory` cobre arquivos de outros formatos ou locais.
+
 ## E-mails em desenvolvimento
 
-Esta seção descreve o adaptador legado ainda usado pela API de Identity. O worker separado tem configuração e pickup próprios, descritos [acima](#executar-o-worker-de-notifications); não recebe `Identity:Email`. A integração da origem com o broker depende das #85/#86.
-
-Não há servidor de e-mail. No ambiente `Development`, a API de Identity grava cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
-
-A configuração fica na seção `Identity:Email` dos `appsettings.Development.json`. O adaptador local só é aceito em `Development`: em outro ambiente, o host não sobe. Sem provedor configurado (o padrão fora de `Development`), o host sobe, mas qualquer envio falha com erro explícito. Detalhes em [Envio de e-mail por porta com adaptador local](architecture/email.md).
-
-| Chave em Identity:Email | Configuração disponível |
-| --- | --- |
-| Provider | `PickupDirectory` em Development; `None` por padrão |
-| PickupDirectory | `../../../../.local/emails`, resolvido a partir do content root do projeto; obrigatório para PickupDirectory |
-| From | `nao-responda@ouroboros.local` por padrão |
-
-Cada arquivo usa nome com instante/UUID, texto UTF-8 sem BOM, quebras CRLF, cabeçalhos MIME e assunto não ASCII codificado. O link é segredo: não copie seu conteúdo para logs ou issues. A solicitação responde 202 mesmo se o envio após commit falhar, preservando proteção contra enumeração; o checkout não recupera automaticamente a intenção perdida entre commit e envio.
+Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática das intenções de Identity ainda depende da #86, e a responsabilidade durável de Notifications depende da #87. Não leia ou registre o token da outbox para contornar essa etapa.
 
 ## Cadastrar um cliente e entrar
 
-Clientes se cadastram sozinhos pelo listener público da API de Identity, em duas etapas: informam o e-mail, recebem um link de uso único e, com ele, definem a senha. Ainda não há front-end; em desenvolvimento, o link chega como `.eml` em `.local/emails/` e o token é copiado dele. Com o banco configurado, as migrations de Identity aplicadas, incluindo seus parâmetros locais, e a API de Identity rodando no ambiente `Development` (`dotnet run --project src/Services/Identity/Ouroboros.Identity.Api`), na raiz do repositório:
+O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. No estado desta entrega, o primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção; **não gera `.eml` nem entrega automaticamente o link**, pois o publicador é a #86.
 
-1. Solicite o cadastro. A resposta é sempre `202`, com a mesma mensagem, tenha o e-mail conta ou não:
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
+```
 
-   ```powershell
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations `
-     -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-   ```
-
-2. Abra o `.eml` mais recente de `.local/emails/` e copie o token do link `http://localhost:3000/cadastro/concluir?token=<token>`, válido por 24 horas. Ou, no PowerShell:
-
-   ```powershell
-   $eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-   $token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-   ```
-
-   Se o e-mail já tem conta, nenhum arquivo novo aparece. Uma nova solicitação gera outro link e invalida o anterior.
-
-3. Conclua o cadastro com o token e a senha. A senha segue a [política de senha](architecture/password-policy.md) (15 a 128 caracteres, sem regras de composição, sem ser comum nem conter `ouroboros` ou a parte local do e-mail):
-
-   ```powershell
-   $body = @{ token = $token; password = '<senha>' } | ConvertTo-Json
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations/complete `
-     -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-   ```
-
-   `204`: a conta foi criada, ativa e com o papel `Customer`, e o link não vale mais. `400` com o `type` `password-rejected`: a senha foi recusada, o `detail` diz por quê, e o mesmo link pode ser usado de novo. `400` com o `type` `invalid-registration-token`: o link é inválido, expirou, já foi usado ou foi substituído por um mais novo; solicite o cadastro outra vez.
-
-4. Entre pelo login do listener público, que devolve o access token e o refresh token (a conclusão não faz login automático):
-
-   ```powershell
-   $login = @{ email = 'cliente@example.com'; password = '<senha>' } | ConvertTo-Json
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-     -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
-   ```
-
-Detalhes, regras e erros em [Cadastrar cliente por e-mail](identity/registration.md) e [Fazer login com e-mail e senha](identity/login.md). Para trocar a senha esquecida pelo mesmo caminho (solicitar o link, copiar o token do `.eml` e concluir com a senha nova), veja o [fluxo completo da redefinição de senha](identity/password-reset.md#fluxo-completo-em-desenvolvimento).
+Resposta `202` tem sempre o mesmo corpo, com ou sem conta, e não garante entrega. Os exemplos da [conclusão de cadastro](identity/registration.md#concluir-o-cadastro) usam `<token do link>` como marcador de contrato; a validação ponta a ponta dessa conclusão está nos testes isolados, sem expor segredos por logs/consulta operacional. Depois de concluir com token válido, o cliente pode entrar pelo [login](identity/login.md#como-usar).
 
 ## Redefinir a senha em desenvolvimento
 
-Com a API de Identity no ar em `Development` (listener público em `http://localhost:5141` no perfil padrão) e uma conta de cliente criada. Ainda não há front-end; o token é copiado do link do e-mail.
+Com uma conta de cliente criada, solicite a redefinição pelo listener público:
 
 ```powershell
-# 1. Solicitar a redefinição
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets `
-  -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-
-# 2. Ler o token no .eml mais recente (o link termina em ?token=<token>)
-$eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-$token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-
-# 3. Concluir a redefinição com a senha nova
-$body = @{ token = $token; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets/complete `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-
-# 4. Entrar com a senha nova
-$login = @{ email = 'cliente@example.com'; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
 ```
 
-O passo 2 roda na raiz do repositório, como no [fluxo do cadastro](#cadastrar-um-cliente-e-entrar). Depois do passo 3, a senha antiga recebe `401` no login, e os refresh tokens emitidos antes deixam de renovar.
+A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Nesta entrega não há envio ou `.eml` automático. A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A entrega integrada depende das #86/#87.
 
 ## Exemplos HTTP por funcionalidade
 

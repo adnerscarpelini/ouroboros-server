@@ -49,6 +49,8 @@ public sealed partial class IdentityDatabaseTransferTests(ProvisionedInstance in
         var parameter = await context.Parameters.SingleAsync(p => p.Key == ParameterKey, Cancellation);
         Assert.Equal("transferido.example", parameter.Value);
         Assert.Equal(2, await context.ParameterHistory.CountAsync(h => h.ParameterKey == ParameterKey, Cancellation));
+        Assert.Single(await context.EmailIntents.AsNoTracking().ToListAsync(Cancellation));
+        Assert.NotEmpty(await TestOutbox.TokenAsync(api.Services, "pendente@example.com"));
         Assert.NotEmpty(transfer.Id);
     }
 

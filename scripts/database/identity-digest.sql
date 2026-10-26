@@ -34,3 +34,9 @@ UNION ALL SELECT 'structure.comments', count(*), md5(coalesce(string_agg(objoid:
   FROM pg_description WHERE classoid = 'pg_class'::regclass AND objoid IN (SELECT oid FROM pg_class WHERE relnamespace = 'identity'::regnamespace)
 UNION ALL SELECT 'structure.sequences', count(*), md5(coalesce(string_agg(sequencename || '=' || coalesce(last_value::text, 'null'), ',' ORDER BY sequencename), ''))
   FROM pg_sequences WHERE schemaname = 'identity';
+
+-- Compatível com a origem anterior à #85; quando existe, a outbox participa da equivalência completa.
+SELECT to_regclass('identity.email_intents') IS NOT NULL AS has_email_intents \gset
+\if :has_email_intents
+SELECT 'email_intents', count(*), coalesce(md5(string_agg(t::text, E'\n' ORDER BY t.id)), 'vazio') FROM identity.email_intents t;
+\endif

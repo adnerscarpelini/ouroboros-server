@@ -21,7 +21,7 @@ using Ouroboros.Identity.Contracts.Registrations;
 using Ouroboros.Identity.Contracts.Sessions;
 using Ouroboros.Identity.Contracts.Users;
 using Ouroboros.Identity.Domain.Users;
-using Ouroboros.Identity.Infrastructure.Email;
+using Ouroboros.Identity.Infrastructure.Messaging;
 using Ouroboros.Identity.Infrastructure.Persistence;
 using Ouroboros.Identity.Infrastructure.RateLimiting;
 using Ouroboros.Identity.Infrastructure.Security;
@@ -51,7 +51,12 @@ public static class DependencyInjection
             .ValidateOnStart();
 
         AddTokenAuthentication(services);
-        AddEmail(services);
+        services.AddSingleton<IValidateOptions<EmailIntentOptions>, EmailIntentOptionsValidator>();
+        services.AddOptions<EmailIntentOptions>().BindConfiguration(EmailIntentOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<ProtectedEmailIntentFactory>();
+        services.AddSingleton<IEmailIntentFactory>(provider => provider.GetRequiredService<ProtectedEmailIntentFactory>());
+        services.AddHostedService<EmailIntentProtectionStartupCheck>();
+        services.AddHostedService<EmailIntentMaintenance>();
         AuthRateLimiting.Add(services);
 
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();
@@ -167,17 +172,4 @@ public static class DependencyInjection
                 };
             });
 
-    // O provedor de e-mail vem da configuração (Identity:Email:Provider). O adaptador local só é aceito
-    // em Development; sem provedor, enviar é erro explícito.
-    private static void AddEmail(IServiceCollection services)
-    {
-        services.AddSingleton<IValidateOptions<EmailOptions>, EmailOptionsValidator>();
-        services.AddOptions<EmailOptions>().BindConfiguration(EmailOptions.SectionName).ValidateOnStart();
-        services.AddSingleton<PickupDirectoryEmailSender>();
-        services.AddSingleton<UnconfiguredEmailSender>();
-        services.AddSingleton<IEmailSender>(provider =>
-            provider.GetRequiredService<IOptions<EmailOptions>>().Value.Provider == EmailProvider.PickupDirectory
-                ? provider.GetRequiredService<PickupDirectoryEmailSender>()
-                : provider.GetRequiredService<UnconfiguredEmailSender>());
-    }
 }

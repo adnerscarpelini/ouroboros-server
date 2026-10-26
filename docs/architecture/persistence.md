@@ -67,6 +67,14 @@ A troca de uma para a outra é ação do operador, liberada pelo `cutover` da tr
 
 Transações locais protegem parâmetro e histórico, senha e sessões, estado e outbox. Não usar transação distribuída.
 
+Identity inclui `email_intents` desde `20261026015350_AddEmailIntents`: token/intenção e cancelamento de substituídas confirmam juntos, no mesmo contexto e banco. Expiração elimina conteúdo protegido e dados de associação; tombstones terminais sem payload são purgados após o prazo absoluto + 30 dias, em lotes limitados. Publicação confirmada ainda é a #86. [Outbox e retenção](../identity/email-outbox.md).
+
+### Backups com intenções de e-mail
+
+Backups que incluam a outbox precisam de criptografia e retenção limitada mesmo que o envelope interno já seja cifrado. O wrapper `protected-email-backup.ps1` protege `pg_dump` custom de até 64 MiB com AES256-GCM e chave externa própria, autentica metadados e recusa restauração após 30 dias. Identity só purga arquivos gerenciados quando `Identity:EmailIntents:BackupDirectory` aponta para diretório dedicado marcado pelo wrapper; essa tentativa independe da disponibilidade do banco. Sem a configuração, não há purga automática de arquivos. [Operação, auditoria e limites](../development.md#backup-protegido-das-intenções-de-e-mail).
+
+Esse mecanismo não cifra/adota/apaga os dumps antigos de transferência ou CSVs de reconciliação. O operador deve restringir, proteger e retirar essas cópias pela política, sem exclusão incidental de dados. O wrapper aceita somente dump custom, não CSV. Seu auditlog cobre Protect/Restore pelo wrapper, sem conteúdo/caminhos; acessos diretos ao filesystem exigem controles/auditoria operacionais. Ao restaurar, mantenha processamento parado e reaplique expiração e estados terminais antes de habilitá-lo.
+
 ## Transferência do banco de Identity
 
 **Decisão.** O banco de Identity é transferido uma única vez, inteiro, do banco original para `ouroboros_identity`, mantendo o schema `identity` dentro do banco novo. Não há estado intermediário com dois bancos em uso: ou a API usa a origem, ou o destino. O procedimento é `scripts/database/transfer-identity.sh`, versionado, executado por comando explícito com a credencial administrativa da instância e dividido em etapas: janela sem escrita, backup restaurado e comparado, cópia, validação, `cutover`, e `rollback` e `reconcile` quando for preciso voltar. Comandos e ordem em [Transferir o banco de Identity](../development.md#transferir-o-banco-de-identity).
@@ -86,6 +94,7 @@ Transações locais protegem parâmetro e histórico, senha e sessões, estado e
 - Linhas excluídas no destino não são reconciliadas: o `rollback` aborta se linhas copiadas deixaram de existir.
 - Há um único ciclo de `rollback` e `reconcile`; depois dele a origem difere da linha de base, e novas escritas no destino exigem avaliação manual dos arquivos preservados.
 - Se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+- A tabela `email_intents`, quando existe na origem, participa de resumo, linha de base e reconciliação. `rollback` e `reconcile` conferem igualdade de históricos de migrations antes de continuar: destino com #85 e origem pré-#85 não permitem simples retorno da connection string. Preserve e reconcilie schema/escritas manualmente antes de voltar; não descarte a outbox.
 - A janela sem escrita não impede quem tem a credencial administrativa; o `reconcile` reabre a escrita da origem para aplicar as linhas.
 - Os backups e os arquivos de reconciliação contêm hashes e são dados sensíveis; o procedimento não os apaga.
 

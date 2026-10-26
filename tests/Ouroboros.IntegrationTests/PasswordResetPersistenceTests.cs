@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Ouroboros.Identity.Application.Notifications;
 using Ouroboros.Identity.Application.PasswordResets;
 using Ouroboros.Identity.Application.Security;
 using Ouroboros.Identity.Application.Sessions;
@@ -27,9 +28,11 @@ public sealed class PasswordResetPersistenceTests(PostgresFixture postgres) : In
             FOR EACH ROW EXECUTE FUNCTION fail_reset_insert();
             """);
         await using var scope = Api.Services.CreateAsyncScope();
+        var now = DateTimeOffset.UtcNow;
+        var replacement = EmailToken.ForPasswordReset(user.Id, user.Email, OpaqueTokens.Generate().Hash, now.AddHours(1));
+        var intent = scope.ServiceProvider.GetRequiredService<IEmailIntentFactory>().Create(new EmailMessage(Email, "subject", "body"), "password-reset", now, replacement.ExpiresAt);
         await Assert.ThrowsAsync<DbUpdateException>(() => scope.ServiceProvider.GetRequiredService<IPasswordResetStore>()
-            .ReplacePendingTokenAsync(EmailToken.ForPasswordReset(user.Id, user.Email, OpaqueTokens.Generate().Hash,
-                DateTimeOffset.UtcNow.AddHours(1)), DateTimeOffset.UtcNow, Cancellation));
+            .ReplacePendingTokenAsync(replacement, intent, now, Cancellation));
 
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
         Assert.Null(await QueryScalarAsync<DateTime?>("SELECT revoked_at FROM identity.email_tokens"));

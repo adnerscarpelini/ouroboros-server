@@ -22,7 +22,6 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
     private const string Route = "/api/v1/identity/registrations";
     private const string Email = "novo@example.com";
 
-    private readonly CapturingEmailSender _emails = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly ConcurrentQueue<string> _logs = new();
 
@@ -35,10 +34,10 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         var response = await RequestAsync(client, "  Novo@Example.com ");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var message = Assert.Single(_emails.Messages);
+        var message = Assert.Single((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(Email, message.To);
         Assert.Contains("http://localhost:3000/cadastro/concluir?token=", message.Body);
-        var token = _emails.TokenSentTo(Email);
+        var token = await TestOutbox.TokenAsync(Api.Services, Email);
         Assert.Equal(32, System.Buffers.Text.Base64Url.DecodeFromChars(token).Length);
 
         Assert.Equal(1L, await QueryScalarAsync<long>(
@@ -64,7 +63,7 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
 
         Assert.Equal(HttpStatusCode.Accepted, taken.StatusCode);
         Assert.Equal(await free.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), await taken.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.DoesNotContain(_emails.Messages, message => message.To == Email);
+        Assert.DoesNotContain((await TestOutbox.ReadAsync(Api.Services)), message => message.To == Email);
         Assert.Equal(0L, await QueryScalarAsync<long>($"SELECT count(*) FROM identity.email_tokens WHERE email = '{Email}'"));
     }
 
@@ -75,9 +74,9 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         using var client = api.CreateClient();
 
         await RequestAsync(client, Email);
-        var first = _emails.TokenSentTo(Email);
+        var first = await TestOutbox.TokenAsync(Api.Services, Email);
         await RequestAsync(client, Email);
-        var second = _emails.TokenSentTo(Email);
+        var second = await TestOutbox.TokenAsync(Api.Services, Email);
 
         Assert.NotEqual(first, second);
         Assert.NotNull(await QueryScalarAsync<DateTime?>($"SELECT revoked_at FROM identity.email_tokens WHERE token_hash = decode('{HashHex(first)}', 'hex')"));
@@ -114,7 +113,7 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         var response = await RequestAsync(client, email);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Empty(_emails.Messages);
+        Assert.Empty((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
     }
 
@@ -151,7 +150,7 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         var response = await client.PostAsJsonAsync(Route, new { Email = email }, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Empty(_emails.Messages);
+        Assert.Empty((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
     }
 
@@ -178,7 +177,7 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
 
         var response = await RequestAsync(client, Email);
 
-        var token = _emails.TokenSentTo(Email);
+        var token = await TestOutbox.TokenAsync(Api.Services, Email);
         Assert.DoesNotContain(token, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.NotEmpty(_logs);
         Assert.DoesNotContain(_logs, entry => entry.Contains(token, StringComparison.Ordinal));
@@ -186,16 +185,18 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
 
     // Falha no envio não muda a resposta (senão revelaria que o e-mail está livre) e não leva o token ao log.
     [Fact]
-    public async Task Email_failure_keeps_the_same_202()
+    public async Task Protection_failure_keeps_the_same_202_without_partial_writes()
     {
-        _emails.Fail = true;
-        await using var api = CreateApi();
+        await using var api = CreateApi().WithWebHostBuilder(builder => builder.ConfigureTestServices(
+            services => services.AddSingleton<IEmailIntentFactory, FailingEmailIntentFactory>()));
         using var client = api.CreateClient();
 
         var response = await RequestAsync(client, Email);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Contains(_logs, entry => entry.Contains("Falha ao enviar o e-mail de cadastro", StringComparison.Ordinal));
+        Assert.Contains(_logs, entry => entry.Contains("Falha ao registrar intenção", StringComparison.Ordinal));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_intents"));
     }
 
     private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
@@ -203,7 +204,6 @@ public sealed class RegistrationRequestTests(PostgresFixture postgres) : Integra
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)).SetMinimumLevel(LogLevel.Trace));
         builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IEmailSender>(_emails);
             services.AddSingleton<TimeProvider>(_time);
         });
     });

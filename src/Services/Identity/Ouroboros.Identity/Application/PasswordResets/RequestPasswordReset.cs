@@ -12,7 +12,7 @@ namespace Ouroboros.Identity.Application.PasswordResets;
 internal sealed partial class RequestPasswordReset(
     IPasswordResetStore store,
     ISystemParameters parameters,
-    IEmailSender emailSender,
+    IEmailIntentFactory intents,
     TimeProvider timeProvider,
     ILogger<RequestPasswordReset> logger) : IRequestPasswordReset
 {
@@ -35,38 +35,27 @@ internal sealed partial class RequestPasswordReset(
             return RequestPasswordResetResult.InvalidEmail;
         }
 
-        // Só uma conta de cliente ativa recebe o link. Contas de backoffice não são recuperadas pela API
-        // pública. Nos outros casos, nada é gerado nem enviado e a resposta é a mesma.
-        var user = await store.FindCustomerAsync(email, cancellationToken);
-        if (user is null)
-        {
-            return RequestPasswordResetResult.Accepted;
-        }
-
         var (token, tokenHash) = OpaqueTokens.Generate();
         var now = timeProvider.GetUtcNow();
-        await store.ReplacePendingTokenAsync(
-            EmailToken.ForPasswordReset(user.Id, user.Email, tokenHash, now.Add(lifetime)), now, cancellationToken);
-
-        // O link vai para o e-mail gravado na conta. Envio depois do commit; uma falha não muda a resposta
-        // (senão revelaria que a conta existe): fica no log, sem o token, e a pessoa pode pedir de novo.
         try
         {
-            await emailSender.SendAsync(
-                new EmailMessage(
-                    user.Email,
-                    "Redefinição de senha do Ouroboros",
-                    "Recebemos um pedido para redefinir a sua senha. Para escolher uma senha nova, acesse:\n\n" +
-                    $"{completionUrl}?token={Uri.EscapeDataString(token)}\n\n" +
-                    $"O link vale por {lifetime.TotalMinutes.ToString(CultureInfo.InvariantCulture)} minutos e só pode ser usado uma vez. " +
-                    "A senha atual continua valendo até a redefinição ser concluída. Se você não fez este pedido, ignore esta mensagem."),
-                cancellationToken);
+            var intent = intents.Create(new EmailMessage(
+                email, "Redefinição de senha do Ouroboros",
+                "Recebemos um pedido para redefinir a sua senha. Para escolher uma senha nova, acesse:\n\n" +
+                $"{completionUrl}?token={Uri.EscapeDataString(token)}\n\n" +
+                $"O link vale por {lifetime.TotalMinutes.ToString(CultureInfo.InvariantCulture)} minutos e só pode ser usado uma vez. " +
+                "Use sempre o link da solicitação mais recente. A senha atual continua valendo até a redefinição ser concluída. " +
+                "Se você não fez este pedido, ignore esta mensagem."), "password-reset", now, now.Add(lifetime));
+            var user = await store.FindCustomerAsync(email, cancellationToken);
+            if (user is not null)
+            {
+                await store.ReplacePendingTokenAsync(EmailToken.ForPasswordReset(user.Id, user.Email, tokenHash, now.Add(lifetime)), intent, now, cancellationToken);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            LogEmailFailed(exception.GetType().Name);
+            LogIntentFailed();
         }
-
         return RequestPasswordResetResult.Accepted;
     }
 
@@ -79,7 +68,6 @@ internal sealed partial class RequestPasswordReset(
                 $"O parâmetro do sistema '{TokenLifetimeMinutesParameter}' deve ser um inteiro de 1 a {MaxTokenLifetimeMinutes}.");
     }
 
-    // Sem o e-mail, o link nem a mensagem da exceção, que poderiam conter o token.
-    [LoggerMessage(Level = LogLevel.Error, Message = "Falha ao enviar o e-mail de redefinição de senha ({ExceptionType}).")]
-    private partial void LogEmailFailed(string exceptionType);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.")]
+    private partial void LogIntentFailed();
 }
