@@ -51,6 +51,7 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
             // O envelope válido traz o contexto W3C da origem; inválido, a aceitação ocorre em um trace novo.
             EnvelopeCodec.TryDecode(delivery.Body, "notification.email.requested", 1, "identity", out var envelope, out string _);
             using var activity = MessageTracing.Start(NotificationsTelemetry.Source, "inbox.accept", ActivityKind.Consumer, envelope);
+            MessageTracing.Describe(activity, "accept", envelope?.MessageId);
             try
             {
                 id = Guid.TryParse(delivery.BasicProperties.MessageId, out var parsed) ? parsed : null;
@@ -60,11 +61,14 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
                 var result = await scope.ServiceProvider.GetRequiredService<InboxAcceptance>()
                     .AcceptAsync(delivery.Body, delivery.BasicProperties.MessageId, timeout.Token);
                 await channel.BasicAckAsync(delivery.DeliveryTag, false, stoppingToken);
+                activity?.SetTag("messaging.acceptance.result", result.ToString());
+                if (result is AcceptanceResult.Rejected or AcceptanceResult.Conflict) { activity?.SetStatus(ActivityStatusCode.Error); }
                 LogHandled(logger, id, result.ToString());
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
             catch (Exception)
             {
+                activity?.SetStatus(ActivityStatusCode.Error);
                 LogSuspended(logger, id, "acceptance-unavailable");
                 ended.TrySetException(new IOException("acceptance-unavailable"));
             }

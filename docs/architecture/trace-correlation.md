@@ -12,7 +12,7 @@ Para investigar um erro relatado por um cliente, é preciso achar os logs daquel
   - remove todos os provedores de log padrão, inclusive Debug e, no Windows, o Event Log, e registra o OpenTelemetry como único provedor do `ILogger`. Cada entrada é sanitizada e sai no console, uma linha JSON por entrada ([formato](#formato-do-console)), e, quando configurado, no coletor OTLP ([pipeline de diagnósticos](diagnostics-pipeline.md));
   - registra o propagador W3C (`DistributedContextPropagator.CreateW3CPropagator()`): só `traceparent`/`tracestate` iniciam contexto, e o `Request-Id` legado é ignorado;
   - inclui `TraceId` e `SpanId` da `Activity` corrente em cada registro (`ActivityTrackingOptions`);
-  - registra um `ActivityListener` das fontes `Ouroboros.*` que só pede propagação (`PropagationData`): cria as atividades do processamento de mensagens para correlacionar os logs, sem gravar dados de span. Um SDK de tracing que peça mais dados prevalece;
+  - configura o SDK de tracing para as fontes `Ouroboros.*` e HTTP via `OpenTelemetry.Instrumentation.AspNetCore` 1.19.0, com `AlwaysOnSampler`: o flag de gravação recebido do cliente não impede o span local. O listener de propagação (`PropagationData`) continua registrado; o SDK pede gravação e prevalece. A exportação OTLP é opcional ([configuração](diagnostics-pipeline.md#decisão));
   - registra `ServiceIdentity` (nome e versão do executável). O nome aceita só letras minúsculas e hífen, até 64 caracteres; outro valor impede a subida.
 - O processamento de mensagens continua o contexto gravado no envelope pela origem ([mensagens](#propagação-por-mensagens)), sem headers AMQP.
 - O trace só correlaciona diagnósticos: não é identidade, autorização nem chave de deduplicação ([limites de uso](#o-trace-não-é-identidade)).
@@ -54,15 +54,20 @@ O `tracestate` acompanha o `traceparent` válido. O baggage W3C é aceito pelo p
 
 O transporte do contexto entre serviços são os campos `traceparent`/`tracestate` do [envelope v1](messaging.md#contrato-e-compatibilidade), já autenticados pelo AAD do payload cifrado e persistidos na outbox e na inbox. Por isso o contexto sobrevive a publicação tardia, reentrega e novas tentativas. Envelope, schemas, propriedades e headers AMQP não mudam: nenhum `traceparent` é acrescentado ao transporte.
 
-[`MessageTracing.Start`](../../src/Ouroboros.Messaging/MessageTracing.cs), em `Ouroboros.Messaging`, inicia uma atividade que continua o contexto do envelope como contexto remoto. Sem contexto válido (ausente, inválido, acima dos limites do envelope, ou envelope que não decodifica), a atividade não herda nada da mensagem e começa um trace novo.
+[`MessageTracing.Start`](../../src/Ouroboros.Messaging/MessageTracing.cs), em `Ouroboros.Messaging`, inicia uma atividade que continua o contexto do envelope como contexto remoto e inclui um link para os mesmos identificadores de criação. O link não carrega `tracestate` nem atributos. Sem contexto válido (ausente, inválido, acima dos limites do envelope, ou envelope que não decodifica), a atividade não herda nada da mensagem e começa um trace novo.
 
 | Etapa | Fonte e atividade | Contexto continuado |
 | --- | --- | --- |
 | Publicação de cada intenção pela outbox de Identity (`EmailOutboxPublisher`) | `Ouroboros.Identity.Outbox`, `outbox.publish` (Producer) | O da requisição que gravou a intenção, salvo na outbox pela [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85); os logs da publicação continuam esse trace mesmo quando ela ocorre depois, com um span por intenção |
+| Ciclo de publicação em lote | `Ouroboros.Identity.Outbox`, `outbox.publish.cycle` (Internal) | Trace raiz próprio, com links para os contextos válidos de todas as intenções reivindicadas; o lote não força uma relação pai/filho entre requisições distintas |
 | Aceitação no worker (`EmailConsumer`) | `Ouroboros.Notifications.Inbox`, `inbox.accept` (Consumer) | O do envelope recebido |
 | Cada tentativa de entrega (`InboxExecutor`) | `Ouroboros.Notifications.Inbox`, `inbox.deliver` (Consumer) | O do envelope guardado na inbox |
 
 Assim, uma solicitação de cadastro com `traceparent` produz logs com o mesmo `traceId` na API, na publicação e no worker, cada etapa com seu span. Sem contexto válido no envelope, a aceitação e cada tentativa de entrega começam traces próprios. O relay de referências de falha e as manutenções periódicas não iniciam atividade: as referências sanitizadas não carregam contexto, e esses logs saem sem `traceId`/`spanId`.
+
+Os spans de mensagem informam `messaging.system=rabbitmq`, destino `ouroboros.notifications`, routing key `email.requested.v1`, operação (`publish`, `accept`, `deliver`) e, nas operações de uma mensagem, `messaging.message.id` como GUID opaco. O ciclo informa também a quantidade reivindicada. Aceitação registra seu resultado; entregas registram desfecho quando há progresso confirmado, e falhas relevantes recebem status de erro sem descrição com conteúdo do provedor.
+
+A instrumentação é própria nas fronteiras do processamento. As fontes `RabbitMQ.Client.*` não são assinadas: nenhum header AMQP de tracing é injetado. A instrumentação HTTP não captura corpo ou headers, nem registra exceções como eventos de span. URL completa, query, caminho bruto e `tracestate` são removidos antes da exportação; somente a rota normalizada fica disponível ([sanitização](diagnostics-pipeline.md#traces-e-métricas-no-processo)).
 
 ## O trace não é identidade
 
@@ -99,7 +104,7 @@ Não há campo `exception`: a exceção original nunca chega ao console. Os esco
 ## Limites e entregas seguintes
 
 - Sanitização, coletor, destino, retenção e comportamento sob saturação estão no [pipeline de diagnósticos](diagnostics-pipeline.md). A captura padronizada de respostas de erro fica com a [#67](https://github.com/adnerscarpelini/ouroboros-server/issues/67); buffer persistente e recuperação do pipeline, com a [#68](https://github.com/adnerscarpelini/ouroboros-server/issues/68).
-- O OpenTelemetry exporta só logs. Spans exportados, links entre spans, instrumentação do cliente RabbitMQ e exporter de métricas pertencem à [#88](https://github.com/adnerscarpelini/ouroboros-server/issues/88). As atividades `outbox.publish`, `inbox.accept` e `inbox.deliver` só existem para correlacionar logs.
+- O OpenTelemetry exporta logs, spans e métricas quando o endpoint está configurado. A amostragem local grava todos os spans instrumentados, mas filas limitadas e encerramento abrupto podem descartá-los; não há garantia de captura absoluta. Métricas e limites no [pipeline de diagnósticos](diagnostics-pipeline.md#métricas-do-fluxo).
 
 ## Como verificar
 
@@ -109,6 +114,7 @@ Não há campo `exception`: a exceção original nunca chega ao console. Os esco
 | OpenTelemetry como único provedor de log na API e em um Generic Host de worker, propagador W3C, nome de serviço validado, campos da linha (inclusive `occurrenceId`) e ausência de trace fora de atividade | `TraceCorrelationTests` |
 | Logs da publicação continuam o trace da requisição, com span por intenção e `MessageId` distintos | [`EmailOutboxPublisherTests`](../../tests/Ouroboros.IntegrationTests/EmailOutboxPublisherTests.cs) (`Publication_logs_continue_the_request_trace_without_using_it_as_message_identity`) |
 | Processo real do worker: linhas JSON com `service=notifications`, trace do envelope continuado, trace novo sem contexto e mensagens com o mesmo trace processadas separadamente | [`NotificationsWorkerTests`](../../tests/Ouroboros.IntegrationTests/NotificationsWorkerTests.cs) (`Worker_process_logs_json_lines_that_continue_each_message_trace_without_deduplicating_by_trace`) |
+| API, publicação posterior e worker separado com o mesmo trace no coletor/destino reais; ciclo raiz com links e mensagem sem dados sensíveis | [`MicroservicesBatchEndToEndTests`](../../tests/Ouroboros.IntegrationTests/MicroservicesBatchEndToEndTests.cs) (`Deferred_publication_and_worker_export_same_trace_and_bounded_metric_labels_to_real_collector`) |
 
 Comandos em [Logs dos executáveis](../development.md#logs-dos-executáveis) e [Testes](../development.md#testes).
 
@@ -119,5 +125,6 @@ Comandos em [Logs dos executáveis](../development.md#logs-dos-executáveis) e [
 - [#69](https://github.com/adnerscarpelini/ouroboros-server/issues/69): microsserviços, com correlação por HTTP e mensagens.
 - [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85): contexto W3C gravado na outbox e no envelope.
 - [#66](https://github.com/adnerscarpelini/ouroboros-server/issues/66): console como destino do pipeline de diagnósticos, com `occurrenceId` e sem `exception`.
+- [#88](https://github.com/adnerscarpelini/ouroboros-server/issues/88): exportação de spans e métricas, HTTP e links das mensagens.
 
 [Voltar à arquitetura](README.md)

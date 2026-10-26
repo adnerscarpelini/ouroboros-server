@@ -17,6 +17,7 @@ using RabbitMQ.Client;
 
 namespace Ouroboros.IntegrationTests;
 
+[Collection("Telemetry")]
 public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, ProvisionedInstance database)
     : IClassFixture<RabbitMqFixture>, IClassFixture<ProvisionedInstance>
 {
@@ -147,7 +148,8 @@ public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, Pro
             if (!process.HasExited) { process.Kill(entireProcessTree: true); }
             await process.WaitForExitAsync(TestContext.Current.CancellationToken);
         }
-        Assert.Equal("", await error);
+        var diagnosticError = await error;
+        Assert.True(diagnosticError.Length == 0, diagnosticError);
         var lines = (await output).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var entries = lines.Select(line => JsonDocument.Parse(line).RootElement.Clone()).ToArray();
         Assert.All(entries, entry => Assert.Equal("notifications", entry.GetProperty("service").GetString()));

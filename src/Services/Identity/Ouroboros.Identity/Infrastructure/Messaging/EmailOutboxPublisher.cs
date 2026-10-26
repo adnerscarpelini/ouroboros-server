@@ -31,21 +31,26 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
         await EmailIntentPersistence.MaintainAsync(scope.ServiceProvider.GetRequiredService<IdentityDbContext>(), clock.GetUtcNow(), cancellationToken);
         var store = scope.ServiceProvider.GetRequiredService<EmailOutboxStore>();
         var batch = await store.ClaimAsync(lease, clock.GetUtcNow(), options.Value.BatchSize, cancellationToken);
+        using var cycle = MessageTracing.StartBatch(OutboxTelemetry.Source, batch.Select(intent => (intent.Traceparent, intent.Tracestate)));
+        MessageTracing.Describe(cycle, "publish", null);
+        cycle?.SetTag("messaging.batch.message_count", batch.Count);
         await using var publisher = new ConfirmedEmailPublisher(options, environment);
         foreach (var intent in batch)
         {
             // Os logs da publicação continuam o trace da requisição que gravou a intenção.
             using var activity = MessageTracing.Start(OutboxTelemetry.Source, "outbox.publish", ActivityKind.Producer, intent.Traceparent, intent.Tracestate);
+            MessageTracing.Describe(activity, "publish", intent.ExternalId);
             if (!await store.IsOwnedAsync(intent.Id, lease, clock.GetUtcNow(), cancellationToken)) { continue; }
             if (intent.ExpiresAt <= clock.GetUtcNow() || intent.LeaseUntil <= clock.GetUtcNow().AddSeconds(10)) { continue; }
-            if (intent.Attempts > 1) { metrics.Retry(); }
+            if (intent.Attempts > 1) { metrics.Retry(intent.LastFailureCode); }
             if (!EnvelopeCodec.TryDecode(intent.ProtectedEnvelope!, "notification.email.requested", 1, "identity", out var message, out _)
                 || message!.MessageId != intent.ExternalId || message.Type != intent.Type || message.Version != intent.Version
                 || message.ExpiresAt != intent.ExpiresAt || message.OccurredAt != intent.OccurredAt || message.SupersessionKey != intent.SupersessionKey
                 || message.Traceparent != intent.Traceparent || message.Tracestate != intent.Tracestate)
             {
                 await store.FailAsync(intent.Id, lease, clock.GetUtcNow(), cancellationToken);
-                metrics.Failure();
+                metrics.Failure("invalid-contract");
+                activity?.SetStatus(ActivityStatusCode.Error);
                 LogPublishFailed(logger, intent.ExternalId, "invalid-contract");
                 continue;
             }
@@ -62,7 +67,8 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
             {
                 var suspended = IsConfigurationFailure(exception);
                 var code = suspended ? "configuration-suspended" : exception is PublishException ? "broker-rejected" : "publish-unconfirmed";
-                metrics.Failure();
+                metrics.Failure(code);
+                activity?.SetStatus(ActivityStatusCode.Error);
                 LogPublishFailed(logger, intent.ExternalId, code);
                 try { await publisher.DisposeAsync(); }
                 catch (Exception) { LogCycleFailed(logger); }
@@ -73,6 +79,7 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
         }
         var snapshot = await store.SnapshotAsync(clock.GetUtcNow(), cancellationToken);
         metrics.Snapshot(snapshot.Count, snapshot.OldestAgeSeconds);
+        metrics.TerminalSnapshot(await store.TerminalSnapshotAsync(cancellationToken));
     }
 
     private static bool IsConfigurationFailure(Exception exception)

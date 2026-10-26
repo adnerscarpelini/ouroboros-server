@@ -34,6 +34,11 @@ internal sealed class TelemetryFailureSignal : EventListener
     {
         var output = _output;
         if (output is null || eventData.Level > EventLevel.Warning) { return; }
+        // O SDK 1.19 sinaliza até meters que deliberadamente não assinamos. Isso é seleção de escopo,
+        // não descarte de um instrumento habilitado; nomes inválidos, duplicatas e falhas continuam visíveis.
+        if (eventData.EventSource.Name == "OpenTelemetry-Sdk" && eventData.EventName == "MetricInstrumentIgnored"
+            && eventData.Payload is { Count: >= 3 } && eventData.Payload[2] is string reason
+            && reason.StartsWith("Instrument belongs to a Meter not subscribed by this provider.", StringComparison.Ordinal)) { return; }
         var key = (eventData.EventSource.Name, eventData.EventId);
         var now = DateTimeOffset.UtcNow;
         var suppressed = 0;

@@ -528,7 +528,7 @@ $env:Observability__Otlp__Endpoint = 'http://127.0.0.1:4318/'
 dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
 ```
 
-O mesmo vale para o worker de Notifications. De um container na rede do Compose, use `http://otel-collector:4318/`. O valor é uma URL `http` ou `https` absoluta só com host e porta: credenciais, caminho, query ou fragmento impedem a subida. O executável acrescenta `v1/logs`. Os appsettings não definem endpoint; `Remove-Item Env:Observability__Otlp__Endpoint` volta a deixar só o console. Com o coletor parado, o executável continua funcionando e o descarte aparece em [stderr](#interpretar-o-sinal-em-stderr).
+O mesmo vale para o worker de Notifications. De um container na rede do Compose, use `http://otel-collector:4318/`. O valor é uma URL `http` ou `https` absoluta só com host e porta: credenciais, caminho, query ou fragmento impedem a subida. O executável acrescenta `v1/logs`, `v1/traces` e `v1/metrics` para enviar os três sinais. Os appsettings não definem endpoint; `Remove-Item Env:Observability__Otlp__Endpoint` desativa o envio OTLP e mantém logs no console. Com o coletor parado, o executável continua funcionando e o descarte aparece em [stderr](#interpretar-o-sinal-em-stderr).
 
 ### Ler o destino
 
@@ -537,9 +537,13 @@ A imagem do coletor não tem shell; leia o volume por um container temporário, 
 ```powershell
 docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 ls -l /data
 docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/logs.jsonl | Select-String -SimpleMatch '"traceId":"<trace-id>"'
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/traces.jsonl | Select-String -SimpleMatch '"traceId":"<trace-id>"'
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/metrics.jsonl | Select-String -SimpleMatch 'outbox.backlog'
 ```
 
-Cada linha de `logs.jsonl` é um lote em OTLP/JSON (`resourceLogs`): o resource traz `service.name`, `service.version`, `service.instance.id` e `deployment.environment.name`, e cada registro traz `traceId`, `spanId`, a mensagem em `body` e os atributos, entre eles `log.record.uid`, igual ao `occurrenceId` do console. Para achar uma ocorrência vista no console, filtre pelo valor do `occurrenceId`. Os registros chegam alguns segundos depois do log, por causa dos lotes no processo e no coletor. Os arquivos rotacionados ficam ao lado de `logs.jsonl`, com o instante da rotação no nome; o destino guarda no máximo 8 deles, de 32 MiB, e remove os com mais de 7 dias quando há rotação ([retenção e limites](architecture/diagnostics-pipeline.md#retenção-e-limpeza)). Não copie o conteúdo para issues ou para o repositório.
+Cada linha de `logs.jsonl` é um lote em OTLP/JSON (`resourceLogs`): o resource traz `service.name`, `service.version`, `service.instance.id` e `deployment.environment.name`, e cada registro traz `traceId`, `spanId`, a mensagem em `body` e os atributos, entre eles `log.record.uid`, igual ao `occurrenceId` do console. Para achar uma ocorrência vista no console, filtre pelo valor do `occurrenceId`. `traces.jsonl` contém `resourceSpans`, com spans HTTP, `outbox.publish`, `inbox.accept`, `inbox.deliver` e o ciclo raiz `outbox.publish.cycle`; filtre pelo mesmo trace. `metrics.jsonl` contém `resourceMetrics`, com as agregações dos [instrumentos e dimensões permitidas](architecture/diagnostics-pipeline.md#métricas-do-fluxo).
+
+Os sinais chegam alguns segundos depois do evento, por causa dos lotes e do leitor periódico de métricas. Os gauges só aparecem depois do primeiro snapshot de cada serviço; valores terminais refletem linhas ainda retidas, sem contagem histórica durável. Cada sinal tem um arquivo ativo e até 8 rotacionados de 32 MiB, removidos por idade acima de 7 dias quando há rotação: aproximadamente 864 MiB para os três sinais ([retenção e limites](architecture/diagnostics-pipeline.md#retenção-e-limpeza)). Não copie o conteúdo para issues ou para o repositório.
 
 ### Interpretar o sinal em stderr
 
@@ -553,9 +557,10 @@ ouroboros-observability <instante UTC> <nível> <fonte>#<evento>: <mensagem> (su
 | --- | --- |
 | `'BatchLogRecordExportProcessor' exporting to 'OtlpLogExporter' dropped '<N>' item(s) due to buffer full` | A fila do processo para o coletor encheu (coletor lento ou indisponível, ou volume alto) e `N` registros não foram enviados a ele; o console tem fila própria |
 | O mesmo, com `exporting to 'JsonConsoleLogExporter'` | O stdout não acompanhou o volume e `N` linhas do console foram descartadas |
+| `BatchActivityExportProcessor` com `OtlpTraceExporter` e `dropped` | A fila de spans para o coletor encheu; os spans novos excedentes foram descartados |
 | Falha ou timeout do exportador OTLP | O coletor não respondeu em 5 s ou recusou o lote: confira se está no ar, a porta e `docker compose logs otel-collector` |
 
-Cada evento sai no máximo uma vez a cada 30 s; `N` no fim conta as repetições suprimidas. O descarte é informado de forma agregada, quando o processador encerra ou a exportação falha. Para separar o sinal da saída normal, redirecione o stderr, por exemplo com `2> .local/identity-diagnostics.err` no `dotnet run`. A linha passa pela mesma sanitização de padrões, mas não a publique em issues.
+Cada evento sai no máximo uma vez a cada 30 s; `N` no fim conta as repetições suprimidas. O descarte é informado de forma agregada, quando o processador encerra ou a exportação falha. O aviso do SDK de meter não assinado é excluído por representar a seleção intencional de métricas; outros motivos, instrumentos duplicados e falhas de exportação continuam visíveis. Para separar o sinal da saída normal, redirecione o stderr, por exemplo com `2> .local/identity-diagnostics.err` no `dotnet run`. A linha passa pela mesma sanitização de padrões, mas não a publique em issues.
 
 ### Parar o coletor
 
@@ -765,7 +770,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file script
 
 O script retorna somente id, estado, tentativas e prazo. Só retoma `Pending` suspensa, ainda válida, com conteúdo protegido e sem lease; mantém id, tentativas e expiração. Se nenhuma linha for atualizada, não force estado nem recrie prazo: ela pode estar em processamento ou terminal. Expiradas/canceladas não são ressuscitadas. Envelope inválido/divergente termina em `Failed`, com descarte do conteúdo, e exige nova intenção de negócio após corrigir a causa. Nunca selecione o payload para investigar a retomada.
 
-O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas e retries, sem tags. Gauges refletem o último snapshot obtido pelo ciclo e só emitem após o primeiro; não há exporter/endpoint de métricas da #88. O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
+O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas, retries e estados terminais. Falhas/retries têm somente o código de conjunto fechado, e estados terminais têm `state`; gauges refletem o último snapshot do ciclo e só emitem após o primeiro. Com `Observability:Otlp:Endpoint`, as métricas seguem ao [coletor local](#diagnósticos-no-coletor-local), junto dos sinais de Notifications ([instrumentos](architecture/diagnostics-pipeline.md#métricas-do-fluxo)). O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
 
 ```powershell
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'

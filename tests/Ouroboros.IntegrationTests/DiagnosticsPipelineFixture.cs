@@ -52,9 +52,9 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
     }
 
     // Linhas OTLP/JSON gravadas pelo destino (uma por lote recebido); vazio enquanto nada chegou.
-    internal async Task<string> StoredTextAsync()
+    internal async Task<string> StoredTextAsync(string signal = "logs")
     {
-        try { return Encoding.UTF8.GetString(await Store.ReadFileAsync(StoreFile, TestContext.Current.CancellationToken)); }
+        try { return Encoding.UTF8.GetString(await Store.ReadFileAsync($"/var/lib/ouroboros-diagnostics/{signal}.jsonl", TestContext.Current.CancellationToken)); }
         catch (Exception exception) when (exception is not OperationCanceledException) { return ""; }
     }
 

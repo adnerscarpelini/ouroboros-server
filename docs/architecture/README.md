@@ -19,8 +19,8 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Testes de integração](integration-tests.md).
 - [Versionamento HTTP](api-versioning.md).
 - [ProblemDetails](error-responses.md).
-- [Correlação por W3C Trace Context e logs estruturados](trace-correlation.md): `traceparent` em HTTP e no envelope das mensagens, console JSON com `traceId`/`spanId`/`occurrenceId` e correspondência com o `traceId` do ProblemDetails.
-- [Pipeline de diagnósticos sanitizados](diagnostics-pipeline.md): ILogger e OpenTelemetry, sanitização antes de qualquer destino, coletor e destino dedicado em arquivos rotacionados, identidade da ocorrência, saturação, encerramento e retenção.
+- [Correlação por W3C Trace Context e logs estruturados](trace-correlation.md): HTTP e envelope das mensagens, spans com links, console JSON com `traceId`/`spanId`/`occurrenceId` e correspondência com o `traceId` do ProblemDetails.
+- [Pipeline de diagnósticos sanitizados](diagnostics-pipeline.md): logs, traces e métricas por OpenTelemetry, sanitização, dimensões restritas, coletor e arquivos rotacionados, identidade da ocorrência, saturação, encerramento e retenção.
 - [Identificadores, datas e nomes](entity-conventions.md).
 - [Política de senha](password-policy.md).
 - [Rate limiting de autenticação](../identity/auth-rate-limiting.md).

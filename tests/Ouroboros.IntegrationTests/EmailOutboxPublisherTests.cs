@@ -451,7 +451,23 @@ public sealed class EmailOutboxPublisherTests(PostgresFixture postgres, RabbitMq
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
         { if (instrument.Meter.Name == "Ouroboros.Identity.Outbox") { meterListener.EnableMeasurementEvents(instrument); } };
-        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) => { Assert.Empty(tags.ToArray()); values[instrument.Name] = value; });
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            if (instrument.Name is "outbox.publish.failures" or "outbox.publish.retries")
+            {
+                var tag = Assert.Single(tags.ToArray());
+                Assert.Equal("code", tag.Key);
+                Assert.Contains(tag.Value, new[] { "invalid-contract", "configuration-suspended", "broker-rejected", "publish-unconfirmed", "unknown" });
+            }
+            else if (instrument.Name == "outbox.terminal")
+            {
+                var tag = Assert.Single(tags.ToArray());
+                Assert.Equal("state", tag.Key);
+                Assert.Contains(tag.Value, new[] { "Cancelled", "Expired", "Failed" });
+            }
+            else { Assert.Empty(tags.ToArray()); }
+            values[instrument.Name] = value;
+        });
         listener.SetMeasurementEventCallback<double>((instrument, value, tags, _) => { Assert.Empty(tags.ToArray()); values[instrument.Name] = value; });
         listener.Start();
         using var metrics = new EmailOutboxMetrics();

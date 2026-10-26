@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -24,6 +25,12 @@ internal sealed partial class InboxMaintenance(IServiceScopeFactory scopes, IOpt
                 {
                     await using var scope = scopes.CreateAsyncScope();
                     await InboxPersistence.MaintainAsync(scope.ServiceProvider.GetRequiredService<NotificationsDbContext>(), clock.GetUtcNow(), stoppingToken);
+                    var context = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
+                    var snapshot = await context.Inbox.Where(row => row.State == Domain.InboxState.Expired || row.State == Domain.InboxState.Cancelled || row.State == Domain.InboxState.Failed)
+                        .GroupBy(row => row.State).Select(group => new { State = group.Key.ToString(), Count = group.LongCount() })
+                        .ToDictionaryAsync(item => item.State, item => item.Count, stoppingToken);
+                    snapshot["failures"] = await context.Failures.LongCountAsync(row => row.PublishedAt == null, stoppingToken);
+                    scope.ServiceProvider.GetRequiredService<InboxMetrics>().Snapshot(snapshot);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
                 catch (Exception) { LogDatabaseFailed(logger); }

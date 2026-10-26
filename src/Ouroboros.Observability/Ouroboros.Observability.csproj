@@ -3,6 +3,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
     <InternalsVisibleTo Include="Ouroboros.ArchitectureTests" />
     <InternalsVisibleTo Include="Ouroboros.IntegrationTests" />
   </ItemGroup>

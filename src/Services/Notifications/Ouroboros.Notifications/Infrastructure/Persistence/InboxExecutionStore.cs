@@ -36,24 +36,27 @@ internal sealed class InboxExecutionStore(NotificationsDbContext context)
                 .SetProperty(row => row.LastFailureCode, "protection-unavailable").SetProperty(row => row.UpdatedAt, now)
                 .SetProperty(row => row.LeaseId, (Guid?)null).SetProperty(row => row.LeaseUntil, (DateTimeOffset?)null), cancellationToken);
 
-    internal async Task FailAttemptAsync(Guid id, Guid lease, string? permanentCode, DateTimeOffset now,
+    internal async Task<string?> FailAttemptAsync(Guid id, Guid lease, string? permanentCode, DateTimeOffset now,
         DateTimeOffset retryAt, CancellationToken cancellationToken)
     {
         await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
         var row = await context.Inbox.AsNoTracking().SingleOrDefaultAsync(item => item.MessageId == id && item.LeaseId == lease
             && item.State == InboxState.Sending, cancellationToken);
-        if (row is null) { return; }
+        if (row is null) { return null; }
+        string outcome;
         if (row.ExpiresAt <= now)
-        { await InboxPersistence.TerminalAsync(context, id, lease, InboxState.Expired, null, now, cancellationToken); }
+        { await InboxPersistence.TerminalAsync(context, id, lease, InboxState.Expired, null, now, cancellationToken); outcome = "expired"; }
         else if (permanentCode is not null || row.Attempts >= 5)
         {
             var code = permanentCode ?? "retry-exhausted";
+            outcome = permanentCode is null ? "exhausted" : "permanent";
             if (await InboxPersistence.TerminalAsync(context, id, lease, InboxState.Failed, code, now, cancellationToken) == 1)
             { await InboxPersistence.AddFailureAsync(context, id, code, row.Fingerprint, row.ExpiresAt, now, cancellationToken); }
             await context.SaveChangesAsync(cancellationToken);
         }
         else
         {
+            outcome = "transient";
             var next = retryAt < row.ExpiresAt ? retryAt : row.ExpiresAt;
             await context.Inbox.Where(item => item.MessageId == id && item.LeaseId == lease && item.State == InboxState.Sending)
                 .ExecuteUpdateAsync(update => update.SetProperty(item => item.State, InboxState.Accepted).SetProperty(item => item.NextAttemptAt, next)
@@ -61,6 +64,7 @@ internal sealed class InboxExecutionStore(NotificationsDbContext context)
                     .SetProperty(item => item.LeaseId, (Guid?)null).SetProperty(item => item.LeaseUntil, (DateTimeOffset?)null), cancellationToken);
         }
         await transaction.CommitAsync(cancellationToken);
+        return outcome;
     }
 
     internal Task<int> DeliverAsync(Guid id, Guid lease, DateTimeOffset now, CancellationToken cancellationToken) =>

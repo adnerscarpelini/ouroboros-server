@@ -56,4 +56,9 @@ internal sealed class EmailOutboxStore(IdentityDbContext context)
         var oldest = await pending.MinAsync(intent => (DateTimeOffset?)intent.OccurredAt, cancellationToken);
         return (count, oldest is null ? 0 : Math.Max(0, (now - oldest.Value).TotalSeconds));
     }
+
+    internal Task<Dictionary<string, long>> TerminalSnapshotAsync(CancellationToken cancellationToken) =>
+        context.EmailIntents.Where(intent => intent.State == EmailIntentState.Cancelled || intent.State == EmailIntentState.Expired || intent.State == EmailIntentState.Failed)
+            .GroupBy(intent => intent.State).Select(group => new { State = group.Key.ToString(), Count = group.LongCount() })
+            .ToDictionaryAsync(item => item.State, item => item.Count, cancellationToken);
 }

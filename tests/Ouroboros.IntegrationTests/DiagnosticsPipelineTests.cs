@@ -19,6 +19,7 @@ using Ouroboros.Observability;
 
 namespace Ouroboros.IntegrationTests;
 
+[Collection("Telemetry")]
 public sealed class DiagnosticsPipelineTests(PostgresFixture postgres, DiagnosticsPipelineFixture pipeline)
     : IntegrationTest(postgres), IClassFixture<DiagnosticsPipelineFixture>
 {
@@ -143,7 +144,12 @@ public sealed class DiagnosticsPipelineTests(PostgresFixture postgres, Diagnosti
         try
         {
             var logger = api.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Ouroboros.Saturation");
-            for (var index = 0; index < 30_000; index++) { logger.LogWarning("Carga de diagnóstico {Index}", index); }
+            using var source = new ActivitySource("Ouroboros.Saturation");
+            for (var index = 0; index < 30_000; index++)
+            {
+                using var activity = source.StartActivity("saturation");
+                logger.LogWarning("Carga de diagnóstico {Index}", index);
+            }
             logging = elapsed.Elapsed;
             using var client = api.CreateClient();
             response = await client.GetAsync("/api/v1/diagnostics-probe/fail", Cancellation);
