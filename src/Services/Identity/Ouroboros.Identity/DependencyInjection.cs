@@ -96,8 +96,31 @@ public static class DependencyInjection
                 provider.GetRequiredService<IOptions<IdentityDatabaseOptions>>().Value.ConnectionString,
                 npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", IdentityDbContext.Schema))
             .AddInterceptors(provider.GetRequiredService<AuditTimestampsInterceptor>()));
+        services.AddHealthChecks()
+            .AddCheck<IdentityReadinessHealthCheck>("identity-db", tags: ["ready"]);
 
         return services;
+    }
+
+    // Execução explícita de migrations pelo comando operacional; nunca chamada na subida da API.
+    public static async Task MigrateDatabaseAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Connection string de migration de Identity ausente.");
+        }
+
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+        if (string.Equals(builder.Username, "identity_runtime", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("A role identity_runtime não pode aplicar migrations; use identity_migrator.");
+        }
+
+        var options = new DbContextOptionsBuilder<IdentityDbContext>()
+            .UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", IdentityDbContext.Schema))
+            .Options;
+        await using var context = new IdentityDbContext(options);
+        await context.Database.MigrateAsync(cancellationToken);
     }
 
     // O Identity emite e valida os tokens. Cada público aceita só a própria audiência

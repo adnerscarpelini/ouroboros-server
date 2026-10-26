@@ -240,6 +240,7 @@ public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, Pro
             || name.StartsWith("Notifications__", StringComparison.OrdinalIgnoreCase) || name.StartsWith("ConnectionStrings__", StringComparison.OrdinalIgnoreCase)).ToArray())
         { start.Environment.Remove(name); }
         start.Environment["DOTNET_ENVIRONMENT"] = "Development";
+        start.Environment["Notifications__Health__Urls__0"] = "http://127.0.0.1:0";
         start.Environment["Notifications__Consumer__Enabled"] = "true";
         start.Environment["Notifications__Email__Provider"] = "PickupDirectory";
         start.Environment["Notifications__Email__PickupDirectory"] = keys.EmailsPath;

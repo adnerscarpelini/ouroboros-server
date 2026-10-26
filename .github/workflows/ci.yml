@@ -64,6 +64,18 @@ jobs:
           --configuration Release --no-build
           --report-xunit-trx --results-directory ${{ runner.temp }}/test-results
 
+      - name: Construir imagens versionadas dos serviços
+        run: |
+          version="0.1.0"
+          commit="${GITHUB_SHA::12}"
+          tag="${version}-${commit}"
+          docker build -f src/Services/Identity/Ouroboros.Identity.Api/Dockerfile \
+            --build-arg APP_VERSION="$version" --build-arg SOURCE_REVISION="$commit" \
+            -t "ouroboros-identity-api:$tag" .
+          docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile \
+            --build-arg APP_VERSION="$version" --build-arg SOURCE_REVISION="$commit" \
+            -t "ouroboros-notifications-worker:$tag" .
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -37,6 +37,7 @@ public static class OuroborosHostExtensions
         // autenticado (papéis, políticas) pertencem à API do serviço.
         builder.Services.AddAuthorization(options => options.FallbackPolicy =
             new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        builder.Services.AddOuroborosHealthChecks();
 
         return builder;
     }
@@ -52,6 +53,7 @@ public static class OuroborosHostExtensions
         app.UseRateLimiter();
         app.UseAuthentication();
         app.UseAuthorization();
+        app.MapOuroborosHealthChecks();
         app.MapControllers();
         return app;
     }

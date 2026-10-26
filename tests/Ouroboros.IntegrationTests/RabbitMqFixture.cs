@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using DotNet.Testcontainers.Builders;
@@ -16,6 +18,8 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     internal const string FailuresExchange = "ouroboros.notification-failures";
     internal const string FailuresQueue = "notifications.failures.v1";
     private readonly string _adminPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+    private readonly int _amqpPort = FreeTcpPort();
+    private readonly int _managementPort = FreeTcpPort();
     internal readonly string IdentityPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     internal readonly string ConsumerPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     internal readonly string FailuresPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
@@ -31,7 +35,7 @@ public sealed class RabbitMqFixture : IAsyncLifetime
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", _adminPassword)
             .WithEnvironment("RABBITMQ_DEFAULT_VHOST", "ouroboros")
             .WithVolumeMount(_volume, "/var/lib/rabbitmq")
-            .WithPortBinding(5672, true).WithPortBinding(15672, true)
+            .WithPortBinding(_amqpPort, 5672).WithPortBinding(_managementPort, 15672)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(15672))
             .Build();
     }
@@ -43,9 +47,24 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         await ProvisionAsync();
     }
 
+    internal static string ResolvePowerShellExecutable()
+    {
+        var cachedPwsh = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".cache", "codex-runtimes", "codex-primary-runtime", "dependencies", "native", "powershell", "pwsh.exe");
+        return File.Exists(cachedPwsh) ? cachedPwsh : "pwsh";
+    }
+
+    private static int FreeTcpPort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
     internal async Task ProvisionAsync(bool useEnvFile = false)
     {
-        var start = new ProcessStartInfo("pwsh")
+        var start = new ProcessStartInfo(ResolvePowerShellExecutable())
         {
             UseShellExecute = false,
             CreateNoWindow = true,

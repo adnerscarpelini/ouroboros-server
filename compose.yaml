@@ -1,7 +1,8 @@
-# Banco PostgreSQL para desenvolvimento local. As credenciais vêm do arquivo .env (fora do Git);
-# copie .env.example para .env e ajuste os valores. Uma única instância e um único container abrigam
-# os bancos de todos os serviços; POSTGRES_USER/POSTGRES_PASSWORD são a credencial ADMINISTRATIVA da
-# instância e nunca são usadas por APIs ou workers.
+# Banco PostgreSQL, RabbitMQ, API de Identity, worker de Notifications e coletor de diagnósticos para
+# desenvolvimento local. As credenciais vêm do arquivo .env (fora do Git); copie .env.example para .env e
+# ajuste os valores. Uma única instância PostgreSQL abriga os bancos de todos os serviços;
+# POSTGRES_USER/POSTGRES_PASSWORD e RABBITMQ_ADMIN_USER/RABBITMQ_ADMIN_PASSWORD são credenciais
+# ADMINISTRATIVAS de infraestrutura e nunca são entregues a APIs ou workers.
 name: ouroboros
 
 services:
@@ -32,7 +33,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -61,6 +62,61 @@ services:
       - ./scripts/database:/scripts:ro
     command: ["psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--file=/scripts/provision.sql"]
 
+  # Provisiona vhost, exchanges, filas e usuários de runtime do RabbitMQ (scripts/messaging/provision-rabbitmq.ps1).
+  # Só roda por comando explícito, nunca na subida dos serviços:
+  #   docker compose --profile provision run --rm provision-rabbitmq
+  provision-rabbitmq:
+    image: mcr.microsoft.com/dotnet/sdk:10.0.402
+    profiles: ["provision"]
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_ADMIN_USER: ${RABBITMQ_ADMIN_USER:?defina RABBITMQ_ADMIN_USER no .env}
+      RABBITMQ_ADMIN_PASSWORD: ${RABBITMQ_ADMIN_PASSWORD:?defina RABBITMQ_ADMIN_PASSWORD no .env}
+      IDENTITY_BROKER_PASSWORD: ${IDENTITY_BROKER_PASSWORD:?defina IDENTITY_BROKER_PASSWORD no .env}
+      NOTIFICATIONS_BROKER_PASSWORD: ${NOTIFICATIONS_BROKER_PASSWORD:?defina NOTIFICATIONS_BROKER_PASSWORD no .env}
+      NOTIFICATIONS_FAILURES_BROKER_PASSWORD: ${NOTIFICATIONS_FAILURES_BROKER_PASSWORD:?defina NOTIFICATIONS_FAILURES_BROKER_PASSWORD no .env}
+    volumes:
+      - ./scripts/messaging:/scripts:ro
+    command: ["pwsh", "-NoProfile", "-File", "/scripts/provision-rabbitmq.ps1", "-ManagementUrl", "http://rabbitmq:15672", "-LocalDevelopment"]
+
+  # Aplica migrations de Identity explicitamente com a role identity_migrator (#92). Nunca roda na subida da API:
+  #   docker compose --profile migrate run --rm migrate-identity
+  migrate-identity:
+    image: ouroboros-identity-api:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Services/Identity/Ouroboros.Identity.Api/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Identity: "Host=postgres;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=${IDENTITY_MIGRATION_PASSWORD:?defina IDENTITY_MIGRATION_PASSWORD no .env}"
+    command: ["migrate"]
+
+  # Aplica migrations de Notifications explicitamente com a role notifications_migrator (#92). Nunca roda na subida do worker:
+  #   docker compose --profile migrate run --rm migrate-notifications
+  migrate-notifications:
+    image: ouroboros-notifications-worker:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    profiles: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Notifications: "Host=postgres;Port=5432;Database=ouroboros_notifications;Username=notifications_migrator;Password=${NOTIFICATIONS_MIGRATION_PASSWORD:?defina NOTIFICATIONS_MIGRATION_PASSWORD no .env}"
+    command: ["migrate"]
+
   # Transfere o schema identity do banco original para o banco próprio do serviço (scripts/database/transfer-identity.sh),
   # em etapas explícitas e com backup, validação e retorno. Nunca roda em `docker compose up`:
   #   docker compose --profile transfer run --rm transfer-identity <freeze|backup|copy|validate|cutover|rollback|reconcile|unfreeze> [id]
@@ -83,6 +139,91 @@ services:
       - ./scripts/database:/scripts:ro
       - ./backups:/backups
     entrypoint: ["bash", "/scripts/transfer-identity.sh"]
+
+  # API de Identity: usa somente ouroboros_identity (role identity_runtime) e identity_publisher no broker.
+  # Apenas o listener público é publicado em loopback; o listener administrativo (5142) permanece não publicado no host.
+  # Readiness depende do próprio banco e não depende do RabbitMQ.
+  identity-api:
+    image: ouroboros-identity-api:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Services/Identity/Ouroboros.Identity.Api/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Identity: "Host=postgres;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=${IDENTITY_RUNTIME_PASSWORD:?defina IDENTITY_RUNTIME_PASSWORD no .env}"
+      Identity__Listeners__Public__Urls__0: "http://0.0.0.0:5141"
+      Identity__Listeners__Admin__Urls__0: "http://127.0.0.1:5142"
+      Identity__Listeners__Admin__AllowNonLoopback: "false"
+      Authentication__Jwt__KeyRingPath: "/run/ouroboros-keys/identity/ring.json"
+      Identity__EmailIntents__PublicKeyRingPath: "/run/ouroboros-keys/identity/public.json"
+      Identity__EmailIntents__SupersessionKeyPath: "/run/ouroboros-keys/identity/supersession.key"
+      Identity__EmailPublisher__Enabled: "true"
+      Identity__EmailPublisher__Host: "rabbitmq"
+      Identity__EmailPublisher__Port: "5672"
+      Identity__EmailPublisher__User: "identity_publisher"
+      Identity__EmailPublisher__Password: ${IDENTITY_BROKER_PASSWORD:?defina IDENTITY_BROKER_PASSWORD no .env}
+      Observability__Otlp__Endpoint: "http://otel-collector:4318/"
+    ports:
+      - "127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141"
+    volumes:
+      - ${IDENTITY_KEYS_DIR:?defina IDENTITY_KEYS_DIR no .env}:/run/ouroboros-keys/identity:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5141/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Worker de Notifications: usa somente ouroboros_notifications (role notifications_runtime) e suas credenciais
+  # de broker (notifications_consumer e notifications_failures). Readiness depende do próprio banco e do broker.
+  notifications-worker:
+    image: ouroboros-notifications-worker:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DOTNET_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Development}
+      ASPNETCORE_ENVIRONMENT: ${DOTNET_ENVIRONMENT:-Development}
+      ConnectionStrings__Notifications: "Host=postgres;Port=5432;Database=ouroboros_notifications;Username=notifications_runtime;Password=${NOTIFICATIONS_RUNTIME_PASSWORD:?defina NOTIFICATIONS_RUNTIME_PASSWORD no .env}"
+      Notifications__Health__Urls__0: "http://0.0.0.0:5143"
+      Notifications__Consumer__Enabled: "true"
+      Notifications__Email__Provider: "PickupDirectory"
+      Notifications__Email__PickupDirectory: "/app/.local/notifications-emails"
+      Notifications__PrivateKeyRingPath: "/run/ouroboros-keys/notifications/private.json"
+      Notifications__FingerprintKeyRingPath: "/run/ouroboros-keys/notifications/fingerprint.json"
+      Notifications__Broker__Host: "rabbitmq"
+      Notifications__Broker__Port: "5672"
+      Notifications__Broker__User: "notifications_consumer"
+      Notifications__Broker__Password: ${NOTIFICATIONS_BROKER_PASSWORD:?defina NOTIFICATIONS_BROKER_PASSWORD no .env}
+      Notifications__FailuresBroker__Host: "rabbitmq"
+      Notifications__FailuresBroker__Port: "5672"
+      Notifications__FailuresBroker__User: "notifications_failures"
+      Notifications__FailuresBroker__Password: ${NOTIFICATIONS_FAILURES_BROKER_PASSWORD:?defina NOTIFICATIONS_FAILURES_BROKER_PASSWORD no .env}
+      Observability__Otlp__Endpoint: "http://otel-collector:4318/"
+    ports:
+      - "127.0.0.1:${NOTIFICATIONS_HEALTH_PORT:-5143}:5143"
+    volumes:
+      - ${NOTIFICATIONS_KEYS_DIR:?defina NOTIFICATIONS_KEYS_DIR no .env}:/run/ouroboros-keys/notifications:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5143/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # Diagnósticos (OpenTelemetry). As APIs e os workers enviam OTLP/HTTP ao coletor em 127.0.0.1:4318 quando
   # Observability:Otlp:Endpoint está configurado; o coletor sanitiza de novo e encaminha ao destino dedicado,

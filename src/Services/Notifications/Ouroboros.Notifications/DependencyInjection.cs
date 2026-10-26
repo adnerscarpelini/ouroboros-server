@@ -36,6 +36,29 @@ public static class DependencyInjection
         services.AddHostedService<InboxExecutor>();
         services.AddHostedService<InboxMaintenance>();
         services.AddHostedService<FailureReferenceRelay>();
+        services.AddHealthChecks()
+            .AddCheck<NotificationsReadinessHealthCheck>("notifications-ready", tags: ["ready"]);
         return services;
+    }
+
+    // Execução explícita de migrations pelo comando operacional; nunca chamada na subida do worker.
+    public static async Task MigrateDatabaseAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Connection string de migration de Notifications ausente.");
+        }
+
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+        if (!string.Equals(builder.Username, "notifications_migrator", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Migrations de Notifications exigem a role notifications_migrator.");
+        }
+
+        var options = new DbContextOptionsBuilder<NotificationsDbContext>()
+            .UseNpgsql(connectionString, postgres => postgres.MigrationsHistoryTable("__EFMigrationsHistory", NotificationsDbContext.Schema))
+            .Options;
+        await using var context = new NotificationsDbContext(options);
+        await context.Database.MigrateAsync(cancellationToken);
     }
 }
