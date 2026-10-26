@@ -4,6 +4,10 @@
 
 BuildingBlocks guarda mecanismos técnicos realmente reutilizados, como identificadores, datas e mapeamentos. Não contém regras de negócio, orquestração ou entidades de outros serviços.
 
+`Storage/ProtectedEmailBackupRetention` é reutilizado pela manutenção de Identity e Notifications para apagar somente arquivos gerenciados vencidos. O helper não compartilha modelos, contexto, credenciais ou diretório de backup entre os serviços. [Política e operação](../development.md#backup-protegido-das-intenções-de-e-mail).
+
+O transporte de mensagens fica na biblioteca técnica separada `Ouroboros.Messaging`: envelope opaco, validação de wire contract e fábrica de conexão, sem entidades nem referência a serviços. A decisão de compartilhar somente esse mecanismo, preservando DTOs de conteúdo próprios, está em [RabbitMQ e contrato de mensagem](messaging.md#compartilhamento-sem-referência-entre-serviços). O receptor de Notifications e o publicador da outbox de Identity usam essa biblioteca, sem referência entre os serviços.
+
 ## Regras
 
 - Não referencia serviços, APIs ou workers.

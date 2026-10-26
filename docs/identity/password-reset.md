@@ -26,7 +26,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é `identity.email_tokens`, criada por `AddEmailTokens`, e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para Identity. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
-- Para ver o e-mail enviado em desenvolvimento, a API de Identity no ambiente `Development`, que grava cada mensagem como `.eml` em `.local/emails/` ([Envio de e-mail](../architecture/email.md)). Fora de `Development`, sem provedor configurado, o envio falha e a resposta continua `202`.
+- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é implementado pela #87.
 
 ## Configuração
 
@@ -43,7 +43,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com leitura do token no .eml e conclusão pela API.
+O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; Notifications persiste aceitação/deduplicação pela #87.
 
 ## Solicitar a redefinição
 
@@ -65,13 +65,13 @@ O corpo aceita só `email`.
 }
 ```
 
-A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que o envio do e-mail falhe. Quando o e-mail é de uma conta de cliente ativa, chega à caixa de entrada da conta uma mensagem com o assunto `Redefinição de senha do Ouroboros` e um link como:
+A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que proteção/gravação da intenção falhem. Quando o e-mail é de uma conta de cliente ativa, a intenção cifrada guarda uma mensagem para a conta com o assunto `Redefinição de senha do Ouroboros` e um link como:
 
 ```text
 http://localhost:3000/senha/redefinir?token=<token>
 ```
 
-A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. Em desenvolvimento, abra o `.eml` mais recente de `.local/emails/` ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
+A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. A API não gera `.eml`; a entrega exige publicador/worker configurados, com responsabilidade durável implementada na #87 ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
 
 ### E-mail inválido (400)
 
@@ -98,13 +98,14 @@ Parâmetro ausente ou com validade fora de 1 a 1440 faz toda solicitação respo
 4. **Token novo invalida os pendentes.** Para uma conta encontrada, numa única transação:
    - um `pg_advisory_xact_lock` sobre o id da conta serializa solicitações simultâneas da mesma conta;
    - os tokens de redefinição ainda pendentes da conta (finalidade `PasswordReset`, sem `used_at` nem `revoked_at`) recebem `revoked_at` (e `updated_at`);
-   - o token novo é gravado com `user_id` da conta, o e-mail da conta e validade de `TokenLifetimeMinutes` a partir de agora.
+   - as intenções `Pending` dos tokens substituídos são canceladas com descarte de conteúdo/alias/contexto;
+   - o token novo e sua intenção cifrada são gravados juntos, com `user_id` da conta no token e prazo igual de `TokenLifetimeMinutes` a partir de agora.
 
    Por isso sobra sempre um único token de redefinição pendente por conta, mesmo com solicitações simultâneas. Tokens de cadastro não são afetados: os dois tipos são independentes. A solicitação não espera o lock do usuário mantido por um login ou por uma conclusão em andamento ([Ordem dos locks](../architecture/identity.md#por-que-for-no-key-update)).
-5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo `OpaqueTokens`, o mesmo do cadastro e do refresh token; o banco guarda só o SHA-256 ([Persistência](#persistência)).
+5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo `OpaqueTokens`, o mesmo do cadastro e do refresh token; `identity.email_tokens` guarda seu SHA-256, enquanto a intenção guarda o link cifrado ([Persistência](#persistência)).
 6. **O link vai para o e-mail da conta.** O destinatário é o e-mail gravado no usuário, nunca o texto recebido na requisição.
-7. **Envio depois do commit.** O link (`<CompletionUrl>?token=<token>`, com o token escapado para URL) é enviado pela porta `IEmailSender` só depois de a transação ser confirmada ([Envio de e-mail](../architecture/email.md)).
-8. **Falha no envio não muda a resposta.** Se o envio falhar, a falha vai para o log em nível `Error` (`Falha ao enviar o e-mail de redefinição de senha (<tipo da exceção>).`), sem o e-mail, o link, o token nem a mensagem da exceção, e a resposta continua `202`. O token gravado fica pendente; a pessoa pode pedir de novo. Um cancelamento da requisição não é tratado como falha de envio.
+7. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A solicitação HTTP não espera broker ou provedor. O serviço hospedado da #86 faz a publicação recuperável ([Outbox](email-outbox.md)).
+8. **Falha de proteção/gravação não muda a resposta genérica.** A solicitação continua `202` e registra somente `Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.`, sem conteúdo ou detalhes da exceção. Rollback não deixa uma intenção nova publicável; o estado anterior permanece. Cancelamento da requisição continua sendo cancelamento.
 9. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 10. **A senha atual continua valendo.** A solicitação não altera o hash da senha, não bloqueia a conta nem encerra sessões.
 
@@ -193,7 +194,7 @@ A recuperação por e-mail do listener público atende somente contas `Customer`
 
 | Tipo | Local | Papel |
 | --- | --- | --- |
-| [`IRequestPasswordReset`](../../src/Services/Identity/Ouroboros.Identity/Contracts/PasswordResets/IRequestPasswordReset.cs) | `Contracts/PasswordResets` (`public`) | `ExecuteAsync(RequestPasswordResetRequest(Email))`, que devolve `RequestPasswordResetResult`: `Accepted` (com ou sem envio do link) ou `InvalidEmail` (formato fora da regra estrita). |
+| [`IRequestPasswordReset`](../../src/Services/Identity/Ouroboros.Identity/Contracts/PasswordResets/IRequestPasswordReset.cs) | `Contracts/PasswordResets` (`public`) | `ExecuteAsync(RequestPasswordResetRequest(Email))`, que devolve `RequestPasswordResetResult`: `Accepted` (resposta genérica sem comprovar entrega) ou `InvalidEmail` (formato fora da regra estrita). |
 | [`RequestPasswordReset`](../../src/Services/Identity/Ouroboros.Identity/Application/PasswordResets/RequestPasswordReset.cs) | `Application/PasswordResets` (`internal`) | Implementação da solicitação, registrada como scoped em `AddIdentityModule`. Declara as chaves dos dois parâmetros. |
 | [`ICompletePasswordReset`](../../src/Services/Identity/Ouroboros.Identity/Contracts/PasswordResets/ICompletePasswordReset.cs) | `Contracts/PasswordResets` (`public`) | `ExecuteAsync(CompletePasswordResetRequest(Token, Password))`, que devolve `CompletePasswordResetResult(Outcome, Message)`: `Completed`, `InvalidToken` (sem motivo) ou `PasswordRejected`, com a regra violada em `Message`. |
 | [`CompletePasswordReset`](../../src/Services/Identity/Ouroboros.Identity/Application/PasswordResets/CompletePasswordReset.cs) | `Application/PasswordResets` (`internal`) | Implementação da conclusão, registrada como scoped em `AddIdentityModule`. |
@@ -207,11 +208,11 @@ A recuperação por e-mail do listener público atende somente contas `Customer`
 
 Desde a [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76), os casos de uso de redefinição dependem de portas internas, sem DbContext, EF, SQL ou tipos de Infrastructure. `IPasswordResetStore` é registrado com `PasswordResetStore`; ele e `ISessionStore` são scoped e usam o mesmo `IdentityDbContext` resolvido pela DI.
 
-A solicitação consulta a conta e substitui seus tokens por `ReplacePendingTokenAsync`: advisory lock por conta, revogação dos pendentes e inserção do novo token confirmam na mesma transação. O destinatário continua sendo o e-mail persistido da conta. O envio pela porta local `IEmailSender` ocorre somente após o retorno confirmado da escrita, sem locks durante transporte. A #81 transferiu os parâmetros para o [proprietário Identity](parameters.md); outbox e integração com Notifications pertencem à #85.
+A solicitação consulta a conta e substitui seus tokens por `ReplacePendingTokenAsync`: advisory lock por conta, revogação dos pendentes, cancelamento das intenções anteriores e gravação do token/intenção novos confirmam na mesma transação. O destinatário continua sendo o e-mail persistido da conta e fica cifrado no payload da outbox. A porta `IEmailSender` foi retirada; não há transporte depois do commit. A #81 mantém parâmetros no [proprietário Identity](parameters.md), e a #85 implementa a [outbox](email-outbox.md).
 
 Na conclusão, `ISessionStore.BeginTransactionAsync` abre a unidade de trabalho inteira. O caso de uso usa a mesma porta para travar o usuário, depois as sessões em id crescente, e reler hash/estado sob lock. `IPasswordResetStore.ConsumeTokenAsync` e `ChangePasswordAsync` participam dessa transação, sem commit próprio; o adaptador recusa essas escritas sem uma transação ativa. `ISessionStore.RevokeUserTokensAsync` encerra a sequência de escritas antes do commit único. Saída sem commit ou falha desfaz consumo, senha, contador, bloqueio e revogações juntos. A conclusão não chama transporte e pode executar sem Notifications.
 
-Os tokens ficam na tabela `identity.email_tokens`, a mesma do cadastro ([Cadastrar cliente por e-mail](registration.md#persistência)), sem migration nova no Identity. Um token de redefinição tem:
+Os tokens ficam na tabela `identity.email_tokens`, a mesma do cadastro ([Cadastrar cliente por e-mail](registration.md#persistência)), com a outbox em tabela própria da migration `AddEmailIntents`, sem alterar o contrato de consumo do token. Um token de redefinição tem:
 
 - `purpose` = `PasswordReset`;
 - `user_id` preenchido com o id da conta (FK para `identity.users`, com índice), usado para revogar os pendentes da conta e, na conclusão, para encontrar o usuário;
@@ -225,12 +226,12 @@ Os dois parâmetros e seu histórico pertencem a Identity desde `OwnIdentityPara
 
 ## Limitações
 
-- **Diferença de tempo na solicitação.** A resposta é a mesma, mas uma conta encontrada custa mais (transação, gravação e envio) que um e-mail sem conta; medindo o tempo de resposta, ainda é possível inferir se um e-mail tem conta. É uma limitação conhecida, registrada na #22; o limite por IP só reduz a escala da sondagem.
+- **Diferença de tempo na solicitação.** A resposta é a mesma, mas uma conta encontrada custa mais (transação e gravação) que um e-mail sem conta; medindo o tempo de resposta, ainda é possível inferir se um e-mail tem conta. É uma limitação conhecida, registrada na #22; o limite por IP só reduz a escala da sondagem.
 - **Invalidação por terceiros.** Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP. A senha atual continua valendo.
 - **Access tokens sobrevivem à redefinição.** Os refresh tokens são revogados, mas um access token emitido antes vale até expirar (15 minutos), porque a validação do JWT não consulta a sessão ([Fazer login](login.md#limitações)).
 - **Sem recuperação para administradores** (veja [Contas de backoffice](#contas-de-backoffice)).
-- **Envio sem outbox.** Se o envio falhar depois do commit, a mensagem se perde, e o token gravado fica pendente sem ter sido entregue ([Envio de e-mail](../architecture/email.md)).
-- **Fora de `Development`, nenhum e-mail sai.** Ainda não há adaptador real; todo envio falha (com o mesmo `202`) e vai para o log.
+- **Entrega exige processos configurados.** Publicador e consumidor vêm desabilitados por padrão. Quando habilitados, a publicação é confirmada e a aceitação é durável/deduplicada; a fronteira com o provedor ainda admite duplicação ([Outbox](email-outbox.md), [processamento](../notifications/durable-processing.md)).
+- **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Sem aviso de "senha alterada"** por e-mail.
 - **Sem front-end.** O link aponta para `http://localhost:3000/senha/redefinir`, que não faz parte deste repositório.
 
@@ -238,9 +239,9 @@ Os dois parâmetros e seu histórico pertencem a Identity desde `OwnIdentityPara
 
 Execute a suíte de integração pelo [guia de desenvolvimento](../development.md#testes) (exige Docker).
 
-[`PasswordResetRequestTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetRequestTests.cs), contra o PostgreSQL real, com o `IEmailSender` substituído pelo [`CapturingEmailSender`](../../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) e um `FakeTimeProvider`:
+[`PasswordResetRequestTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetRequestTests.cs), contra o PostgreSQL real, com intenções lidas pelo [`TestOutbox`](../../tests/Ouroboros.IntegrationTests/TestOutbox.cs), chaves efêmeras de teste e `FakeTimeProvider`:
 
-- conta de cliente ativa, informada com espaços e maiúsculas, recebe `202`, um único e-mail para o endereço da conta com o link `http://localhost:3000/senha/redefinir?token=`, um token cujo SHA-256 está gravado com finalidade `PasswordReset` e `user_id` da conta, e validade de 1 hora;
+- conta de cliente ativa, informada com espaços e maiúsculas, recebe `202`, uma intenção cifrada para o endereço da conta com o link `http://localhost:3000/senha/redefinir?token=`, um token cujo SHA-256 está gravado com finalidade `PasswordReset` e `user_id` da conta, e validade de 1 hora;
 - e-mail sem conta recebe o mesmo corpo de resposta de uma conta existente, sem e-mail nem token;
 - conta inativa e conta `Admin` recebem `202`, sem e-mail (nem token, no caso do `Admin`);
 - uma segunda solicitação deixa o primeiro token com `revoked_at`, o segundo pendente e o hash da senha inalterado;
@@ -248,9 +249,9 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - `"cliente"@example.com`, `cliente@example.com.`, `Cliente <cliente@example.com>` e `nao-e-email` recebem `400`, sem e-mail;
 - com a política `identity-password-reset` limitada a 1, a segunda solicitação recebe `429`;
 - o token não aparece no corpo da resposta nem em nenhum log (nível mínimo `Trace`);
-- com falha simulada no envio, a resposta continua `202`, e o log registra a falha.
+- com falha simulada de proteção, a resposta continua `202` e não há escrita parcial.
 
-[`PasswordResetCompletionTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetCompletionTests.cs), contra o PostgreSQL real, com o token lido do `CapturingEmailSender`, um `FakeTimeProvider` e um hasher de poucas iterações:
+[`PasswordResetCompletionTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetCompletionTests.cs), contra o PostgreSQL real, com o token lido da outbox com chaves efêmeras pelo `TestOutbox`, um `FakeTimeProvider` e um hasher de poucas iterações:
 
 - um token válido responde `204`, a senha antiga recebe `401` no login, a nova entra, e o token fica com `used_at`;
 - com duas sessões abertas, nenhum refresh token fica ativo, e os dois recebem `401` na renovação;
@@ -265,7 +266,7 @@ Execute a suíte de integração pelo [guia de desenvolvimento](../development.m
 - um login com a senha antiga, verificado antes da redefinição e liberado depois dela, recebe `401`, e nenhum refresh token fica ativo;
 - o mesmo login com rehash não traz a senha antiga de volta: depois dele, a senha antiga recebe `401` e a nova entra;
 - um bloqueio atingido enquanto a redefinição calcula o hash é removido por ela, e a senha nova entra;
-- com a linha do usuário travada por `LockUserAsync` numa transação aberta, uma nova solicitação de redefinição responde `202` e envia o e-mail em menos de 10 segundos, sem esperar o lock nem entrar em deadlock.
+- com a linha do usuário travada por `LockUserAsync` numa transação aberta, uma nova solicitação de redefinição responde `202` e grava a intenção em menos de 10 segundos, sem esperar o lock nem entrar em deadlock.
 
 [`PasswordResetPersistenceTests`](../../tests/Ouroboros.IntegrationTests/PasswordResetPersistenceTests.cs) exercita as portas reais resolvidas pela DI:
 
@@ -286,6 +287,7 @@ Os limites de `identity-password-reset` e `identity-password-reset-completion` s
 - [#22](https://github.com/adnerscarpelini/ouroboros-server/issues/22): solicitar redefinição de senha.
 - [#23](https://github.com/adnerscarpelini/ouroboros-server/issues/23): redefinir a senha com o token.
 - [#76](https://github.com/adnerscarpelini/ouroboros-server/issues/76): portas de persistência e unidade de trabalho compartilhada com sessões.
+- [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85): token e intenção protegida na mesma transação.
 - Depende de [#10](https://github.com/adnerscarpelini/ouroboros-server/issues/10) (envio de e-mail), [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12) (login), [#13](https://github.com/adnerscarpelini/ouroboros-server/issues/13) (bloqueio da conta) e [#14](https://github.com/adnerscarpelini/ouroboros-server/issues/14) (limite de requisições por IP).
 
 [Voltar à documentação](../README.md)

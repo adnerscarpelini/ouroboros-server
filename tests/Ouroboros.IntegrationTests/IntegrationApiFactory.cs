@@ -74,7 +74,10 @@ internal static class TestConfiguration
             new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Ouroboros"] = connectionString,
-                ["Authentication:Jwt:SigningKey"] = IntegrationApiFactory.SigningKey,
+                ["Authentication:Jwt:KeyRingPath"] = TestSigningKeys.ManifestPath,
+                ["Identity:EmailIntents:PublicKeyRingPath"] = TestSigningKeys.EmailPublicKeyRingPath,
+                ["Identity:EmailIntents:SupersessionKeyPath"] = TestSigningKeys.SupersessionKeyPath,
+                ["Identity:EmailIntents:MaintenanceEnabled"] = "false",
 
                 // No TestServer todas as requisições vêm do mesmo IP (desconhecido); o limite do login fica
                 // alto para não interferir nos outros testes. RateLimitingTests usa limites próprios.

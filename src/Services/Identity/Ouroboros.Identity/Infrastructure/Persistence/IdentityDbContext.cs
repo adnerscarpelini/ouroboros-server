@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Identity.Domain.EmailTokens;
+using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Domain.Parameters;
 using Ouroboros.Identity.Domain.Sessions;
 using Ouroboros.Identity.Domain.Users;
@@ -22,6 +23,7 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<EmailToken> EmailTokens => Set<EmailToken>();
+    public DbSet<EmailIntent> EmailIntents => Set<EmailIntent>();
 
     // Trava a linha da sessão até o fim da transação atual. Toda escrita em refresh_tokens de uma sessão
     // (renovação, revogação por reuso, logout) trava a sessão antes: sem o lock, em READ COMMITTED, uma

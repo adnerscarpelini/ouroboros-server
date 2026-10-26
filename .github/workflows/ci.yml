@@ -95,6 +95,11 @@ jobs:
 
       - run: dotnet build tests/Ouroboros.IntegrationTests --configuration Release --no-restore
 
+      # A fixture de RabbitMQ executa o mesmo provisionador explícito usado no desenvolvimento.
+      - name: Conferir PowerShell do provisionador
+        shell: pwsh
+        run: $PSVersionTable.PSVersion.ToString()
+
       - name: Testes de integração
         run: >
           dotnet test --project tests/Ouroboros.IntegrationTests

@@ -25,8 +25,11 @@ A biblioteca própria organiza Domain, Application, Infrastructure e contratos c
 | --- | --- |
 | `src/Services/Identity/Ouroboros.Identity` | Biblioteca do serviço Identity (Domain, Application, Infrastructure e Contracts como pastas), com os parâmetros de segurança no mesmo `IdentityDbContext` |
 | `src/Services/Identity/Ouroboros.Identity.Api` | API de Identity: controllers externos e administrativos, listeners, políticas, rate limiting, configuração e o comando `create-admin` ([APIs e workers](hosts.md)) |
+| `src/Services/Notifications/Ouroboros.Notifications` | Receptor, inbox/execução persistentes e relay de falhas, com banco/credenciais/migrations próprios, proteção e adaptador pickup ([processamento](../notifications/durable-processing.md)) |
+| `src/Services/Notifications/Ouroboros.Notifications.Worker` | Generic Host independente e imagem Linux; consumidor/executor/relay separados, habilitação explícita e provedor local somente em Development ([worker](../notifications/worker.md)) |
 | `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
 | `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
+| `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec/AAD e fábrica RabbitMQ; sem entidades ou referência a serviços, usada pelo receptor Notifications e pelo publicador de Identity ([mensageria](messaging.md)) |
 
 Não há executável agregador que componha vários serviços, nem projeto Settings: os parâmetros pertencem ao serviço que aplica a regra, e Identity é a proprietária dos seus. Accounts, Customers e Transactions não existem como projetos.
 

@@ -6,13 +6,14 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 - .NET SDK 10.0.402, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
-- Docker com Docker Compose, para o PostgreSQL de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- Docker com Docker Compose, para PostgreSQL e RabbitMQ de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- PowerShell 7 (`pwsh`) para provisionar o RabbitMQ e para sua fixture de teste, inclusive em Linux.
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks` e `Ouroboros.Hosting` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e `Ouroboros.Messaging` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). As demais bibliotecas não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -33,10 +34,10 @@ dotnet test --project tests/Ouroboros.ArchitectureTests   # só arquitetura (sem
 dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (exige Docker)
 ```
 
-- A API de Identity é o único alvo dos testes: nenhuma suíte sobe outro executável. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string e uma chave de assinatura fictícias. Os testes não usam a chave dos user-secrets.
+- A API de Identity e o worker de Notifications têm testes próprios; os testes de Notifications incluem processo filho real e RabbitMQ. Os testes de arquitetura não acessam o banco: sobem a API de Identity com uma connection string fictícia e um manifesto externo de chaves RSA efêmeras. Os testes não usam as chaves dos user-secrets.
 - Os testes de listeners em Kestrel real ([`KestrelListenerTests`](../tests/Ouroboros.IntegrationTests/KestrelListenerTests.cs)) abrem portas livres de loopback e exigem Docker pelo banco. O teste de que o listener administrativo não responde por endereço da máquina é ignorado quando a máquina não tem endereço IPv4 fora de loopback.
 - Os testes de dependência analisam os assemblies de todos os projetos de `src`, listados em `architecture-assemblies.txt`, gerado no build do projeto de testes. Compile antes (`dotnet build Ouroboros.slnx`); sem o manifesto, o teste falha pedindo a compilação. Um serviço ou executável novo em `src` é analisado automaticamente. Regras e lista de transição em [Dependências entre camadas e serviços](architecture/layer-dependencies.md#verificação).
-- Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`; as seguintes levam poucos segundos.
+- Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`. Os testes de mensageria também baixam `rabbitmq:4.4.0-management` e exigem `pwsh`; contratos e topologia estão descritos em [RabbitMQ e contrato de mensagem](architecture/messaging.md#como-verificar).
 - Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
 - Os testes da transferência do banco de Identity (`IdentityDatabaseTransferTests` e `IdentityDatabaseTransferHardeningTests`) também exigem o Docker e usam a mesma `ProvisionedInstance`, que copia `scripts/database` para o container e executa `transfer-identity.sh` com a credencial administrativa da instância de teste. Cobrem backup restaurado e comparado, janela sem escrita, equivalência de origem e destino, falha de validação sem troca e com origem intacta, recusas do `copy`, privilégios da role de runtime (sem DDL, sem banco alheio, sem `public`), migrations só pela role de migration, rollback sem e com novas escritas, reconciliação (idempotência, conflito, sequências nunca usadas) e login, renovação e `me` com a API real na role de runtime após a troca. Não substituem o ensaio em cópia do ambiente real.
 - `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
@@ -51,17 +52,62 @@ O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pul
 | Check (nome do job) | O que executa | Equivale localmente a |
 | --- | --- | --- |
 | Build e testes de arquitetura | Restore e build da solution em Release, mais os testes de arquitetura | `dotnet build Ouroboros.slnx -c Release` e `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` |
-| Testes de integração | Testes de integração com PostgreSQL em container (Testcontainers) | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
+| Testes de integração | Testes de integração com PostgreSQL e RabbitMQ em containers (Testcontainers); confere a disponibilidade de PowerShell para o provisionador | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
 
 Falha de build, de teste ou de job reprova o check. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
 
 ### Fixtures e adaptadores de teste
 
-O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API de Identity e remove somente seu banco ao terminar.
+O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFixture.cs): um container por suíte e um banco modelo com migrations aplicadas. Cada teste recebe banco clonado, isolado dos demais. [IntegrationTest](../tests/Ouroboros.IntegrationTests/IntegrationTest.cs) cria a API de Identity e remove somente seu banco ao terminar. A [RabbitMqFixture](../tests/Ouroboros.IntegrationTests/RabbitMqFixture.cs) cria broker e volume exclusivos de teste, gera credenciais efêmeras e executa o mesmo `provision-rabbitmq.ps1` da operação local; remove somente seus recursos. Os testes verificam contrato, permissões, reinício e reprovisionamento, sem serviço de e-mail conectado.
 
 [IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) inicia a API de Identity (`Ouroboros.Identity.Api`) em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. `CreateClient()` fala com o listener público e `CreateAdminClient()`, com o administrativo; `BackofficeIntegrationApiFactory`, declarada no mesmo arquivo, faz todas as requisições do cliente chegarem ao listener administrativo. Como o `TestServer` não tem sockets, o listener é escolhido pelo cabeçalho de teste `X-Test-Listener` (`admin`), lido só por um resolvedor registrado no projeto de testes; a produção ignora o cabeçalho. A separação por portas é verificada em `KestrelListenerTests`, com Kestrel real. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios; `ForwardedHeadersTests` usa o cabeçalho de teste `X-Test-Client-IP` para definir o IP da conexão.
 
-A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [CapturingEmailSender](../tests/Ouroboros.IntegrationTests/CapturingEmailSender.cs) captura links e simula falha sem envio real; EmailTests verifica o adaptador .eml. Isso não comprova entrega distribuída.
+A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [TestOutbox](../tests/Ouroboros.IntegrationTests/TestOutbox.cs) lê intenções e decifra conteúdo somente com chaves efêmeras de teste; NotificationsWorkerTests verifica o adaptador `.eml` no receptor. Isso não comprova entrega distribuída.
+
+## RabbitMQ local
+
+O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity tem publicador da outbox habilitável explicitamente. O worker da #87 tem aceitação/deduplicação persistentes; seu provedor local continua restrito a Development. [Topologia, contratos e limites](architecture/messaging.md).
+
+1. Se ainda não existe `.env`, copie `.env.example` uma vez, sem sobrescrever um arquivo existente. Troque as quatro senhas do broker por valores aleatórios **distintos**, de pelo menos 32 caracteres; placeholders `troque-` são recusados pelo provisionador. Use, por exemplo, quatro valores hexadecimais gerados pelo gerenciador de segredos. Hexadecimal evita diferenças de interpretação de `$`/aspas entre o Compose e o leitor literal de `-EnvFile`. Não imprima nem registre senhas em histórico, transcript ou argumentos.
+
+   | Variável | Uso |
+   | --- | --- |
+   | `RABBITMQ_ADMIN_USER` | Operador do broker; padrão de exemplo `broker_operator`, nunca `guest` |
+   | `RABBITMQ_ADMIN_PASSWORD` | Bootstrap do volume novo e autenticação do provisionador; somente operação |
+   | `IDENTITY_BROKER_PASSWORD` | `identity_publisher`, publica somente no exchange de solicitações |
+   | `NOTIFICATIONS_BROKER_PASSWORD` | `notifications_consumer`, lê somente a fila de e-mails |
+   | `NOTIFICATIONS_FAILURES_BROKER_PASSWORD` | `notifications_failures`, publica somente referências no exchange de falhas |
+
+   Proteja o `.env` contra leitura ampla: ACL exclusiva da operação no Windows, `0600` no Linux. O provisionador roda na máquina do operador, não recebe connection strings de banco e nunca entrega a credencial administrativa aos serviços. Em volume existente, mudar `RABBITMQ_DEFAULT_*` não altera o administrador já criado: use a credencial vigente e o procedimento administrativo próprio de rotação. O provisionador converge as três credenciais de runtime; não redefine o administrador nem remove usuários alheios.
+
+2. Suba apenas o broker e aguarde o healthcheck:
+
+   ```powershell
+   docker compose up -d --wait rabbitmq
+   ```
+
+   AMQP usa `127.0.0.1:5672` e gestão `http://127.0.0.1:15672`, alteráveis por `RABBITMQ_PORT`/`RABBITMQ_MANAGEMENT_PORT`. Nenhuma porta de gestão é exposta fora da máquina. HTTP/AMQP sem TLS se restringem ao desenvolvimento local; outros ambientes exigem TLS e certificados, sem desabilitar validação.
+
+3. Provisione explicitamente o vhost, usuários, exchanges, filas e bindings:
+
+   ```powershell
+   pwsh -NoProfile -File scripts/messaging/provision-rabbitmq.ps1 -EnvFile .env -LocalDevelopment
+   ```
+
+   Com porta de gestão alterada, acrescente `-ManagementUrl http://127.0.0.1:<porta>`. Sem `-EnvFile`, as cinco variáveis de usuário/senhas devem vir do ambiente, carregadas pelo gerenciador de segredos. Variáveis já definidas no processo têm precedência sobre o arquivo; confira sua origem ao trocar credenciais. O leitor de arquivo usa somente a allowlist da tabela, ignora comentários/outros nomes, remove um par de aspas externas e não expande variáveis nem executa o conteúdo. Não use dot-source, `Invoke-Expression`, `-Verbose`, `-Debug` ou transcript para carregar/exibir os segredos.
+
+   A saída de sucesso é `Topologia RabbitMQ e permissões convergidas; nenhum dado removido.` Uma falha interrompe o script com indicação sanitizada da operação; não repita a senha em logs para investigar. Reexecute o mesmo comando após corrigir a causa: ele não apaga mensagens. Uma incompatibilidade de argumentos de uma fila existente exige análise do operador, sem apagá-la para fazer a declaração passar.
+
+4. Para testar reinício local sem descartar persistência, use `docker compose restart rabbitmq` e reexecute o provisionador. Para parar somente o broker, use `docker compose stop rabbitmq`. `docker compose down` mantém os volumes, mas para todos os containers do projeto. Preserve `rabbitmq-data`, `postgres-data` e backups; os comandos documentados não removem volumes.
+
+A fila principal tem 64 MiB e rejeita novas publicações quando cheia, sem TTL/DLX do corpo original. A fila de falhas tem 8 MiB e TTL máximo de 30 dias, somente para referências sanitizadas. O consumidor da #87 persiste aceitação/expiração/classificação antes do ACK; o executor chama o provedor separadamente com tentativas limitadas. O pickup disponível continua restrito a Development. A recuperação da publicação de origem é a #86; [recuperação do consumidor](#recuperar-processamento-e-referências-de-falha) usa scripts próprios.
+
+Testes focados, com Docker e `pwsh` disponíveis, sem usar esse broker ou `.env`:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*MessageContractTests'
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*RabbitMqTopologyTests'
+```
 
 ## Banco de dados local
 
@@ -76,7 +122,7 @@ A API de Identity lê a connection string de `ConnectionStrings:Identity`, o ban
 2. Suba o PostgreSQL e aguarde o healthcheck:
 
    ```powershell
-   docker compose up -d --wait
+   docker compose up -d --wait postgres
    ```
 
 3. Grave a connection string do **banco original** nos user-secrets do projeto `Ouroboros.Identity.Api`, com os valores do `.env` (credencial administrativa da instância; uso restrito ao desenvolvimento local). Os segredos ficam no `UserSecretsId` do `Ouroboros.Identity.Api.csproj`:
@@ -120,7 +166,7 @@ Para gerar uma nova migration do Identity:
 dotnet ef migrations add <Nome> --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext --output-dir Infrastructure/Persistence/Migrations
 ```
 
-`docker compose down` para o banco e mantém os dados no volume `postgres-data`. Preserve esse volume e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros serviços estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
+`docker compose down` para os containers do projeto, incluindo RabbitMQ se iniciado, e mantém os dados nos volumes `postgres-data` e `rabbitmq-data`. Para parar somente o banco, use `docker compose stop postgres`. Preserve os volumes e os backups durante a migração. Fora de desenvolvimento, a connection string vem da variável de ambiente `ConnectionStrings__Identity` (banco próprio) ou, enquanto não houver troca, `ConnectionStrings__Ouroboros`. Uma `ConnectionStrings__Identity` esquecida no ambiente continua tendo precedência sobre `ConnectionStrings:Ouroboros`: confira-a ao voltar para o banco original. Detalhes e o padrão para outros serviços estão em [Persistência com PostgreSQL e EF Core](architecture/persistence.md).
 
 ## Provisionar bancos e roles por serviço
 
@@ -173,7 +219,7 @@ O provisionamento não altera nenhuma API nem host e não aplica migrations: nen
 
 ## Transferir o banco de Identity
 
-Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters`, `parameter_history` e `__EFMigrationsHistory`) do banco original da instância (`POSTGRES_DB`) para `ouroboros_identity`, em um único procedimento, sem estado intermediário com dois bancos. Está em `scripts/database/transfer-identity.sh` (com `identity-digest.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão, a validação e os limites do rollback estão em [Persistência](architecture/persistence.md#transferência-do-banco-de-identity).
+Move todo o banco de Identity (schema `identity`: `users`, `sessions`, `refresh_tokens`, `email_tokens`, `email_intents` quando já migrada, `parameters`, `parameter_history` e `__EFMigrationsHistory`) do banco original da instância (`POSTGRES_DB`) para `ouroboros_identity`, em um único procedimento, sem estado intermediário com dois bancos. Está em `scripts/database/transfer-identity.sh` (com `identity-digest.sql`) e roda só por comando explícito: nem `docker compose up` nem as APIs o executam. A decisão, a validação e os limites do rollback estão em [Persistência](architecture/persistence.md#transferência-do-banco-de-identity).
 
 **Pré-requisitos**
 
@@ -223,7 +269,7 @@ docker compose --profile transfer run --rm -e FORCE_TERMINATE=1 transfer-identit
 
 **Backups.** Ficam em `./backups/identity-<id>/`, pasta ignorada pelo Git, montada no container como `/backups`: `source.dump`, os resumos comparados em cada etapa, a linha de base (`baseline.tsv`) e as marcas de etapa. O procedimento cria a pasta com permissão `700` e os arquivos com `600`; em host Linux eles pertencem ao `root` do container, e a leitura exige `sudo`. Os arquivos contêm hashes de senha e de token: trate-os como segredo e não os copie para logs, issues nem o repositório. Nada os remove.
 
-**Validação.** O resumo comparado entre origem e destino tem 20 facetas: contagens e linhas inteiras de `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`; identificadores públicos de usuários e sessões; hashes de senha; `token_hash` dos refresh tokens e dos tokens de e-mail; revisões dos parâmetros e do histórico; histórico de migrations; e a estrutura (colunas com tipos e defaults, índices, constraints, gatilhos, comentários e sequências). Qualquer diferença reprova a validação.
+**Validação.** O resumo comparado entre origem e destino tem 20 facetas: contagens e linhas inteiras de `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`; identificadores públicos de usuários e sessões; hashes de senha; `token_hash` dos refresh tokens e dos tokens de e-mail; revisões dos parâmetros e do histórico; histórico de migrations; e a estrutura (colunas com tipos e defaults, índices, constraints, gatilhos, comentários e sequências). Quando `email_intents` existe na origem, seu conteúdo integral também participa do resumo e da linha de base. Qualquer diferença reprova a validação.
 
 **Falha e repetição.** A falha de validação impede a troca e a origem fica intacta. Nada é excluído: nem a origem, nem volumes, nem a credencial antiga; o único banco removido é o de verificação criado pelo próprio `backup`. O `copy` recusa destino que já tem o schema `identity`, origem alterada depois do backup e senhas de runtime e de migration iguais; se falhar no meio, remove o schema parcial que ele mesmo criou no destino vazio. Para repetir depois de uma validação que falhou, avalie o destino e, conscientemente, esvazie-o antes de rodar o `copy` de novo (o comando aparece na recusa; ajuste usuário e banco se mudou o `.env`):
 
@@ -259,7 +305,7 @@ docker compose --profile transfer run --rm transfer-identity rollback <id>
 
   O `reconcile` reabre a escrita da origem para aplicar as linhas numa transação, em ordem de chaves estrangeiras, ajusta as sequências (inclusive as nunca usadas) e confere a equivalência com o destino. Mantenha as APIs paradas até remover `ConnectionStrings:Identity`. Se a origem foi escrita depois da linha de base, o `reconcile` recusa o conflito, mantém a janela sem escrita e nada é aplicado; reexecutá-lo depois de reconciliar não altera nada.
 
-Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se os históricos de migrations divergem, `rollback` e `reconcile` recusam e a reconciliação é manual. Aplicar #85 só no destino impede voltar diretamente à origem pré-#85; preserve a outbox e reconcilie schema/escritas antes de mudar a connection string.
 
 O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na origem (`FORCE_TERMINATE=1` as encerra, como no `freeze`). Os testes do procedimento estão descritos em [Testes](#testes).
 
@@ -284,29 +330,73 @@ Detalhes em [Criar o primeiro administrador](identity/first-admin.md). Com o `Ad
 
 ## Chave de assinatura dos tokens
 
-A API de Identity exige a chave `Authentication:Jwt:SigningKey`, que assina e valida os access tokens JWT (HS256). Sem ela, ou com uma chave vazia ou menor que 32 bytes (256 bits) em UTF-8, falha ao subir com `OptionsValidationException` e uma mensagem que cita a chave. A chave nunca vai para o Git nem para o `appsettings.json`.
+A API de Identity exige `Authentication:Jwt:KeyRingPath`, caminho absoluto de um manifesto JSON externo. Ela emite RS256, exige RSA de pelo menos 2048 bits e valida o par público/privado na subida. Configuração ausente, manifesto inválido, chave ilegível ou par divergente impedem iniciar. Não há geração automática ou fallback para a configuração antiga `SigningKey`.
 
-1. Gere uma chave aleatória. Por exemplo, com OpenSSL:
+O diretório deve ficar fora do checkout, de qualquer contexto de build e das imagens. Só a conta de operação pode escrever o manifesto e as chaves; só o processo de Identity deve ler a privada. Em produção, o operador monta os arquivos como segredos somente de leitura no emissor, com caminhos absolutos válidos dentro dele. Outros serviços recebem apenas a URL HTTPS de JWKS. Não copie o diretório para Dockerfile, volume público, artefato de CI ou backup sem proteção e acesso restrito. A aplicação não configura ACL nem apaga segredos por conta própria.
 
-   ```powershell
-   openssl rand -base64 48
-   ```
+### Gerar a primeira chave
 
-   Ou, só com PowerShell:
+O exemplo usa PowerShell 7 e .NET, sem imprimir a privada. Informe um diretório **novo**, externo ao código; em desenvolvimento, execute a geração com a conta que executará Identity. Para outra conta de runtime, o operador concede a ela leitura e travessia, preservando escrita exclusiva da operação.
 
-   ```powershell
-   $bytes = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes); [Convert]::ToBase64String($bytes)
-   ```
+```powershell
+$keyDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para as chaves'))
+if (Test-Path -LiteralPath $keyDirectory) { throw 'Escolha um diretório novo' }
+$ancestor = [IO.DirectoryInfo]::new($keyDirectory)
+while ($null -ne $ancestor) {
+    if (Test-Path -LiteralPath (Join-Path $ancestor.FullName '.git')) { throw 'Diretório dentro de um checkout' }
+    $ancestor = $ancestor.Parent
+}
+[void][IO.Directory]::CreateDirectory($keyDirectory)
+if ($IsWindows) {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl = Get-Acl -LiteralPath $keyDirectory
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+    $acl.AddAccessRule($rule)
+    Set-Acl -LiteralPath $keyDirectory -AclObject $acl
+} else {
+    [IO.File]::SetUnixFileMode($keyDirectory, [IO.UnixFileMode]::UserRead -bor
+        [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+}
 
-   Os dois geram 64 caracteres, acima do mínimo de 32 bytes.
+function New-RsaSigningPair([string] $directory, [string] $kid) {
+    if ($kid -notmatch '^[a-zA-Z0-9-]{1,80}$') { throw 'kid inválido' }
+    $privatePath = Join-Path $directory "$kid.pem"
+    if (Test-Path -LiteralPath $privatePath) { throw 'Chave já existe' }
+    $rsa = [Security.Cryptography.RSA]::Create(3072)
+    try {
+        [IO.File]::WriteAllText($privatePath, $rsa.ExportPkcs8PrivateKeyPem(), [Text.UTF8Encoding]::new($false))
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($privatePath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+        }
+        $public = $rsa.ExportParameters($false)
+        return @{
+            kid = $kid
+            n = [Convert]::ToBase64String($public.Modulus).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+            e = [Convert]::ToBase64String($public.Exponent).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+        }
+    } finally { $rsa.Dispose() }
+}
 
-2. Grave a chave nos user-secrets do projeto `Ouroboros.Identity.Api` (`UserSecretsId` do `Ouroboros.Identity.Api.csproj`):
+$kid = 'identity-' + [DateTimeOffset]::UtcNow.ToString('yyyyMMddHHmmss')
+$publicEntry = New-RsaSigningPair $keyDirectory $kid
+$manifestPath = Join-Path $keyDirectory 'ring.json'
+$manifest = @{
+    activeKid = $kid
+    privateKeyPath = Join-Path $keyDirectory "$kid.pem"
+    keys = @($publicEntry)
+}
+[IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+if (-not $IsWindows) {
+    [IO.File]::SetUnixFileMode($manifestPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+}
+dotnet user-secrets set 'Authentication:Jwt:KeyRingPath' $manifestPath --project src/Services/Identity/Ouroboros.Identity.Api
+```
 
-   ```powershell
-   dotnet user-secrets set "Authentication:Jwt:SigningKey" "<a chave gerada>" --project src/Services/Identity/Ouroboros.Identity.Api
-   ```
+No Windows, confira `Get-Acl -LiteralPath $keyDirectory` e os dois arquivos: sem herança de leitura ampla, com acesso apenas da operação e da conta de Identity. No Linux, confira `stat`: diretório `0700`, privada e manifesto `0600`, com dono correto. Se as contas forem diferentes, configure grupo/ACL específico: runtime lê e atravessa, mas não escreve. Não amplie acesso para `Everyone`/`Users` ou `other` para resolver erro de leitura.
 
-Fora de desenvolvimento, a chave vem da variável de ambiente `Authentication__Jwt__SigningKey`, com o mesmo valor em todos os processos que emitem ou validam tokens. Trocar a chave invalida os tokens já emitidos. Emissor, audiências e tempos de vida ficam no `appsettings.json` do host; detalhes em [Autenticação JWT e autorização por políticas](architecture/authentication.md).
+Fora de Development, defina `Authentication__Jwt__KeyRingPath` com o caminho do manifesto montado. Emissor, audiências e tempos permanecem no `appsettings.json`; [decisão e validação](architecture/authentication.md).
 
 Os valores de `Authentication:Jwt` disponíveis são:
 
@@ -317,13 +407,53 @@ Os valores de `Authentication:Jwt` disponíveis são:
 | AdminAudience | `ouroboros-backoffice`: tokens de `Admin`, aceitos no listener administrativo. Obrigatória na API de Identity e diferente de `Audience` |
 | AccessTokenLifetime | `00:15:00` |
 | RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
-| SigningKey | Externa ao Git, pelo menos 32 bytes UTF-8; Base64 é usado como texto, sem decodificação |
+| KeyRingPath | Externo ao Git, caminho absoluto do manifesto; privada PEM PKCS#8 apontada por `privateKeyPath` |
 
-Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. O checkout valida HS256 com tolerância de relógio de 30 segundos e sem consulta à sessão a cada chamada; rotação assimétrica é uma entrega da #84, conforme o [estado de implementação](implementation-status.md).
+Emissor/audiência ausentes (inclusive `AdminAudience` na API de Identity ou igual a `Audience`) e durações não positivas também impedem a subida. A tolerância de relógio continua em 30 segundos; não há consulta à sessão em cada validação de access token. Refresh token e logout preservam os contratos anteriores.
+
+### Rotacionar uma chave RSA
+
+Use `kid` novo para cada par, sem reaproveitá-lo. O manifesto admite até 16 públicas, tem limite de 64 KiB e não contém PEM privado. A operação abaixo usa as variáveis e a função da geração inicial, com `ring.json` já existente; recarregue `$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -AsHashtable` antes de editar se abriu outra sessão.
+
+1. Gere o próximo par com `New-RsaSigningPair`, no mesmo diretório protegido. Acrescente sua entrada pública a `keys`, mantendo `activeKid` e `privateKeyPath` anteriores. Para gravar cada nova versão, escreva JSON num arquivo temporário **no mesmo diretório**, aplique a mesma ACL/`0600` e substitua o manifesto atomicamente com `[IO.File]::Move($temporaryPath, $manifestPath, $true)`. A troca exige filesystem que suporte rename atômico; não edite o arquivo em uso diretamente. O runtime relê o manifesto a cada operação; não é necessário reiniciar consumidores.
+2. Confira `GET /api/v1/identity/keys` e aguarde pelo menos cinco minutos para os caches receberem a próxima pública. A resposta é anônima, só no listener externo, com cache de 300 s e limite inicial de 60 requisições/minuto por IP.
+3. Troque `activeKid` e `privateKeyPath` para o próximo par e substitua o manifesto atomicamente. Na entrada anterior, defina `retiredAt` como o instante UTC em que a última emissão antiga cessou e `acceptUntil` pelo menos **20 min 30 s** depois (15 min de access token + 30 s + 5 min de cache). Um intervalo de 21 minutos atende aos valores atuais. Em múltiplos emissores, calcule a janela a partir do último a trocar, sem retirar a pública antes disso. Confira que novos tokens trazem o novo `kid` e que um token antigo ainda válido continua aceito.
+4. Depois que todos os emissores usarem o próximo par, remova a privada antiga do armazenamento/montagem de emissão e suas cópias operacionais que não sejam necessárias para recuperação protegida. A pública anterior permanece até `acceptUntil`; nesse instante, Identity para de resolvê-la e de publicá-la no JWKS. Depois do prazo, retire a entrada do manifesto. Não reduza a janela para compensar atraso de operação.
+
+Exemplo da mudança de estado da entrada anterior, sem material de chave:
+
+```powershell
+$retiredAt = [DateTimeOffset]::UtcNow
+$previousEntry.retiredAt = $retiredAt.ToString('O')
+$previousEntry.acceptUntil = $retiredAt.AddMinutes(21).ToString('O')
+```
+
+O consumidor deve manter cache de cinco minutos e limitar novas buscas a uma por 30 segundos, inclusive para `kid` desconhecido. Sem uma chave válida em cache e com JWKS indisponível, deve recusar acesso, sem fallback ou cache vencido. O host de prova dos testes demonstra essa política; não é uma biblioteca cliente implantada. Consulte [chaves públicas e cache](architecture/authentication.md#chaves-públicas-e-cache).
+
+### Transição de HS256
+
+Instalação nova começa diretamente com RSA, sem `legacy`. Para preservar access tokens HS256 existentes, o operador faz uma única janela de transição, coordenada com a interrupção de todas as emissões antigas:
+
+1. Copie o **valor exato** da antiga `Authentication:Jwt:SigningKey` para um arquivo de texto externo protegido, sem quebra de linha adicional. Não decodifique Base64: o emissor antigo usava os bytes UTF-8 do texto, com pelo menos 32 bytes. Faça a cópia pelo gerenciador de segredos, sem imprimir a chave ou colocá-la em argumento, histórico do shell ou transcript. Aplique as mesmas ACLs/`0600` da privada RSA.
+2. Acrescente ao manifesto `legacy: { keyPath, startsAt, endsAt }`, com caminho absoluto do arquivo e instantes UTC absolutos. `startsAt` é a troca para emissão RSA; `endsAt` deve ser no máximo 15 minutos depois, conforme `AccessTokenLifetime`. Exemplo para compor apenas metadados, usando `$legacyPath` já definido pelo operador:
+
+   ```powershell
+   $startsAt = [DateTimeOffset]::UtcNow
+   $manifest.legacy = @{
+       keyPath = $legacyPath
+       startsAt = $startsAt.ToString('O')
+       endsAt = $startsAt.AddMinutes(15).ToString('O')
+   }
+   ```
+
+3. Publique o manifesto atomicamente conforme a rotação e inicie a emissão RSA. Durante `startsAt <= agora < endsAt`, ambos os algoritmos são aceitos por Identity, cada um com sua própria chave. Não estenda nem recrie o prazo num reinício; mantenha o mesmo limite absoluto em todos os emissores. Consumidores novos recebem somente as públicas RSA e não validam HS256.
+4. Ao atingir `endsAt`, HS256 é recusado mesmo se o arquivo ainda existir, e Identity não o abre mais. Retire `legacy` do manifesto, remova o arquivo legado pelo caminho absoluto conferido e elimine o segredo de todas as fontes antigas. Remova o user-secret com `dotnet user-secrets remove 'Authentication:Jwt:SigningKey' --project src/Services/Identity/Ouroboros.Identity.Api`; retire também `Authentication__Jwt__SigningKey` da configuração do processo e do gerenciador de segredos. Não basta retirar uma fonte enquanto outra ainda guarda o segredo. A aplicação não apaga esses arquivos/configurações automaticamente.
+
+O prazo HS256 não inclui tolerância extra para transição: tokens antigos ainda dentro da tolerância de relógio podem exigir renovação ao atingir o limite. Uma implantação com versões antigas e novas emitindo simultaneamente precisa cessar a emissão HS256 antes de iniciar a janela, para não truncar a vida dos últimos tokens. Não use rollback para reativar o prazo ou voltar a emitir HS256.
 
 ## Executar a API de Identity
 
-Com o banco e a chave de assinatura configurados, na raiz do repositório:
+Com banco, assinatura JWT e [proteção da outbox](#configurar-a-outbox-de-identity) configurados, na raiz do repositório:
 
 ```powershell
 dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
@@ -342,91 +472,272 @@ Um token é aceito só no listener do seu público: o de `Customer` (audiência 
 
 Para pôr a API atrás de um proxy, configure `Identity:ForwardedHeaders:KnownProxies` (IPs) ou `KnownNetworks` (CIDR, por exemplo `10.0.0.0/8`). Sem isso, `X-Forwarded-For` é ignorado e o rate limit por IP usa o endereço da conexão; um IP ou CIDR inválido impede a subida.
 
-Os user-secrets (connection string e chave de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra a connection string nem a chave de assinatura, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__SigningKey`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
+Os user-secrets (connection string e caminho do manifesto de assinatura) só são lidos no ambiente `Development`; com `--no-launch-profile`, o ambiente passa a ser `Production` e a API não encontra essa configuração, a menos que você defina `ASPNETCORE_ENVIRONMENT=Development` ou as variáveis `ConnectionStrings__Identity` (ou `ConnectionStrings__Ouroboros`, enquanto não houver troca) e `Authentication__Jwt__KeyRingPath`. Em `Production`, defina também as URLs dos listeners, se os padrões não servirem.
 
 ### Endpoints e limites
 
-Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. Os únicos endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+
+## Executar o worker de Notifications
+
+`Ouroboros.Notifications.Worker` é um processo separado, sem API de negócio, com banco/migrations próprios e aceitação durável da #87. O consumidor vem desligado; habilitá-lo exige as dependências abaixo e provedor explícito. O único provedor disponível, `PickupDirectory`, é restrito a Development. Identity grava/publica intenções pela outbox das #85/#86. [Comportamento do worker](notifications/worker.md) e [deduplicação/recuperação](notifications/durable-processing.md).
+
+### Banco e migrations de Notifications
+
+Provisione `ouroboros_notifications`, `notifications_runtime` e `notifications_migrator` pelo [procedimento da #92](#provisionar-bancos-e-roles-por-serviço). Não use connection string de Identity nem fallback legado. O design-time lê **somente a variável** `ConnectionStrings__Notifications`; user-secrets não substituem essa variável para gerar/aplicar migrations. Na sessão de operação, forneça a conexão da role **`notifications_migrator`**, sem expô-la em argumento/histórico:
+
+```powershell
+$env:ConnectionStrings__Notifications = [Net.NetworkCredential]::new('', (Read-Host 'Conexão própria de migration de Notifications' -AsSecureString)).Password
+dotnet tool restore
+dotnet ef database update --project src/Services/Notifications/Ouroboros.Notifications --startup-project src/Services/Notifications/Ouroboros.Notifications.Worker --context NotificationsDbContext
+Remove-Item Env:ConnectionStrings__Notifications
+```
+
+`20261026081751_InitialNotificationsInbox` cria `notifications.inbox`, `supersessions`, `failure_outbox` e `processing_recoveries`, com histórico no mesmo schema; revoga seu acesso de runtime. Reaplique o provisionamento de privilégios após migrations conforme a operação dos bancos. Para executar, use **`notifications_runtime`** em `ConnectionStrings:Notifications` — também por variável `ConnectionStrings__Notifications` ou user-secrets próprios em Development. O validador recusa outra identidade de banco; runtime não aplica migrations, executa DDL ou lê o histórico. Não deixe a conexão de migration no ambiente do worker.
+
+### Chaves de proteção de Notifications
+
+Gere um par próprio, diferente da assinatura JWT, num diretório **novo**, externo ao checkout e ao contexto de build. O script não sobrescreve chaves nem aceita diretório existente/dentro de checkout e não imprime material de chave:
+
+```powershell
+$protectionDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para proteção de Notifications'))
+pwsh -NoProfile -File scripts/messaging/new-notification-protection-key.ps1 -Directory $protectionDirectory
+```
+
+O resultado é RSA3072, um PEM privado, `public.json` (`activeKeyId`, `keys` com `keyId`, `n`, `e`) e `private.json` (`keys` com `keyId`, `privateKeyPath`). No Windows, o diretório perde herança ampla e recebe ACL da conta que executou o gerador; no Linux, diretório `0700` e arquivos `0600`. Confira dono e permissões. Só Notifications recebe o manifesto/PEM privados; a operação entregará **somente `public.json`** ao produtor na #85. Para runtime sob outra conta, conceda leitura e travessia específicas, sem escrita ou acesso amplo. Nenhuma chave entra na imagem, Git ou logs.
+
+Rotação é operacional: gere um próximo par em outro diretório novo, com `keyId` novo, distribua a pública antes de ativá-la na origem e conserve no manifesto privado as entradas ainda necessárias para mensagens válidas. Não retire uma privada enquanto houver mensagem recuperável que precise dela, considerando prazos e a retenção das #85/#87. Não reutilize chaves de assinatura JWT. O leitor aceita até 16 entradas únicas e relê o manifesto; não há rotação, distribuição ou remoção automática de chaves. Os manifests atualizados devem ser substituídos atomicamente, com as mesmas permissões; o gerador não mescla arquivos existentes.
+
+### Chaves de fingerprint de Notifications
+
+A deduplicação usa outro segredo HMAC de 32 bytes, exclusivo de Notifications. Gere-o em diretório **novo**, externo ao Git e ao contexto de build:
+
+```powershell
+$fingerprintDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para fingerprint de Notifications'))
+pwsh -NoProfile -File scripts/messaging/new-notification-fingerprint-key.ps1 -Directory $fingerprintDirectory
+```
+
+O script cria uma chave e `fingerprint.json` com `activeKeyId` e entradas `keyId`/`keyPath`, usando ACL da conta no Windows e diretório `0700`/arquivos `0600` no Linux. Configure `Notifications:FingerprintKeyRingPath` com caminho absoluto do manifesto. Conserve as entradas antigas enquanto houver tombstones que dependam delas, até 30 dias após o prazo absoluto; o leitor escolhe o `keyId` original ao comparar duplicatas. Admite até 16 entradas e não faz rotação automática. Não compartilhe esse segredo com Identity nem reutilize RSA, assinatura JWT, HMAC de alias ou chave AES de backup. Para outra conta/UID, conceda leitura/travessia específicas; ao montar no container, adapte os `keyPath` absolutos para o local interno, como no manifesto privado RSA.
+
+### Configurar e iniciar
+
+O worker tem `UserSecretsId` próprio, `ouroboros-notifications-development`. Não recebe a configuração de Identity. Opções do [`appsettings.json`](../src/Services/Notifications/Ouroboros.Notifications.Worker/appsettings.json):
+
+| Opção em `Notifications` | Padrão e efeito |
+| --- | --- |
+| `Consumer:Enabled` | `false`; habilitar exige provedor, banco, proteção/fingerprint e brokers válidos |
+| `Email:Provider` | `None`; `PickupDirectory` é aceito somente em Development; valor desconhecido é recusado |
+| `Email:From` | `nao-responda@ouroboros.local`; endereço único, sem CR/LF |
+| `Email:PickupDirectory` | `.local/notifications-emails`, relativa ao diretório compilado/publicado do worker; prefira pasta absoluta externa e restrita |
+| `Broker:Host` / `Broker:Port` | `localhost` / `5672` para processo local |
+| `Broker:User` / `Broker:Password` | `notifications_consumer` / externa; não usar operador nem credencial de falhas |
+| `PrivateKeyRingPath` | Caminho absoluto de `private.json`, externo e legível somente pelo receptor autorizado |
+| `FingerprintKeyRingPath` | Caminho absoluto de `fingerprint.json`, com chaves HMAC retidas para deduplicação |
+| `FailuresBroker:Host` / `Port` / `User` / `Password` | `localhost` / `5672` / `notifications_failures` / externa; senha distinta da credencial de consumo |
+| `ProcessingPollSeconds` | `1`, permitido de 1 a 30; intervalo do executor/relay |
+| `BackupDirectory` | Opcional; diretório gerenciado de backups **próprio de Notifications** para purga automática |
+
+`Identity:Email` no worker é erro de configuração. `None` não envia nem simula sucesso. A configuração é validada na subida; senha de broker ausente/curta, usuário incorreto ou caminho privado não absoluto impedem habilitar consumo. Privada indisponível/incorreta suspende o processamento sem gastar chamada ao provedor; conteúdo ou tag AES inválidos terminam como `invalid-contract`, sem expor o conteúdo.
+
+Com banco migrado, RabbitMQ [iniciado/provisionado](#rabbitmq-local), chaves geradas e pasta de pickup externa restrita à conta do worker:
+
+```powershell
+$env:DOTNET_ENVIRONMENT = 'Development'
+$env:Notifications__Consumer__Enabled = 'true'
+$env:Notifications__Email__Provider = 'PickupDirectory'
+$env:Notifications__Email__PickupDirectory = [IO.Path]::GetFullPath((Read-Host 'Pasta externa restrita para os e-mails'))
+$env:Notifications__PrivateKeyRingPath = Join-Path $protectionDirectory 'private.json'
+$env:Notifications__FingerprintKeyRingPath = Join-Path $fingerprintDirectory 'fingerprint.json'
+$env:ConnectionStrings__Notifications = [Net.NetworkCredential]::new('', (Read-Host 'Conexão própria de notifications_runtime' -AsSecureString)).Password
+# O gerenciador de segredos pode definir esta variável; a leitura abaixo não grava a senha no histórico.
+$env:Notifications__Broker__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha de notifications_consumer' -AsSecureString)).Password
+$env:Notifications__FailuresBroker__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha distinta de notifications_failures' -AsSecureString)).Password
+dotnet run --project src/Services/Notifications/Ouroboros.Notifications.Worker
+```
+
+O worker recebe o contrato protegido na fila `notifications.email.v1`, persiste antes do ACK e envia pelo executor; o relay publica somente referências sanitizadas de falha. Ajuste `Notifications__Broker__Host`/`Port` **e** `Notifications__FailuresBroker__Host`/`Port` ao ambiente; defaults `localhost:5672` servem para processo local. Fora de Development, os brokers exigem TLS/certificados válidos, sem declarar topologia pelo runtime. `.eml` contém link secreto em claro como artefato de entrega: restrinja a pasta e não copie conteúdo a logs/issues. A idempotência do arquivo complementa a inbox, sem prometer exactly-once. Depois do ensaio, retire da sessão as duas senhas e `ConnectionStrings__Notifications` se foram definidas para ele.
+
+### Recuperar processamento e referências de falha
+
+Primeiro corrija a chave/configuração e reinicie o processo se alterou opções. Trabalho `Accepted` suspenso por proteção indisponível pode ser retomado explicitamente, sem ler conteúdo. Com conexão libpq autorizada do **banco de Notifications**, execute por id público:
+
+```powershell
+$messageId = [Guid]::Parse((Read-Host 'Id da mensagem suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file scripts/messaging/resume-notification-processing.sql
+```
+
+Só retoma suspensa ainda válida, com conteúdo, sem lease e com menos de cinco chamadas. Preserva identidade, contagem e prazo e audita `current_user` em `processing_recoveries`. Zero linhas não autoriza forçar terminal/contador. `Delivered`, `Failed`, `Expired` e `Cancelled` não são reabertos; recusa permanente ou esgotamento descartam conteúdo e exigem nova intenção de negócio. [Estados e tentativas](notifications/durable-processing.md#executor-tentativas-e-ambiguidade).
+
+Uma referência sanitizada suspensa por rota/autenticação/topologia do broker de falhas tem retomada separada, depois do reparo:
+
+```powershell
+$failureId = [Guid]::Parse((Read-Host 'Id da referência de falha suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=failure_id=$failureId --file scripts/messaging/resume-notification-failure-publication.sql
+```
+
+A operação também é auditada; só retoma referência não publicada, suspensa, sem lease e dentro da retenção. Não altera o e-mail nem reenvia seu conteúdo. Não copie o corpo/ciphertext para a fila de falhas nem republique uma referência na fila principal para fazer replay. A fila recebe somente ids/códigos/prazos; o TTL usa o tempo restante, não um novo prazo de 30 dias.
+
+### Backup e restauração de Notifications
+
+Use o mesmo [wrapper de backup protegido](#backup-protegido-das-intenções-de-e-mail) com dump do banco de Notifications, chave AES externa própria e diretório gerenciado **separado** do de Identity. Configure `Notifications:BackupDirectory` (ou `Notifications__BackupDirectory`) para purgar esses arquivos; a limpeza é tentada antes do SQL, independentemente do executor/banco. O formato continua `email-intents-*.json`, com marcador do wrapper: não renomeie arquivos para induzir adoção de backups legados.
+
+Restaure com `Notifications:Consumer:Enabled=false`, credencial própria e destinos controlados; preserve os terminais e não zere tentativas nem estenda expiração. Depois do restore, mantenha consumidor/executor/relay desabilitados e execute a manutenção com a conexão de runtime válida para reaplicar expiração/limpeza antes de habilitar. A manutenção roda mesmo com consumo desligado quando a conexão está configurada. Não há promessa de RPO zero. Auditoria do wrapper cobre suas operações; acesso direto a arquivos requer controles do operador.
+
+### Imagem Linux de Notifications
+
+Na raiz do repositório, com Docker disponível:
+
+```powershell
+docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile -t ouroboros-notifications-local:dev .
+docker run --rm --entrypoint sh ouroboros-notifications-local:dev -c 'id; test -w /app/.local/notifications-emails'
+docker run --rm --name ouroboros-notifications-local ouroboros-notifications-local:dev
+```
+
+O último comando inicia o host com consumo desabilitado; encerre com Ctrl+C. O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; o processo executa como UID 1654, com pickup padrão gravável. O Dockerfile tem ignore próprio para excluir `.env`, PEM, chaves, `.local`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
+
+Para habilitar o consumo da imagem em Development, forneça configuração de broker acessível pelo container e monte chaves externas somente de leitura. **`private.json` gerado no host contém caminhos absolutos do host**: se montar em `/keys`, prepare uma cópia operacional do manifesto com `privateKeyPath=/keys/<keyId>.pem`, um caminho absoluto válido dentro do container. O gerador não reescreve isso automaticamente. Conceda leitura dos arquivos e travessia do diretório ao UID 1654, preservando escrita exclusiva da operação; somente Notifications recebe essa montagem. Aplique o mesmo ajuste de caminhos/leitura ao manifesto HMAC `fingerprint.json`; não monte segredos de Identity. Configure banco próprio e os dois hosts de broker para os endereços alcançáveis no container. Pickup externo também precisa de permissão de escrita desse UID e acesso restrito. Não há Compose de serviços ou probes nesta entrega, nem publicação automática da imagem.
+
+Teste reproduzível do worker com broker real e processo filho, sem alterar o `.env` ou broker local:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*NotificationsWorkerTests'
+```
+
+## Configurar a outbox de Identity
+
+Identity exige configuração de proteção de intenção, além do banco e da assinatura JWT, antes de iniciar. `Identity:Email` foi removida e é recusada; remova a seção antiga de user-secrets/variáveis externas, sem migrar sua privada ou provedor para a origem. [Atomicidade, estados e limites](identity/email-outbox.md).
+
+| Opção em `Identity:EmailIntents` | Uso |
+| --- | --- |
+| `PublicKeyRingPath` | Caminho absoluto externo de uma cópia de `public.json` de Notifications |
+| `SupersessionKeyPath` | Caminho absoluto externo do segredo HMAC de substituição, exatamente 32 bytes |
+| `MaintenanceEnabled` | `true` por padrão; limpeza na subida e a cada 30 s, em lotes limitados |
+| `BackupDirectory` | Opcional; diretório dedicado reconhecido pelo wrapper de backup, necessário para purga automática desses arquivos |
+
+1. Gere o par de proteção de Notifications conforme [chaves do receptor](#chaves-de-proteção-de-notifications). Entregue à conta de Identity somente uma cópia de `public.json`, protegida contra escrita não autorizada. Não monte `private.json` ou PEM de Notifications em Identity. A origem recusa material privado no manifesto e reutilização de uma pública JWT conhecida. O receptor precisa conservar as privadas necessárias às intenções/backups ainda retidos; a troca de `activeKeyId` é operacional e não muda o segredo de substituição.
+2. Gere o segredo HMAC em outro diretório **novo**, externo ao código e ao contexto de build:
+
+   ```powershell
+   $aliasDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para o alias de e-mail'))
+   pwsh -NoProfile -File scripts/messaging/new-email-intent-alias-key.ps1 -Directory $aliasDirectory
+   ```
+
+   O script produz `supersession.key`, 32 bytes aleatórios, sem imprimir a chave. Aplica ACL da conta geradora no Windows, ou diretório `0700` e arquivo `0600` no Linux. Conceda somente leitura à conta de Identity quando distinta da operação; não entregue esse segredo a Notifications. Mantenha-o estável durante o ciclo das mensagens: mudar RSA não deve mudar o alias. Não há migração automática de aliases em rotação de HMAC.
+3. Configure os caminhos; os comandos abaixo armazenam apenas caminhos, sem conteúdo secreto:
+
+   ```powershell
+   $publicPath = [IO.Path]::GetFullPath((Read-Host 'Cópia pública de Notifications destinada a Identity'))
+   dotnet user-secrets set 'Identity:EmailIntents:PublicKeyRingPath' $publicPath --project src/Services/Identity/Ouroboros.Identity.Api
+   dotnet user-secrets set 'Identity:EmailIntents:SupersessionKeyPath' (Join-Path $aliasDirectory 'supersession.key') --project src/Services/Identity/Ouroboros.Identity.Api
+   ```
+
+   Fora de Development, use `Identity__EmailIntents__PublicKeyRingPath` e `Identity__EmailIntents__SupersessionKeyPath` com arquivos externos montados somente para a origem. A subida executa uma prova de proteção local, sem banco, mensagem real ou rede; configuração ilegível/inválida não é um modo de envio desprotegido.
+4. Aplique a migration `20261026015350_AddEmailIntents` por comando explícito com a role de migration, conforme [banco local](#banco-de-dados-local). Reexecute o provisionamento de privilégios depois da migration. A API não aplica migrations na subida. Em ambiente existente, preserve backups e confira o [limite de retorno entre schemas](#voltar-ao-banco-original).
+
+Após a migração, solicitação de cadastro/reset grava token e envelope cifrado na mesma transação; não cria `.eml` em Identity. A manutenção marca vencidas e elimina o conteúdo sem depender do broker. Desabilitá-la com `Identity__EmailIntents__MaintenanceEnabled=false` é opção de ensaio, sem satisfazer a limpeza operacional exigida. Para arquivos gerenciados, configure também `BackupDirectory` e dê à conta da manutenção somente as permissões necessárias à remoção; ela não precisa receber a chave que decifra os backups.
+
+### Publicar e retomar a outbox de Identity
+
+A #86 executa o publicador como serviço hospedado isolado dentro de Identity. A migration `20261026025858_AddEmailPublicationLeases` precisa estar aplicada pela role de migration, conforme o [banco local](#banco-de-dados-local). O caso de uso HTTP continua gravando intenção local, sem esperar o broker. [Confirm, leases, retries e limites](identity/email-outbox.md#publicação-e-recuperação).
+
+| Opção em `Identity:EmailPublisher` | Padrão e limite |
+| --- | --- |
+| `Enabled` | `false`; habilitação explícita |
+| `Host` / `Port` | `localhost` / `5672`; fora de Development exige listener TLS e certificado válido |
+| `User` | `identity_publisher`, sem consumo ou configuração da topologia |
+| `Password` | Externa, no mínimo 32 caracteres; não usar credencial do operador |
+| `BatchSize` | `4`, permitido de 1 a 8; publicações sequenciais por ciclo |
+| `PollSeconds` | `2`, permitido de 1 a 30; espera entre ciclos |
+
+Para ensaio local, [inicie/provisione RabbitMQ](#rabbitmq-local), configure a [proteção da outbox](#configurar-a-outbox-de-identity) e aplique as migrations. As variáveis abaixo habilitam a publicação no processo de Identity sem gravar a senha em argumento ou histórico:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:Identity__EmailPublisher__Enabled = 'true'
+# Pode vir do gerenciador de segredos; use a senha da credencial identity_publisher.
+$env:Identity__EmailPublisher__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha de identity_publisher' -AsSecureString)).Password
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+`dotnet run` usa o perfil Development padrão. Fora do ambiente local, configure `Identity__EmailPublisher__Host`/`Port` para o listener TLS; não desabilite a validação do certificado. O processo não declara topologia: faça a correção pelo provisionador/operador. Para ver `.eml` em Development, inicie separadamente o [worker](#executar-o-worker-de-notifications) com as privadas de proteção necessárias. O consumidor da #87 persiste aceitação/deduplicação antes do ACK; configure seu banco, fingerprint e broker de falhas conforme a seção do worker. Após o ensaio, remova a senha da sessão se foi definida localmente: `Remove-Item Env:Identity__EmailPublisher__Password`.
+
+Broker parado/timeout gera retry com recursos limitados e preserva a intenção até o prazo. `basic.nack` por capacidade é transitório. Autenticação, certificado, permissão/topologia conhecida ou retorno por ausência do binding fixo suspendem a intenção com `last_failure_code=configuration-suspended`: **corrigir e reiniciar não retoma a linha automaticamente**. Corrija a causa, reinicie Identity se alterou opções/credenciais e execute a retomada explícita pela conexão autorizada do banco de Identity. Com autenticação libpq já configurada pelo operador, sem credenciais em argumentos:
+
+```powershell
+$messageId = [Guid]::Parse((Read-Host 'Id público da intenção suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file scripts/messaging/resume-email-publication.sql
+```
+
+O script retorna somente id, estado, tentativas e prazo. Só retoma `Pending` suspensa, ainda válida, com conteúdo protegido e sem lease; mantém id, tentativas e expiração. Se nenhuma linha for atualizada, não force estado nem recrie prazo: ela pode estar em processamento ou terminal. Expiradas/canceladas não são ressuscitadas. Envelope inválido/divergente termina em `Failed`, com descarte do conteúdo, e exige nova intenção de negócio após corrigir a causa. Nunca selecione o payload para investigar a retomada.
+
+O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas e retries, sem tags. Gauges refletem o último snapshot obtido pelo ciclo e só emitem após o primeiro; não há exporter/endpoint de métricas da #88. O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'
+```
+
+### Backup protegido das intenções de e-mail
+
+O wrapper `scripts/messaging/protected-email-backup.ps1` protege um dump custom **já produzido** pelo operador, até 64 MiB. Não acessa o banco, não recebe sua connection string e não substitui a janela/validação do procedimento de transferência. Use diretório de backup novo/dedicado, fora do Git, com chave AES256 de **32 bytes externos** em outro diretório protegido. Essa chave e seu `KeyId` são próprios de backup, distintos de JWT, proteção RSA e HMAC de alias; gere/guarde pelo gerenciador de segredos, sem imprimir bytes ou usar valores em argumentos.
+
+Exemplo com clientes PostgreSQL locais e autenticação segura previamente configurada por libpq (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` e `PGPASSFILE`, conforme a credencial de backup autorizada). Restrinja também a pasta de dump temporário; o arquivo ainda é sensível:
+
+```powershell
+$sourceDump = [IO.Path]::GetFullPath((Read-Host 'Novo arquivo temporário restrito para pg_dump'))
+pg_dump --format=custom --no-owner --no-acl --file $sourceDump
+if ($LASTEXITCODE -ne 0) { throw 'Backup PostgreSQL não concluído' }
+$backupDirectory = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo/dedicado de backup protegido'))
+$backupKeyPath = [IO.Path]::GetFullPath((Read-Host 'Arquivo externo da chave de backup de 32 bytes'))
+pwsh -NoProfile -File scripts/messaging/protected-email-backup.ps1 -Mode Protect -SourceFile $sourceDump -Directory $backupDirectory -KeyPath $backupKeyPath -KeyId email-backup-v1
+```
+
+O diretório recebe marcador `.email-intent-backups`, ACL restrita ou `0700`; os arquivos protegidos usam `0600` no Linux e nome `email-intents-<UTC yyyyMMddHHmmss>-<UUID>.json`. AES-GCM autentica o dump e metadados de versão/chave/criação/expiração. O conteúdo protegido expira **30 dias após sua criação**. O wrapper não sobrescreve backups nem adota diretório existente sem marcador reconhecido. `-RemoveSource` é uma opção **explícita** para retirar o dump de entrada após Protect; sem ela, o dump temporário permanece e o operador precisa tratá-lo pela mesma política, sem considerá-lo protegido só porque uma cópia foi cifrada.
+
+Configure o mesmo diretório para a manutenção da API:
+
+```powershell
+dotnet user-secrets set 'Identity:EmailIntents:BackupDirectory' $backupDirectory --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+Fora de Development, use `Identity__EmailIntents__BackupDirectory`. A limpeza de arquivos gerenciados é tentada antes da limpeza de banco, em lotes limitados, inclusive se PostgreSQL estiver indisponível. Só remove nomes/prazos reconhecidos sob o marcador e não segue links. Sem essa configuração, a purga automática de arquivos não está ativa. A retenção de banco também não elimina cópias fora desse diretório.
+
+Para restaurar, selecione um arquivo protegido ainda válido, um `RestoreFile` **novo**, com pai restrito, e a chave correspondente. Não use saída do comando para transportar conteúdo:
+
+```powershell
+$protectedArchive = [IO.Path]::GetFullPath((Read-Host 'Arquivo de backup cifrado a restaurar'))
+$restoreDump = [IO.Path]::GetFullPath((Read-Host 'Novo arquivo temporário restrito para restaurar'))
+pwsh -NoProfile -File scripts/messaging/protected-email-backup.ps1 -Mode Restore -SourceFile $protectedArchive -Directory $backupDirectory -KeyPath $backupKeyPath -KeyId email-backup-v1 -RestoreFile $restoreDump
+```
+
+Restore autentica antes de escrever e recusa o prazo vencido, formato/chave errados ou destino existente. O resultado é novamente um dump sensível, não uma restauração automática no PostgreSQL. Mantenha processamento parado; restaure com o operador autorizado e reaplique expiração, estados terminais e limpeza antes de habilitar publicação/consumo. Não reabra mensagens canceladas ou vencidas, nem recrie seus prazos.
+
+O wrapper grava auditoria em `access-YYYYMMDD.jsonl`, com id da operação, Protect/Restore, início/sucesso/falha, instante UTC e ator, sem conteúdo ou caminhos. Cobre operações pelo wrapper; acesso direto ao filesystem exige controle/auditoria do operador e não fica automaticamente registrado nele. Os arquivos diários também entram na limpeza limitada: são elegíveis após 31 dias do início UTC do dia. Backups cifrados continuam com teto de 30 dias.
+
+Backups antigos de `transfer-identity.sh` e seus CSVs de reconciliação não são adotados, cifrados ou apagados por essa manutenção. O operador deve protegê-los, restringir acesso e retirar cópias temporárias/legadas conforme a política, sem apagar a origem ou artefatos de transferência incidentalmente. Não prometa que `BackupDirectory` cobre arquivos de outros formatos ou locais.
 
 ## E-mails em desenvolvimento
 
-Não há servidor de e-mail. No ambiente `Development`, a API de Identity grava cada e-mail enviado como um arquivo `.eml` em `.local/emails/`, na raiz do repositório (pasta ignorada pelo Git); abra o arquivo em qualquer cliente de e-mail. O log registra só o nome do arquivo, nunca o corpo nem tokens. Hoje, enviam e-mail a solicitação de cadastro de cliente, com o link para concluir o cadastro ([Cadastrar um cliente e entrar](#cadastrar-um-cliente-e-entrar)), e a solicitação de redefinição de senha, com o link para redefinir a senha ([Redefinir a senha por e-mail](identity/password-reset.md)); o convite de administradores vai usar o mesmo envio.
-
-A configuração fica na seção `Identity:Email` dos `appsettings.Development.json`. O adaptador local só é aceito em `Development`: em outro ambiente, o host não sobe. Sem provedor configurado (o padrão fora de `Development`), o host sobe, mas qualquer envio falha com erro explícito. Detalhes em [Envio de e-mail por porta com adaptador local](architecture/email.md).
-
-| Chave em Identity:Email | Configuração disponível |
-| --- | --- |
-| Provider | `PickupDirectory` em Development; `None` por padrão |
-| PickupDirectory | `../../../../.local/emails`, resolvido a partir do content root do projeto; obrigatório para PickupDirectory |
-| From | `nao-responda@ouroboros.local` por padrão |
-
-Cada arquivo usa nome com instante/UUID, texto UTF-8 sem BOM, quebras CRLF, cabeçalhos MIME e assunto não ASCII codificado. O link é segredo: não copie seu conteúdo para logs ou issues. A solicitação responde 202 mesmo se o envio após commit falhar, preservando proteção contra enumeração; o checkout não recupera automaticamente a intenção perdida entre commit e envio.
+Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática exige [habilitar o publicador](#publicar-e-retomar-a-outbox-de-identity); Notifications persiste aceitação/deduplicação pela #87, sem prometer exactly-once no provedor. Não leia ou registre o token da outbox para contornar essa etapa.
 
 ## Cadastrar um cliente e entrar
 
-Clientes se cadastram sozinhos pelo listener público da API de Identity, em duas etapas: informam o e-mail, recebem um link de uso único e, com ele, definem a senha. Ainda não há front-end; em desenvolvimento, o link chega como `.eml` em `.local/emails/` e o token é copiado dele. Com o banco configurado, as migrations de Identity aplicadas, incluindo seus parâmetros locais, e a API de Identity rodando no ambiente `Development` (`dotnet run --project src/Services/Identity/Ouroboros.Identity.Api`), na raiz do repositório:
+O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. O primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção. O caso de uso HTTP não gera `.eml`: em Development, habilite [publicador](#publicar-e-retomar-a-outbox-de-identity) e [worker](#executar-o-worker-de-notifications) para receber o arquivo no pickup de Notifications. Notifications reconhece a mensagem somente depois de persistir sua aceitação/classificação, conforme a #87.
 
-1. Solicite o cadastro. A resposta é sempre `202`, com a mesma mensagem, tenha o e-mail conta ou não:
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
+```
 
-   ```powershell
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations `
-     -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-   ```
-
-2. Abra o `.eml` mais recente de `.local/emails/` e copie o token do link `http://localhost:3000/cadastro/concluir?token=<token>`, válido por 24 horas. Ou, no PowerShell:
-
-   ```powershell
-   $eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-   $token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-   ```
-
-   Se o e-mail já tem conta, nenhum arquivo novo aparece. Uma nova solicitação gera outro link e invalida o anterior.
-
-3. Conclua o cadastro com o token e a senha. A senha segue a [política de senha](architecture/password-policy.md) (15 a 128 caracteres, sem regras de composição, sem ser comum nem conter `ouroboros` ou a parte local do e-mail):
-
-   ```powershell
-   $body = @{ token = $token; password = '<senha>' } | ConvertTo-Json
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations/complete `
-     -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-   ```
-
-   `204`: a conta foi criada, ativa e com o papel `Customer`, e o link não vale mais. `400` com o `type` `password-rejected`: a senha foi recusada, o `detail` diz por quê, e o mesmo link pode ser usado de novo. `400` com o `type` `invalid-registration-token`: o link é inválido, expirou, já foi usado ou foi substituído por um mais novo; solicite o cadastro outra vez.
-
-4. Entre pelo login do listener público, que devolve o access token e o refresh token (a conclusão não faz login automático):
-
-   ```powershell
-   $login = @{ email = 'cliente@example.com'; password = '<senha>' } | ConvertTo-Json
-   Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-     -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
-   ```
-
-Detalhes, regras e erros em [Cadastrar cliente por e-mail](identity/registration.md) e [Fazer login com e-mail e senha](identity/login.md). Para trocar a senha esquecida pelo mesmo caminho (solicitar o link, copiar o token do `.eml` e concluir com a senha nova), veja o [fluxo completo da redefinição de senha](identity/password-reset.md#fluxo-completo-em-desenvolvimento).
+Resposta `202` tem sempre o mesmo corpo, com ou sem conta, e não garante entrega. Os exemplos da [conclusão de cadastro](identity/registration.md#concluir-o-cadastro) usam `<token do link>` como marcador de contrato; em Development, obtenha-o somente no artefato entregue pelo pickup configurado de Notifications, sem expô-lo em logs ou consultar a outbox protegida. Depois de concluir com token válido, o cliente pode entrar pelo [login](identity/login.md#como-usar).
 
 ## Redefinir a senha em desenvolvimento
 
-Com a API de Identity no ar em `Development` (listener público em `http://localhost:5141` no perfil padrão) e uma conta de cliente criada. Ainda não há front-end; o token é copiado do link do e-mail.
+Com uma conta de cliente criada, solicite a redefinição pelo listener público:
 
 ```powershell
-# 1. Solicitar a redefinição
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets `
-  -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
-
-# 2. Ler o token no .eml mais recente (o link termina em ?token=<token>)
-$eml = Get-ChildItem .local/emails/*.eml | Sort-Object LastWriteTime | Select-Object -Last 1
-$token = [regex]::Match((Get-Content $eml -Raw), 'token=([A-Za-z0-9_-]+)').Groups[1].Value
-
-# 3. Concluir a redefinição com a senha nova
-$body = @{ token = $token; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets/complete `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-
-# 4. Entrar com a senha nova
-$login = @{ email = 'cliente@example.com'; password = 'outra frase longa que só eu conheço' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/sessions `
-  -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
+Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
 ```
 
-O passo 2 roda na raiz do repositório, como no [fluxo do cadastro](#cadastrar-um-cliente-e-entrar). Depois do passo 3, a senha antiga recebe `401` no login, e os refresh tokens emitidos antes deixam de renovar.
+A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Com publicador/worker desabilitados, não há `.eml`; para o ensaio local, habilite os dois conforme [publicação](#publicar-e-retomar-a-outbox-de-identity) e [Notifications](#executar-o-worker-de-notifications). A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A publicação é confirmada na #86, e a aceitação/deduplicação durável está na #87, com possível ambiguidade na entrega ao provedor.
 
 ## Exemplos HTTP por funcionalidade
 

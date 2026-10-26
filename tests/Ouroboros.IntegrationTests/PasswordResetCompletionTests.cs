@@ -29,7 +29,6 @@ public sealed class PasswordResetCompletionTests(PostgresFixture postgres) : Int
     private const string PasswordRejectedType =
         "https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/identity.md#password-rejected";
 
-    private readonly CapturingEmailSender _emails = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
 
     [Fact]
@@ -235,7 +234,6 @@ public sealed class PasswordResetCompletionTests(PostgresFixture postgres) : Int
     private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
         builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IEmailSender>(_emails);
             services.AddSingleton<TimeProvider>(_time);
             services.AddSingleton<IPasswordHasher>(new AspNetCorePasswordHasher(iterationCount: 1_000));
         }));
@@ -252,7 +250,7 @@ public sealed class PasswordResetCompletionTests(PostgresFixture postgres) : Int
     {
         var response = await client.PostAsJsonAsync(RequestRoute, new { Email }, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        return _emails.TokenSentTo(Email);
+        return await TestOutbox.TokenAsync(Api.Services, Email);
     }
 
     private static Task<HttpResponseMessage> CompleteAsync(HttpClient client, string? token, string? password) =>

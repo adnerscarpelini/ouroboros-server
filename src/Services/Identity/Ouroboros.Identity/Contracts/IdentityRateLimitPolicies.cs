@@ -5,6 +5,8 @@ namespace Ouroboros.Identity.Contracts;
 // (Identity:RateLimiting:Policies:<nome>), e cada política tem o próprio contador.
 public static class IdentityRateLimitPolicies
 {
+    public const string Keys = "identity-keys";
+
     public const string Login = "identity-login";
 
     public const string Refresh = "identity-refresh";

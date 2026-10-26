@@ -4,6 +4,8 @@
 
 Cada proprietário é testado contra PostgreSQL real com Testcontainers, banco isolado e dados fictícios. Não depender do Compose ou segredos locais. Compartilhar instância não permite compartilhar dados entre suítes.
 
+O contrato de mensageria tem testes próprios, e a topologia é verificada com RabbitMQ real em container e volume exclusivos de teste. `RabbitMqFixture` executa o provisionador PowerShell com credenciais efêmeras, valida persistência após reinício/reprovisionamento e remove somente seus recursos. Exige `pwsh`, inclusive em Linux. [`NotificationsWorkerTests`](../../tests/Ouroboros.IntegrationTests/NotificationsWorkerTests.cs) também inicia o worker em processo filho, publica mensagens protegidas de teste e verifica consumo, `.eml`, logs sanitizados e reentrega após recusa de contrato. Esses testes não comprovam outbox ou deduplicação persistente das #85–#87 ([limites do worker](../notifications/worker.md#como-verificar)).
+
 ## Como executar
 
 Comandos disponíveis no [guia de desenvolvimento](../development.md#testes). A [CI Linux](../development.md#integração-contínua) executa a mesma suíte contra PostgreSQL em container.

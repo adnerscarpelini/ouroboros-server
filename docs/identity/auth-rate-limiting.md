@@ -6,6 +6,8 @@ Conter força bruta, credential stuffing e consumo de CPU pelos endpoints anôni
 
 Serviço responsável: Identity. O serviço registra o rate limiter e as políticas em `AddIdentityModule`; a API ativa o middleware pelo pipeline comum ([`OuroborosHostExtensions`](../../src/Ouroboros.Hosting/OuroborosHostExtensions.cs)) e os controllers da API aplicam a política em cada action com `[EnableRateLimiting]`. Os limites ficam em `Identity:RateLimiting:Policies` no [`appsettings.json`](../../src/Services/Identity/Ouroboros.Identity.Api/appsettings.json) da API. Hoje têm política o [login](login.md), a [renovação do access token](refresh-session.md), o [logout](logout.md), a solicitação e a conclusão do [cadastro de cliente](registration.md) e a solicitação e a conclusão da [redefinição de senha](password-reset.md); o mesmo mecanismo será reutilizado pelos próximos endpoints anônimos.
 
+O JWKS anônimo `GET /api/v1/identity/keys`, somente no listener público, também usa esse mecanismo: política obrigatória `identity-keys`, inicialmente 60 requisições/minuto por IP, com a mesma resposta `429`. O cache HTTP de cinco minutos reduz a necessidade de consulta ([chaves públicas](../architecture/authentication.md#chaves-públicas-e-cache)).
+
 ## Comportamento
 
 - **Rate limiter nativo do ASP.NET Core** (`Microsoft.AspNetCore.RateLimiting`), com janela fixa (`FixedWindowRateLimiter`) por IP e sem fila (`QueueLimit = 0`): acima do limite, a requisição é recusada na hora, sem esperar a próxima janela.
@@ -43,6 +45,7 @@ Cada política fica em `Identity:RateLimiting:Policies:<nome>`, no [`appsettings
 "Identity": {
   "RateLimiting": {
     "Policies": {
+      "identity-keys": { "PermitLimit": 60, "Window": "00:01:00" },
       "identity-login": { "PermitLimit": 10, "Window": "00:01:00" },
       "identity-refresh": { "PermitLimit": 30, "Window": "00:01:00" },
       "identity-logout": { "PermitLimit": 30, "Window": "00:01:00" },

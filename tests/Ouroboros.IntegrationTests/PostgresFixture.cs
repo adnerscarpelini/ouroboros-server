@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -58,6 +60,16 @@ public sealed class PostgresFixture : IAsyncLifetime
     public Task DropDatabaseAsync(string name) =>
         ExecuteAsync($"""DROP DATABASE IF EXISTS "{name}" WITH (FORCE)""");
 
+    internal async Task ResumeEmailPublicationAsync(string database, Guid messageId)
+    {
+        if (!database.StartsWith("ouroboros_test_", StringComparison.Ordinal)) { throw new ArgumentException("Exige banco efêmero da fixture."); }
+        const string path = "/tmp/resume-email-publication.sql";
+        await _container.CopyAsync(await File.ReadAllBytesAsync(RepositoryRoot.Resolve("scripts", "messaging", "resume-email-publication.sql")), path);
+        var username = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()).Username!;
+        var result = await _container.ExecAsync(["psql", "--username", username, "--dbname", database, "-v", "ON_ERROR_STOP=1", "-v", $"message_id={messageId:D}", "-f", path]);
+        Assert.True(result.ExitCode == 0, "Retomada explícita falhou no banco efêmero.");
+    }
+
     public string ConnectionStringFor(string database) =>
         new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = database }.ConnectionString;
 
@@ -74,8 +86,40 @@ public sealed class PostgresFixture : IAsyncLifetime
         var username = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()).Username!;
         var backup = await _container.ExecAsync(["pg_dump", "--username", username, "--format=custom", "--no-owner", "--no-acl", "--file", path, source]);
         Assert.Equal(0, backup.ExitCode);
+        // Exercita também o formato cifrado e autenticado usado para conservar backups com intenções.
+        var directory = Path.Combine(Path.GetTempPath(), "ouroboros-protected-backup-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var dump = Path.Combine(directory, "source.dump");
+            var key = Path.Combine(directory, "backup.key");
+            var managed = Path.Combine(directory, "managed");
+            var restored = Path.Combine(directory, "restored.dump");
+            await File.WriteAllBytesAsync(dump, await _container.ReadFileAsync(path));
+            await File.WriteAllBytesAsync(key, RandomNumberGenerator.GetBytes(32));
+            await BackupToolAsync("Protect", dump, managed, key, null);
+            await BackupToolAsync("Restore", Directory.GetFiles(managed, "*.json").Single(), managed, key, restored);
+            Assert.Equal(await File.ReadAllBytesAsync(dump), await File.ReadAllBytesAsync(restored));
+            await _container.CopyAsync(await File.ReadAllBytesAsync(restored), path);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
         var restore = await _container.ExecAsync(["pg_restore", "--username", username, "--exit-on-error", "--no-owner", "--no-acl", "--dbname", destination, path]);
         Assert.Equal(0, restore.ExitCode);
+    }
+
+    private static async Task BackupToolAsync(string mode, string source, string directory, string key, string? restored)
+    {
+        var start = new ProcessStartInfo("pwsh") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "-NoProfile", "-File", RepositoryRoot.Resolve("scripts", "messaging", "protected-email-backup.ps1"),
+            "-Mode", mode, "-SourceFile", source, "-Directory", directory, "-KeyPath", key, "-KeyId", "test-backup" })
+        { start.ArgumentList.Add(argument); }
+        if (restored is not null) { start.ArgumentList.Add("-RestoreFile"); start.ArgumentList.Add(restored); }
+        using var process = Process.Start(start)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        await Task.WhenAll(stdout, stderr);
+        Assert.True(process.ExitCode == 0, "Ferramenta de backup protegido falhou; detalhes omitidos.");
     }
 
     public async ValueTask DisposeAsync()

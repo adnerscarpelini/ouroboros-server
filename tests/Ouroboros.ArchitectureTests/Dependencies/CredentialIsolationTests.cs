@@ -13,7 +13,9 @@ public sealed class CredentialIsolationTests
         var offending = Directory.EnumerateFiles(Path.Combine(Root, "src"), "*", SearchOption.AllDirectories)
             .Where(file => !IsBuildOutput(file) && Path.GetExtension(file) is ".cs" or ".json" or ".csproj" or ".props" or ".yml" or ".yaml" or ".config")
             .Where(file => File.ReadAllText(file).Contains("POSTGRES_PASSWORD", StringComparison.Ordinal)
-                || File.ReadAllText(file).Contains("POSTGRES_USER", StringComparison.Ordinal))
+                || File.ReadAllText(file).Contains("POSTGRES_USER", StringComparison.Ordinal)
+                || File.ReadAllText(file).Contains("RABBITMQ_ADMIN_PASSWORD", StringComparison.Ordinal)
+                || File.ReadAllText(file).Contains("RABBITMQ_ADMIN_USER", StringComparison.Ordinal))
             .Select(file => Path.GetRelativePath(Root, file))
             .ToList();
 

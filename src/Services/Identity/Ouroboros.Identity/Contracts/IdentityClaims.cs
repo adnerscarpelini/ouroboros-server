@@ -4,6 +4,7 @@ namespace Ouroboros.Identity.Contracts;
 // (MapInboundClaims = false). Públicos para os controllers dos hosts lerem o usuário autenticado.
 public static class IdentityClaims
 {
+    public const string PrincipalType = "principal_type";
     public const string Subject = "sub";
     public const string Role = "role";
     public const string Session = "sid";

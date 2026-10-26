@@ -87,13 +87,15 @@ A tabela `identity.users` é mapeada por [`UserConfiguration`](../../src/Service
 | `locked_until` | `timestamptz`, nulo | Fim do bloqueio.  |
 | `created_at`, `updated_at` | `timestamptz` | Preenchidas pelo interceptor. |
 
-Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens`, `DbSet<EmailToken> EmailTokens`, `DbSet<Parameter> Parameters` e `DbSet<ParameterHistory> ParameterHistory`; aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)). Parâmetros e histórico pertencem ao mesmo contexto desde a #81, com [portas locais, backup e migração validada no mesmo banco](../identity/parameters.md).
+Todas as colunas são `not null`, exceto `locked_until`. O `IdentityDbContext` expõe `DbSet<User> Users`, `DbSet<Session> Sessions`, `DbSet<RefreshToken> RefreshTokens`, `DbSet<EmailToken> EmailTokens`, `DbSet<EmailIntent> EmailIntents`, `DbSet<Parameter> Parameters` e `DbSet<ParameterHistory> ParameterHistory`; aplica as configurações do assembly com `ApplyConfigurationsFromAssembly` antes do `SnakeCaseNaming` (veja [convenções das entidades](entity-conventions.md#como-criar-uma-entidade-nova)). Parâmetros e histórico pertencem ao mesmo contexto desde a #81, com [portas locais, backup e migração validada no mesmo banco](../identity/parameters.md).
 
 Os casos de uso de sessões coordenam a persistência pelas portas internas `ISessionStore` e `ISessionTransaction`, com adaptador `SessionStore` em Infrastructure. O adaptador compartilha o `IdentityDbContext` e os métodos de lock com a redefinição de senha, preservando a mesma transação local. A [nota de persistência de sessões](../identity/session-persistence.md) descreve os limites e a verificação.
 
 Na redefinição, `IPasswordResetStore`/`PasswordResetStore` concentra consultas e escritas específicas; a conclusão abre a transação pela porta de sessões da #74 e compartilha o mesmo contexto scoped. Consumo, senha, desbloqueio e revogação só confirmam juntos, na ordem de locks abaixo. A Application não depende de EF ou SQL. Ver [persistência da redefinição](../identity/password-reset.md#persistência), entregue na #76.
 
 ## Ordem dos locks
+
+A solicitação de cadastro/reset mantém seu advisory lock por e-mail/conta e, desde a #85, inclui na mesma transação token e intenção cifrada em `email_intents`. Revogar tokens pendentes e cancelar suas intenções publicáveis é atômico; o conteúdo cancelado é descartado nesse commit. A proteção local é preparada antes da transação, e não há transporte sob locks ou após o commit na API. [Outbox e limites](../identity/email-outbox.md).
 
 O serviço trava linhas numa ordem única, sempre dentro de uma transação:
 

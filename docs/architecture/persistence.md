@@ -51,6 +51,8 @@ O procedimento `scripts/database`, executado pela credencial administrativa da i
 
 ## Migrations geradas
 
+Notifications possui `NotificationsDbContext` e migrations em `src/Services/Notifications/Ouroboros.Notifications/Infrastructure/Persistence/Migrations`, começando por `20261026081751_InitialNotificationsInbox`. Usa somente `ConnectionStrings:Notifications`, schema `notifications` e roles `notifications_runtime`/`notifications_migrator`, sem fallback para Identity. A factory design-time exige a variável `ConnectionStrings__Notifications` da operação de migration; runtime não migra, não faz DDL nem lê o histórico. [Execução e recuperação](../development.md#banco-e-migrations-de-notifications).
+
 Histórico pertence ao serviço. Aplicar migrations explicitamente por comando, script ou bundle, sem execução automática na subida da API. Classes geradas podem ser públicas para descoberta do EF; não são contratos de integração.
 
 As migrations de Identity ficam em `src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/Migrations`. O modelo de dados não depende do caminho, do assembly nem do namespace da biblioteca: `IdentityDbContext`, o schema `identity`, a tabela de histórico, os ids das migrations e o snapshot são os mesmos de bancos já migrados, e o EF não encontra mudanças pendentes no modelo. [`IdentityModelStabilityTests`](../../tests/Ouroboros.IntegrationTests/IdentityModelStabilityTests.cs) verifica ids, schema e ausência de mudanças pendentes; reorganizar pastas ou namespaces não deve gerar migration.
@@ -66,6 +68,14 @@ A troca de uma para a outra é ação do operador, liberada pelo `cutover` da tr
 ## Transações e recuperação
 
 Transações locais protegem parâmetro e histórico, senha e sessões, estado e outbox. Não usar transação distribuída.
+
+Identity inclui `email_intents` desde `20261026015350_AddEmailIntents`: token/intenção e cancelamento de substituídas confirmam juntos, no mesmo contexto e banco. Expiração elimina conteúdo protegido e dados de associação; tombstones terminais sem payload são purgados após o prazo absoluto + 30 dias, em lotes limitados. A #86 acrescenta a migration `AddEmailPublicationLeases`, com reivindicação autocommit/lease e confirmação local condicionada ao proprietário; conteúdo é descartado somente após confirm positivo ou estado terminal. [Outbox e retenção](../identity/email-outbox.md).
+
+### Backups com intenções de e-mail
+
+Backups que incluam a outbox precisam de criptografia e retenção limitada mesmo que o envelope interno já seja cifrado. O wrapper `protected-email-backup.ps1` protege `pg_dump` custom de até 64 MiB com AES256-GCM e chave externa própria, autentica metadados e recusa restauração após 30 dias. Identity só purga arquivos gerenciados quando `Identity:EmailIntents:BackupDirectory` aponta para diretório dedicado marcado pelo wrapper; essa tentativa independe da disponibilidade do banco. Sem a configuração, não há purga automática de arquivos. [Operação, auditoria e limites](../development.md#backup-protegido-das-intenções-de-e-mail).
+
+Esse mecanismo não cifra/adota/apaga os dumps antigos de transferência ou CSVs de reconciliação. O operador deve restringir, proteger e retirar essas cópias pela política, sem exclusão incidental de dados. O wrapper aceita somente dump custom, não CSV. Seu auditlog cobre Protect/Restore pelo wrapper, sem conteúdo/caminhos; acessos diretos ao filesystem exigem controles/auditoria operacionais. Ao restaurar, mantenha processamento parado e reaplique expiração e estados terminais antes de habilitá-lo.
 
 ## Transferência do banco de Identity
 
@@ -86,6 +96,7 @@ Transações locais protegem parâmetro e histórico, senha e sessões, estado e
 - Linhas excluídas no destino não são reconciliadas: o `rollback` aborta se linhas copiadas deixaram de existir.
 - Há um único ciclo de `rollback` e `reconcile`; depois dele a origem difere da linha de base, e novas escritas no destino exigem avaliação manual dos arquivos preservados.
 - Se o destino recebeu migrations depois da troca, o `reconcile` recusa e a reconciliação é manual.
+- A tabela `email_intents`, quando existe na origem, participa de resumo, linha de base e reconciliação. `rollback` e `reconcile` conferem igualdade de históricos de migrations antes de continuar: destino com #85 e origem pré-#85 não permitem simples retorno da connection string. Preserve e reconcilie schema/escritas manualmente antes de voltar; não descarte a outbox.
 - A janela sem escrita não impede quem tem a credencial administrativa; o `reconcile` reabre a escrita da origem para aplicar as linhas.
 - Os backups e os arquivos de reconciliação contêm hashes e são dados sensíveis; o procedimento não os apaga.
 

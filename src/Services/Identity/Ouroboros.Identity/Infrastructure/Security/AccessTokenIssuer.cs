@@ -8,9 +8,9 @@ using Ouroboros.Identity.Domain.Users;
 
 namespace Ouroboros.Identity.Infrastructure.Security;
 
-// Emite o access token (JWT HS256) com sub (ExternalId do usuário), role e sid (ExternalId da
+// Emite o access token (JWT RS256) com sub (ExternalId do usuário), role e sid (ExternalId da
 // sessão), para a audiência do público do papel: Customer na audiência de cliente, Admin na de administrador.
-internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvider timeProvider) : IAccessTokenIssuer
+internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvider timeProvider, TokenKeyRing keys) : IAccessTokenIssuer
 {
     private readonly JsonWebTokenHandler _handler = new();
 
@@ -31,12 +31,11 @@ internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvid
             [
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(IdentityClaims.Role, role.ToString()),
+                new Claim(IdentityClaims.PrincipalType, "user"),
                 new Claim(JwtRegisteredClaimNames.Sid, sessionId.ToString()),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.CreateVersion7().ToString()),
             ]),
-            SigningCredentials = new SigningCredentials(
-                new SymmetricSecurityKey(jwt.SigningKeyBytes),
-                SecurityAlgorithms.HmacSha256),
+            SigningCredentials = keys.SigningCredentials(),
         });
 
         return new AccessToken(token, expiresAt);

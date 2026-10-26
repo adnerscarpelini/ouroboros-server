@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Ouroboros.Identity.Application.Notifications;
 using Ouroboros.Identity.Application.Registrations;
 using Ouroboros.Identity.Application.Security;
 using Ouroboros.Identity.Domain.EmailTokens;
@@ -28,8 +29,10 @@ public sealed class RegistrationPersistenceTests(PostgresFixture postgres) : Int
         await using (var scope = Api.Services.CreateAsyncScope())
         {
             var store = scope.ServiceProvider.GetRequiredService<IRegistrationStore>();
+            var replacement = EmailToken.ForRegistration(Email, OpaqueTokens.Generate().Hash, now.AddHours(1));
+            var intent = scope.ServiceProvider.GetRequiredService<IEmailIntentFactory>().Create(new EmailMessage(Email, "subject", "body"), "registration", now, replacement.ExpiresAt);
             await Assert.ThrowsAsync<DbUpdateException>(() => store.ReplacePendingTokenAsync(
-                EmailToken.ForRegistration(Email, OpaqueTokens.Generate().Hash, now.AddHours(1)), now, Cancellation));
+                replacement, intent, now, Cancellation));
         }
 
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));

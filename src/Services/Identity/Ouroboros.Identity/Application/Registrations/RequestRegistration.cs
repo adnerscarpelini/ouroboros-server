@@ -12,7 +12,7 @@ namespace Ouroboros.Identity.Application.Registrations;
 internal sealed partial class RequestRegistration(
     IRegistrationStore store,
     ISystemParameters parameters,
-    IEmailSender emailSender,
+    IEmailIntentFactory intents,
     TimeProvider timeProvider,
     ILogger<RequestRegistration> logger) : IRequestRegistration
 {
@@ -35,35 +35,27 @@ internal sealed partial class RequestRegistration(
             return RequestRegistrationResult.InvalidEmail;
         }
 
-        // E-mail já usado por uma conta: nada é gerado nem enviado, e a resposta é a mesma.
-        if (await store.EmailExistsAsync(email, cancellationToken))
-        {
-            return RequestRegistrationResult.Accepted;
-        }
-
         var (token, tokenHash) = OpaqueTokens.Generate();
         var now = timeProvider.GetUtcNow();
-        await store.ReplacePendingTokenAsync(EmailToken.ForRegistration(email, tokenHash, now.Add(lifetime)), now, cancellationToken);
-
-        // Envio depois do commit. Uma falha não muda a resposta (senão revelaria que o e-mail está livre):
-        // fica no log, sem o token, e a pessoa pode solicitar de novo.
         try
         {
-            await emailSender.SendAsync(
-                new EmailMessage(
-                    email,
-                    "Conclua o seu cadastro no Ouroboros",
-                    $"Para concluir o seu cadastro, acesse o link abaixo e defina a sua senha:\n\n" +
-                    $"{completionUrl}?token={Uri.EscapeDataString(token)}\n\n" +
-                    $"O link vale por {lifetime.TotalHours.ToString(CultureInfo.InvariantCulture)} horas e só pode ser usado uma vez. " +
-                    "Se você não pediu este cadastro, ignore esta mensagem."),
-                cancellationToken);
+            // Preparação local antes da consulta de existência: falha de proteção não vira oráculo.
+            var intent = intents.Create(new EmailMessage(
+                email, "Conclua o seu cadastro no Ouroboros",
+                $"Para concluir o seu cadastro, acesse o link abaixo e defina a sua senha:\n\n" +
+                $"{completionUrl}?token={Uri.EscapeDataString(token)}\n\n" +
+                $"O link vale por {lifetime.TotalHours.ToString(CultureInfo.InvariantCulture)} horas e só pode ser usado uma vez. " +
+                "Use sempre o link da solicitação mais recente. Se você não pediu este cadastro, ignore esta mensagem."),
+                "registration", now, now.Add(lifetime));
+            if (!await store.EmailExistsAsync(email, cancellationToken))
+            {
+                await store.ReplacePendingTokenAsync(EmailToken.ForRegistration(email, tokenHash, now.Add(lifetime)), intent, now, cancellationToken);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            LogEmailFailed(exception.GetType().Name);
+            LogIntentFailed();
         }
-
         return RequestRegistrationResult.Accepted;
     }
 
@@ -76,7 +68,6 @@ internal sealed partial class RequestRegistration(
                 $"O parâmetro do sistema '{TokenLifetimeHoursParameter}' deve ser um inteiro de 1 a {MaxTokenLifetimeHours}.");
     }
 
-    // Sem o e-mail, o link nem a mensagem da exceção, que poderiam conter o token.
-    [LoggerMessage(Level = LogLevel.Error, Message = "Falha ao enviar o e-mail de cadastro ({ExceptionType}).")]
-    private partial void LogEmailFailed(string exceptionType);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.")]
+    private partial void LogIntentFailed();
 }

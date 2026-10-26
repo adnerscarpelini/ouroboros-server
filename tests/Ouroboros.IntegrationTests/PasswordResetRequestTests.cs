@@ -22,7 +22,6 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
     private const string Route = "/api/v1/identity/password-resets";
     private const string Email = "cliente@example.com";
 
-    private readonly CapturingEmailSender _emails = new();
     private readonly FakeTimeProvider _time = new(DateTimeOffset.UtcNow);
     private readonly ConcurrentQueue<string> _logs = new();
 
@@ -36,10 +35,10 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         var response = await RequestAsync(client, "  Cliente@Example.com ");
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        var message = Assert.Single(_emails.Messages);
+        var message = Assert.Single((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(Email, message.To);
         Assert.Contains("http://localhost:3000/senha/redefinir?token=", message.Body);
-        var token = _emails.TokenSentTo(Email);
+        var token = await TestOutbox.TokenAsync(Api.Services, Email);
         Assert.Equal(1L, await QueryScalarAsync<long>(
             $"SELECT count(*) FROM identity.email_tokens t JOIN identity.users u ON u.id = t.user_id WHERE u.email = '{Email}' AND t.purpose = 'PasswordReset' AND t.token_hash = decode('{HashHex(token)}', 'hex')"));
         Assert.Equal(_time.GetUtcNow().AddHours(1).UtcDateTime, await QueryScalarAsync<DateTime>("SELECT expires_at FROM identity.email_tokens"), TimeSpan.FromMilliseconds(1));
@@ -57,7 +56,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
 
         Assert.Equal(HttpStatusCode.Accepted, unknown.StatusCode);
         Assert.Equal(await known.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), await unknown.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
-        Assert.Single(_emails.Messages);
+        Assert.Single((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(1L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
     }
 
@@ -70,7 +69,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         await ExecuteAsync($"UPDATE identity.users SET is_active = false WHERE email = '{Email}'");
 
         Assert.Equal(HttpStatusCode.Accepted, (await RequestAsync(client, Email)).StatusCode);
-        Assert.Empty(_emails.Messages);
+        Assert.Empty((await TestOutbox.ReadAsync(Api.Services)));
     }
 
     // Contas de backoffice não são recuperadas pela API pública.
@@ -82,7 +81,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         await CreateUserAsync(api, "oi@adnerscarpelini.com", UserRole.Admin);
 
         Assert.Equal(HttpStatusCode.Accepted, (await RequestAsync(client, "oi@adnerscarpelini.com")).StatusCode);
-        Assert.Empty(_emails.Messages);
+        Assert.Empty((await TestOutbox.ReadAsync(Api.Services)));
         Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
     }
 
@@ -94,9 +93,9 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         await CreateUserAsync(api, Email, UserRole.Customer);
 
         await RequestAsync(client, Email);
-        var first = _emails.TokenSentTo(Email);
+        var first = await TestOutbox.TokenAsync(Api.Services, Email);
         await RequestAsync(client, Email);
-        var second = _emails.TokenSentTo(Email);
+        var second = await TestOutbox.TokenAsync(Api.Services, Email);
 
         Assert.NotNull(await QueryScalarAsync<DateTime?>($"SELECT revoked_at FROM identity.email_tokens WHERE token_hash = decode('{HashHex(first)}', 'hex')"));
         Assert.Null(await QueryScalarAsync<DateTime?>($"SELECT revoked_at FROM identity.email_tokens WHERE token_hash = decode('{HashHex(second)}', 'hex')"));
@@ -130,7 +129,7 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         var response = await RequestAsync(client, email);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Empty(_emails.Messages);
+        Assert.Empty((await TestOutbox.ReadAsync(Api.Services)));
     }
 
     [Fact]
@@ -157,22 +156,24 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
 
         var response = await RequestAsync(client, Email);
 
-        var token = _emails.TokenSentTo(Email);
+        var token = await TestOutbox.TokenAsync(Api.Services, Email);
         Assert.DoesNotContain(token, await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
         Assert.NotEmpty(_logs);
         Assert.DoesNotContain(_logs, entry => entry.Contains(token, StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task Email_failure_keeps_the_same_202()
+    public async Task Protection_failure_keeps_the_same_202_without_partial_writes()
     {
-        _emails.Fail = true;
-        await using var api = CreateApi();
+        await using var api = CreateApi().WithWebHostBuilder(builder => builder.ConfigureTestServices(
+            services => services.AddSingleton<IEmailIntentFactory, FailingEmailIntentFactory>()));
         using var client = api.CreateClient();
         await CreateUserAsync(api, Email, UserRole.Customer);
 
         Assert.Equal(HttpStatusCode.Accepted, (await RequestAsync(client, Email)).StatusCode);
-        Assert.Contains(_logs, entry => entry.Contains("Falha ao enviar o e-mail de redefinição de senha", StringComparison.Ordinal));
+        Assert.Contains(_logs, entry => entry.Contains("Falha ao registrar intenção", StringComparison.Ordinal));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_tokens"));
+        Assert.Equal(0L, await QueryScalarAsync<long>("SELECT count(*) FROM identity.email_intents"));
     }
 
     private ApiFactory CreateApi() => Api.WithWebHostBuilder(builder =>
@@ -180,7 +181,6 @@ public sealed class PasswordResetRequestTests(PostgresFixture postgres) : Integr
         builder.ConfigureLogging(logging => logging.AddProvider(new ListLoggerProvider(_logs)).SetMinimumLevel(LogLevel.Trace));
         builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IEmailSender>(_emails);
             services.AddSingleton<TimeProvider>(_time);
         });
     });

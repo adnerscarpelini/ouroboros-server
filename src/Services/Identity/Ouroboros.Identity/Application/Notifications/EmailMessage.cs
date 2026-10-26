@@ -1,12 +1,5 @@
 namespace Ouroboros.Identity.Application.Notifications;
 
-// Porta do módulo para envio de e-mail; o adaptador fica em Infrastructure. Os casos de uso chamam o
-// envio só depois de gravar a transação: se falhar, o usuário refaz a solicitação (sem outbox).
-internal interface IEmailSender
-{
-    Task SendAsync(EmailMessage message, CancellationToken cancellationToken);
-}
-
 // Mensagem em texto simples. O corpo pode conter links com tokens: nunca vai para o log.
 internal sealed record EmailMessage
 {

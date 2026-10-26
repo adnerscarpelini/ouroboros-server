@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ouroboros:notification.email.requested:1",
+  "title": "notification.email.requested v1",
+  "type": "object",
+  "required": ["messageId", "type", "version", "occurredAt", "expiresAt", "producer", "correlationId", "causationId", "supersessionKey", "traceparent", "tracestate", "payload"],
+  "properties": {
+    "messageId": { "type": "string", "format": "uuid" },
+    "type": { "const": "notification.email.requested" },
+    "version": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "producer": { "const": "identity" },
+    "correlationId": { "type": "string", "format": "uuid" },
+    "causationId": { "type": "string", "format": "uuid" },
+    "supersessionKey": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9.:_-]+$" },
+    "traceparent": { "type": ["string", "null"], "maxLength": 55 },
+    "tracestate": { "type": ["string", "null"], "maxLength": 512 },
+    "payload": {
+      "type": "object",
+      "required": ["algorithm", "keyId", "wrappedKey", "nonce", "tag", "ciphertext"],
+      "properties": {
+        "algorithm": { "const": "RSA-OAEP-256+A256GCM" },
+        "keyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9.:_-]+$" },
+        "wrappedKey": { "type": "string", "contentEncoding": "base64", "minLength": 344, "maxLength": 1368 },
+        "nonce": { "type": "string", "contentEncoding": "base64", "minLength": 16, "maxLength": 16 },
+        "tag": { "type": "string", "contentEncoding": "base64", "minLength": 24, "maxLength": 24 },
+        "ciphertext": { "type": "string", "contentEncoding": "base64", "minLength": 4, "maxLength": 21848 }
+      }
+    }
+  },
+  "$comment": "UTF-8 sem BOM, no máximo 32768 bytes. UUIDs não vazios; timestamps UTC com expiresAt > occurredAt. Base64 decodificado: wrappedKey 256..1024 bytes, nonce 12, tag 16, ciphertext 1..16384. traceparent W3C válido; sem traceparent, tracestate deve ser null. Propriedades duplicadas são inválidas. Campos opcionais desconhecidos são ignorados. O conteúdo decifrado tem destinatário único, assunto, texto e finalidade; RSA-OAEP-SHA256 envolve chave AES256 aleatória, AES-GCM autentica payload e metadados canônicos do envelope. Detalhes de gestão das chaves e ativação nas #85/#87. Não há plaintext no transporte."
+}

@@ -1,4 +1,5 @@
 using Ouroboros.Identity.Domain.EmailTokens;
+using Ouroboros.Identity.Domain.Notifications;
 
 namespace Ouroboros.Identity.Application.PasswordResets;
 
@@ -9,7 +10,7 @@ internal interface IPasswordResetStore
     Task<PasswordResetAccount?> FindCustomerAsync(string email, CancellationToken cancellationToken);
     Task<PasswordResetAccount?> FindActiveUserAsync(long userId, CancellationToken cancellationToken);
     Task<PasswordResetToken?> FindPendingTokenAsync(byte[] hash, DateTimeOffset now, CancellationToken cancellationToken);
-    Task ReplacePendingTokenAsync(EmailToken token, DateTimeOffset now, CancellationToken cancellationToken);
+    Task ReplacePendingTokenAsync(EmailToken token, EmailIntent intent, DateTimeOffset now, CancellationToken cancellationToken);
     Task<int> ConsumeTokenAsync(long tokenId, DateTimeOffset now, CancellationToken cancellationToken);
     Task ChangePasswordAsync(long userId, string passwordHash, DateTimeOffset now, CancellationToken cancellationToken);
 }

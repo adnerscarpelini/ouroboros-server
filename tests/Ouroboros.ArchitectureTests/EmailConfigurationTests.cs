@@ -1,10 +1,10 @@
 namespace Ouroboros.ArchitectureTests;
 
-// O adaptador de e-mail local (pickup directory) só pode ser usado em Development.
+// Identity não hospeda mais adaptador de entrega de e-mail.
 public sealed class EmailConfigurationTests
 {
     [Fact]
-    public void Host_fails_to_start_with_local_email_adapter_outside_development()
+    public void Host_rejects_legacy_email_adapter_configuration()
     {
         using var factory = new OuroborosApiFactory(
             OuroborosApiFactory.FakeConnectionString,
@@ -16,7 +16,7 @@ public sealed class EmailConfigurationTests
 
         var exception = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
 
-        Assert.Contains("só pode ser usado em Development", exception.Message);
+        Assert.Contains("o transporte pertence a Notifications", exception.Message);
     }
 
     [Fact]
