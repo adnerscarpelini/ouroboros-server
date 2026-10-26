@@ -37,7 +37,7 @@ Identity emite tokens com assinatura assimétrica e rotação; consumidores vali
 
 ## Operação e qualidade
 
-CI Linux, PostgreSQL real, contratos e testes de falha acompanham cada serviço. HTTP e mensagens são correlacionados pelo [W3C Trace Context](trace-correlation.md), com logs JSON no console de cada executável; OpenTelemetry exporta essa correlação. Diagnóstico sanitizado usa pipeline independente dos bancos de negócio e não substitui auditoria.
+CI Linux, PostgreSQL real, contratos e testes de falha acompanham cada serviço. HTTP e mensagens são correlacionados pelo [W3C Trace Context](trace-correlation.md), com logs JSON no console de cada executável; OpenTelemetry exporta essa correlação. Diagnóstico sanitizado usa pipeline independente dos bancos de negócio, com coletor e destino dedicado, e não substitui auditoria ([pipeline de diagnósticos](diagnostics-pipeline.md)).
 
 Validar atualização de Notifications sem implantar Identity, recuperação de mensagens, isolamento de bancos e acesso administrativo direto. Kubernetes não é requisito.
 

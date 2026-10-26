@@ -23,7 +23,7 @@ Cada API de serviço configura o tratamento HTTP de erros, com mecanismos técni
 
 ### Erro inesperado (500)
 
-Uma exceção não tratada responde `500` com título genérico, sem mensagem, tipo de exceção ou stack trace. O diagnóstico segue o pipeline de [observabilidade sanitizada](microservices.md#operação-e-qualidade), com o mesmo trace da resposta e sem segredos ou dados pessoais.
+Uma exceção não tratada responde `500` com título genérico, sem mensagem, tipo de exceção ou stack trace. O diagnóstico segue o [pipeline de diagnósticos sanitizados](diagnostics-pipeline.md), com o mesmo trace da resposta e tipo, mensagem e pilha da exceção sanitizados antes de qualquer destino. Uma falha do pipeline não substitui o `500`.
 
 ```json
 {

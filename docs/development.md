@@ -6,7 +6,7 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 - .NET SDK 10.0.402, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
-- Docker com Docker Compose, para PostgreSQL e RabbitMQ de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- Docker com Docker Compose, para PostgreSQL, RabbitMQ e o coletor de diagnósticos de desenvolvimento; os testes de integração também exigem o Docker em execução.
 - PowerShell 7 (`pwsh`) para provisionar o RabbitMQ e para sua fixture de teste, inclusive em Linux.
 
 ## Visual Studio e compilação
@@ -40,6 +40,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`. Os testes de mensageria também baixam `rabbitmq:4.4.0-management` e exigem `pwsh`; contratos e topologia estão descritos em [RabbitMQ e contrato de mensagem](architecture/messaging.md#como-verificar).
 - Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
 - Os testes da transferência do banco de Identity (`IdentityDatabaseTransferTests` e `IdentityDatabaseTransferHardeningTests`) também exigem o Docker e usam a mesma `ProvisionedInstance`, que copia `scripts/database` para o container e executa `transfer-identity.sh` com a credencial administrativa da instância de teste. Cobrem backup restaurado e comparado, janela sem escrita, equivalência de origem e destino, falha de validação sem troca e com origem intacta, recusas do `copy`, privilégios da role de runtime (sem DDL, sem banco alheio, sem `public`), migrations só pela role de migration, rollback sem e com novas escritas, reconciliação (idempotência, conflito, sequências nunca usadas) e login, renovação e `me` com a API real na role de runtime após a troca. Não substituem o ensaio em cópia do ambiente real.
+- Os testes do pipeline de diagnósticos (`DiagnosticsPipelineTests`) também exigem o Docker e baixam `otel/opentelemetry-collector-contrib:0.162.0` e `busybox:1.37.0`. Sobem coletor e destino reais com os arquivos de `config/observability`, em rede e volume próprios de teste; não usam os serviços nem o volume do Compose ([cenários](architecture/diagnostics-pipeline.md#como-verificar)).
 - `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
 - `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
 
@@ -480,7 +481,7 @@ Todo endpoint exige um access token válido da audiência do listener (`Authoriz
 
 ## Logs dos executáveis
 
-A API de Identity e o worker de Notifications escrevem os logs somente no console (stdout), uma linha JSON por entrada, também no Windows: não há Windows Event Log nem saída de Debug. Cada linha traz `timestamp` (UTC), `level`, `category`, `eventId`, `service` (`identity` ou `notifications`), `serviceVersion`, `traceId` e `spanId` (quando há uma atividade W3C corrente), `message`, `attributes` e, se houver, `exception`. Campos, exemplos e limites em [Correlação por W3C Trace Context](architecture/trace-correlation.md#formato-do-console). Os níveis seguem `Logging:LogLevel` do `appsettings.json` de cada executável.
+A API de Identity e o worker de Notifications registram pelo OpenTelemetry, único provedor de log, também no Windows: não há Windows Event Log nem saída de Debug. Cada entrada é sanitizada e escrita no console (stdout), uma linha JSON por entrada, com `timestamp` (UTC), `level`, `category`, `eventId`, `service` (`identity` ou `notifications`), `serviceVersion`, `traceId` e `spanId` (quando há uma atividade W3C corrente), `occurrenceId`, `message` e `attributes`; uma exceção aparece em `attributes` como `exception.type`, `exception.message` e `exception.stacktrace`, já sanitizados. Campos, exemplos e limites em [Correlação por W3C Trace Context](architecture/trace-correlation.md#formato-do-console). As linhas saem em lotes, em até cerca de 1 s depois do log. Os níveis seguem `Logging:LogLevel` do `appsettings.json` de cada executável; na API de Identity, `Microsoft.EntityFrameworkCore` fica em `Warning`. Para guardar os diagnósticos fora do console, use o [coletor local](#diagnósticos-no-coletor-local).
 
 Para achar os logs de uma resposta de erro, pegue o segundo segmento do `traceId` do ProblemDetails (`00-<trace-id>-<span-id>-<flags>`) e filtre as linhas por ele. Por exemplo, guardando a saída da API em `.local/` (ignorada pelo Git):
 
@@ -490,15 +491,87 @@ dotnet run --project src/Services/Identity/Ouroboros.Identity.Api | Tee-Object -
 Select-String -Path .local/identity.log -SimpleMatch '"traceId":"<trace-id>"'
 ```
 
-O mesmo filtro vale para a saída do worker: a publicação da outbox e o processamento no worker de uma solicitação continuam o trace da requisição. Para que uma chamada continue um trace do cliente, envie um `traceparent` W3C válido (por exemplo, `-Headers @{ traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }` no `Invoke-RestMethod`); valor inválido é descartado e o host gera um trace novo. Os logs podem conter identificadores e detalhes de exceções: não os copie para issues ou para o repositório e apague os arquivos locais depois da investigação.
+O mesmo filtro vale para a saída do worker: a publicação da outbox e o processamento no worker de uma solicitação continuam o trace da requisição. Para que uma chamada continue um trace do cliente, envie um `traceparent` W3C válido (por exemplo, `-Headers @{ traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }` no `Invoke-RestMethod`); valor inválido é descartado e o host gera um trace novo. Os logs são sanitizados, mas a sanitização reconhece só chaves e padrões ([limites](architecture/diagnostics-pipeline.md#limites)) e as linhas trazem identificadores e pilhas de exceção: não os copie para issues ou para o repositório e apague os arquivos locais depois da investigação.
 
-Testes da correlação, sem Docker:
+Falhas do próprio pipeline, como fila cheia ou falha e timeout ao exportar para o coletor, não aparecem no stdout: saem em stderr, em linhas que começam com `ouroboros-observability` ([como interpretar](#interpretar-o-sinal-em-stderr)).
+
+Testes da correlação e da sanitização, sem Docker:
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class '*TraceCorrelationTests'
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class '*DiagnosticSanitizationTests'
 ```
 
 Os cenários com publicação real e processo do worker ficam em `EmailOutboxPublisherTests` e `NotificationsWorkerTests` (exigem Docker), com os comandos de [outbox](#publicar-e-retomar-a-outbox-de-identity) e de [imagem do worker](#imagem-linux-de-notifications).
+
+## Diagnósticos no coletor local
+
+O coletor (`otel-collector`) e o destino dedicado (`diagnostics-store`) guardam os diagnósticos da API e do worker em arquivos rotacionados no volume `diagnostics-data`, com retenção limitada, sem acessar os bancos. O uso é opcional: sem endpoint configurado, os executáveis só escrevem no console. Decisão, recursos e limites em [Pipeline de diagnósticos sanitizados](architecture/diagnostics-pipeline.md).
+
+### Subir o coletor
+
+O Compose valida as variáveis do arquivo inteiro, então o `.env` precisa existir, como para o [RabbitMQ](#rabbitmq-local); o coletor e o destino não usam credenciais. Na raiz do repositório:
+
+```powershell
+docker compose up -d otel-collector
+docker compose ps otel-collector diagnostics-store
+```
+
+O comando sobe também `diagnostics-volume-init`, que prepara o volume para o usuário sem privilégios dos coletores e termina, e `diagnostics-store`. O coletor recebe OTLP/HTTP em `127.0.0.1:4318` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); o destino não tem porta publicada. OTLP sem TLS nem autenticação se restringe ao desenvolvimento local. Os erros dos dois ficam em `docker compose logs otel-collector diagnostics-store`.
+
+### Enviar os diagnósticos
+
+Defina `Observability:Otlp:Endpoint` no executável. Por exemplo, para a API:
+
+```powershell
+$env:Observability__Otlp__Endpoint = 'http://127.0.0.1:4318/'
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+O mesmo vale para o worker de Notifications. De um container na rede do Compose, use `http://otel-collector:4318/`. O valor é uma URL `http` ou `https` absoluta só com host e porta: credenciais, caminho, query ou fragmento impedem a subida. O executável acrescenta `v1/logs`. Os appsettings não definem endpoint; `Remove-Item Env:Observability__Otlp__Endpoint` volta a deixar só o console. Com o coletor parado, o executável continua funcionando e o descarte aparece em [stderr](#interpretar-o-sinal-em-stderr).
+
+### Ler o destino
+
+A imagem do coletor não tem shell; leia o volume por um container temporário, só leitura:
+
+```powershell
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 ls -l /data
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/logs.jsonl | Select-String -SimpleMatch '"traceId":"<trace-id>"'
+```
+
+Cada linha de `logs.jsonl` é um lote em OTLP/JSON (`resourceLogs`): o resource traz `service.name`, `service.version`, `service.instance.id` e `deployment.environment.name`, e cada registro traz `traceId`, `spanId`, a mensagem em `body` e os atributos, entre eles `log.record.uid`, igual ao `occurrenceId` do console. Para achar uma ocorrência vista no console, filtre pelo valor do `occurrenceId`. Os registros chegam alguns segundos depois do log, por causa dos lotes no processo e no coletor. Os arquivos rotacionados ficam ao lado de `logs.jsonl`, com o instante da rotação no nome; o destino guarda no máximo 8 deles, de 32 MiB, e remove os com mais de 7 dias quando há rotação ([retenção e limites](architecture/diagnostics-pipeline.md#retenção-e-limpeza)). Não copie o conteúdo para issues ou para o repositório.
+
+### Interpretar o sinal em stderr
+
+Os eventos `Warning` ou mais graves do OpenTelemetry no processo saem em stderr, nunca no stdout nem no destino, no formato:
+
+```text
+ouroboros-observability <instante UTC> <nível> <fonte>#<evento>: <mensagem> (suprimidos desde o último aviso: N)
+```
+
+| Mensagem | Significado |
+| --- | --- |
+| `'BatchLogRecordExportProcessor' exporting to 'OtlpLogExporter' dropped '<N>' item(s) due to buffer full` | A fila do processo para o coletor encheu (coletor lento ou indisponível, ou volume alto) e `N` registros não foram enviados a ele; o console tem fila própria |
+| O mesmo, com `exporting to 'JsonConsoleLogExporter'` | O stdout não acompanhou o volume e `N` linhas do console foram descartadas |
+| Falha ou timeout do exportador OTLP | O coletor não respondeu em 5 s ou recusou o lote: confira se está no ar, a porta e `docker compose logs otel-collector` |
+
+Cada evento sai no máximo uma vez a cada 30 s; `N` no fim conta as repetições suprimidas. O descarte é informado de forma agregada, quando o processador encerra ou a exportação falha. Para separar o sinal da saída normal, redirecione o stderr, por exemplo com `2> .local/identity-diagnostics.err` no `dotnet run`. A linha passa pela mesma sanitização de padrões, mas não a publique em issues.
+
+### Parar o coletor
+
+```powershell
+docker compose stop otel-collector diagnostics-store
+```
+
+O que estiver na fila em memória do coletor se perde ao pará-lo. `docker compose down` também mantém o volume `diagnostics-data`; os comandos documentados não o removem.
+
+### Testes do pipeline
+
+Com coletor e destino reais, exigem Docker e não usam os containers do Compose:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*DiagnosticsPipelineTests'
+```
 
 ## Executar o worker de Notifications
 

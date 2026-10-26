@@ -57,7 +57,7 @@ Publicação é persistente, `mandatory`, com publisher confirms e tracking de `
 
 Não descarta uma intenção válida apenas pela contagem de tentativas de publicação. Suspensas continuam pertencendo à unicidade `Pending`, podem ser substituídas normalmente e expiram pelo prazo original. [Configuração e retomada sem ler payload](../development.md#publicar-e-retomar-a-outbox-de-identity).
 
-`Ouroboros.Identity.Outbox` expõe instrumentos `outbox.backlog`, `outbox.oldest.age` (segundos), `outbox.publish.failures` e `outbox.publish.retries`, sem tags ou dados pessoais. Gauges só emitem depois de um snapshot e refletem o último ciclo bem-sucedido; backlog inclui pendentes válidas, inclusive suspensas. Não há exporter, endpoint de métricas ou pipeline OpenTelemetry nesta entrega: integração é a #88. A indisponibilidade do broker foi testada com publicador habilitado e login funcionando. Não existe endpoint readiness nesta base; sua validação pertence à #98 e não foi antecipada.
+`Ouroboros.Identity.Outbox` expõe instrumentos `outbox.backlog`, `outbox.oldest.age` (segundos), `outbox.publish.failures` e `outbox.publish.retries`, sem tags ou dados pessoais. Gauges só emitem depois de um snapshot e refletem o último ciclo bem-sucedido; backlog inclui pendentes válidas, inclusive suspensas. Não há exporter nem endpoint de métricas: o pipeline OpenTelemetry da #66 exporta só logs ([pipeline de diagnósticos](../architecture/diagnostics-pipeline.md)), e a integração das métricas é a #88. A indisponibilidade do broker foi testada com publicador habilitado e login funcionando. Não existe endpoint readiness nesta base; sua validação pertence à #98 e não foi antecipada.
 
 ## Expiração, descarte e retenção
 

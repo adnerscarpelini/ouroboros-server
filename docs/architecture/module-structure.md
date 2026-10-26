@@ -33,7 +33,9 @@ A biblioteca própria organiza Domain, Application, Infrastructure e contratos c
 | `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
 | `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
 | `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec/AAD e fábrica RabbitMQ; sem entidades ou referência a serviços, usada pelo receptor Notifications e pelo publicador de Identity ([mensageria](messaging.md)) |
-| `src/Ouroboros.Observability` | Configuração comum de logs e correlação dos executáveis: console JSON, propagador W3C e identidade do serviço; sem referência a serviços, usada pela API de Identity e pelo worker de Notifications ([correlação](trace-correlation.md)) |
+| `src/Ouroboros.Observability` | Configuração comum de diagnóstico e correlação dos executáveis: OpenTelemetry como provedor do `ILogger`, sanitização, console JSON, exportação OTLP opcional, propagador W3C e identidade do serviço; sem referência a serviços ou bancos, usada pela API de Identity e pelo worker de Notifications ([correlação](trace-correlation.md), [diagnósticos](diagnostics-pipeline.md)) |
+
+A configuração do coletor e do destino de diagnósticos fica em `config/observability/`, fora de `src`, usada pelo Compose ([pipeline de diagnósticos](diagnostics-pipeline.md#topologia-e-recursos)).
 
 Não há executável agregador que componha vários serviços, nem projeto Settings: os parâmetros pertencem ao serviço que aplica a regra, e Identity é a proprietária dos seus. Accounts, Customers e Transactions não existem como projetos.
 

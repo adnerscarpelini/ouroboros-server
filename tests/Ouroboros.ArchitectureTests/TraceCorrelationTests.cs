@@ -8,8 +8,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Options;
 using Ouroboros.Observability;
 
@@ -80,7 +78,7 @@ public sealed partial class TraceCorrelationTests(OuroborosApiFactory factory) :
     }
 
     [Fact]
-    public void Identity_api_logs_only_to_the_json_console_without_windows_event_log()
+    public void Identity_api_logs_only_through_the_diagnostic_pipeline_without_windows_event_log()
     {
         using var host = factory.WithWebHostBuilder(_ => { });
         AssertJsonConsoleOnly(host.Services, "identity");
@@ -108,52 +106,45 @@ public sealed partial class TraceCorrelationTests(OuroborosApiFactory factory) :
     }
 
     [Fact]
-    public void Json_console_line_separates_trace_span_service_and_version()
+    public void Json_console_line_separates_trace_span_service_version_and_occurrence()
     {
-        var formatter = new JsonLogFormatter(new ServiceIdentity("identity", "1.2.3"));
+        using var diagnostics = new DiagnosticsHost();
         using var activity = new Activity("probe").SetIdFormat(ActivityIdFormat.W3C).Start();
-        using var writer = new StringWriter();
-        var state = new List<KeyValuePair<string, object?>>
-        {
-            new("MessageId", Guid.Parse("0196b2a0-0000-7000-8000-000000000001")),
-            new("Attempts", 3),
-            new("{OriginalFormat}", "Processamento de {MessageId}: {Attempts}."),
-        };
 
-        formatter.Write(new LogEntry<List<KeyValuePair<string, object?>>>(LogLevel.Warning, "Probe.Category", new EventId(7), state, null,
-            (_, _) => "Processamento de 0196b2a0-0000-7000-8000-000000000001: 3."), null, writer);
+        LogProcessing(diagnostics.Logger(), Guid.Parse("0196b2a0-0000-7000-8000-000000000001"), 3);
+        activity.Stop();
 
-        var line = writer.ToString();
-        Assert.EndsWith(Environment.NewLine, line, StringComparison.Ordinal);
-        Assert.DoesNotContain(activity.Id!, line, StringComparison.Ordinal);
-        using var json = JsonDocument.Parse(line);
-        var root = json.RootElement;
+        var text = diagnostics.Console.ToString();
+        Assert.DoesNotContain(activity.Id!, text, StringComparison.Ordinal);
+        var root = Assert.Single(diagnostics.ConsoleLines());
         Assert.Equal("identity", root.GetProperty("service").GetString());
-        Assert.Equal("1.2.3", root.GetProperty("serviceVersion").GetString());
+        Assert.Equal(diagnostics.Services.GetRequiredService<ServiceIdentity>().Version, root.GetProperty("serviceVersion").GetString());
         Assert.Equal(activity.TraceId.ToHexString(), root.GetProperty("traceId").GetString());
         Assert.Equal(activity.SpanId.ToHexString(), root.GetProperty("spanId").GetString());
         Assert.Equal("Warning", root.GetProperty("level").GetString());
         Assert.Equal("Probe.Category", root.GetProperty("category").GetString());
         Assert.Equal(7, root.GetProperty("eventId").GetInt32());
         Assert.Equal(TimeSpan.Zero, root.GetProperty("timestamp").GetDateTimeOffset().Offset);
+        Assert.Equal("Processamento de 0196b2a0-0000-7000-8000-000000000001: 3.", root.GetProperty("message").GetString());
         Assert.Equal(3, root.GetProperty("attributes").GetProperty("Attempts").GetInt32());
         Assert.Equal("0196b2a0-0000-7000-8000-000000000001", root.GetProperty("attributes").GetProperty("MessageId").GetString());
         Assert.False(root.GetProperty("attributes").TryGetProperty("{OriginalFormat}", out _));
+        var occurrence = Guid.Parse(root.GetProperty("occurrenceId").GetString()!);
+        Assert.NotEqual(activity.TraceId.ToHexString(), occurrence.ToString("N"));
     }
 
     [Fact]
     public void Json_console_line_outside_any_activity_has_no_invented_trace()
     {
-        var formatter = new JsonLogFormatter(new ServiceIdentity("notifications", "1.0.0"));
+        using var diagnostics = new DiagnosticsHost();
         var previous = Activity.Current;
         Activity.Current = null;
         try
         {
-            using var writer = new StringWriter();
-            formatter.Write(new LogEntry<string>(LogLevel.Information, "Probe", default, "texto", null, (state, _) => state), null, writer);
-            using var json = JsonDocument.Parse(writer.ToString());
-            Assert.False(json.RootElement.TryGetProperty("traceId", out _));
-            Assert.False(json.RootElement.TryGetProperty("spanId", out _));
+            diagnostics.Logger().LogInformation("texto");
+            var root = Assert.Single(diagnostics.ConsoleLines());
+            Assert.False(root.TryGetProperty("traceId", out _));
+            Assert.False(root.TryGetProperty("spanId", out _));
         }
         finally { Activity.Current = previous; }
     }
@@ -161,8 +152,7 @@ public sealed partial class TraceCorrelationTests(OuroborosApiFactory factory) :
     private static void AssertJsonConsoleOnly(IServiceProvider services, string service)
     {
         var providers = services.GetServices<ILoggerProvider>().Select(provider => provider.GetType().Name).ToArray();
-        Assert.Equal([nameof(ConsoleLoggerProvider)], providers);
-        Assert.Equal(JsonLogFormatter.FormatterName, services.GetRequiredService<IOptionsMonitor<ConsoleLoggerOptions>>().CurrentValue.FormatterName);
+        Assert.Equal(["OpenTelemetryLoggerProvider"], providers);
         Assert.Equal(ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId,
             services.GetRequiredService<IOptions<LoggerFactoryOptions>>().Value.ActivityTrackingOptions);
         Assert.Equal(service, services.GetRequiredService<ServiceIdentity>().Name);
@@ -191,6 +181,9 @@ public sealed partial class TraceCorrelationTests(OuroborosApiFactory factory) :
 
     [GeneratedRegex("^00-(?<trace>[0-9a-f]{32})-(?<span>[0-9a-f]{16})-[0-9a-f]{2}$")]
     private static partial Regex W3CId();
+
+    [LoggerMessage(EventId = 7, Level = LogLevel.Warning, Message = "Processamento de {MessageId}: {Attempts}.")]
+    private static partial void LogProcessing(ILogger logger, Guid messageId, int attempts);
 }
 
 [ApiController]

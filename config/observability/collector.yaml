@@ -1,0 +1,63 @@
+# Coletor de diagnósticos (OpenTelemetry Collector). Recebe OTLP/HTTP das APIs e dos workers, limita memória,
+# aplica uma segunda sanitização (defesa em profundidade; a primeira ocorre no processo de origem) e encaminha
+# ao destino dedicado diagnostics-store. Não acessa bancos de negócio.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 4194304
+
+processors:
+  # Recusa novos dados (o exportador do processo de origem descarta pela fila limitada) antes de esgotar a memória.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 160
+    spike_limit_mib: 40
+  transform/sanitize:
+    error_mode: ignore
+    log_statements:
+      - replace_pattern(log.body, "eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]*", "[REDACTED]")
+      - replace_pattern(log.body, "(?i)(bearer|basic)[ ]+[A-Za-z0-9._~+/=-]+", "$$1 [REDACTED]")
+      - replace_pattern(log.body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}", "[EMAIL]")
+      - replace_all_patterns(log.attributes, "value", "eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]*", "[REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "(?i)(bearer|basic)[ ]+[A-Za-z0-9._~+/=-]+", "$$1 [REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}", "[EMAIL]")
+      - replace_pattern(log.body, "(?i)((password|passwd|pwd|senha|secret|segredo|client_secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|private[_-]?key|credentials?|credencial)[^A-Za-z0-9 ]{0,2}[ ]*[=:][ ]*)[^,;&}]{1,128}", "$$1[REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "(?i)((password|passwd|pwd|senha|secret|segredo|client_secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|private[_-]?key|credentials?|credencial)[^A-Za-z0-9 ]{0,2}[ ]*[=:][ ]*)[^,;&}]{1,128}", "$$1[REDACTED]")
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 1s
+
+exporters:
+  otlp_http/store:
+    endpoint: http://diagnostics-store:4318
+    compression: gzip
+    timeout: 5s
+    # Fila em memória limitada por itens: cheia, novos lotes são descartados e contados pelo coletor.
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      sizer: items
+      queue_size: 20000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/sanitize, batch]
+      exporters: [otlp_http/store]

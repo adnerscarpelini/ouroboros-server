@@ -139,7 +139,8 @@ public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, Pro
         {
             foreach (var message in traced.Append(untraced)) { await PublishAsync(EnvelopeCodec.Encode(message), message.MessageId); }
             await WaitAsync(() => Task.FromResult(Directory.Exists(keys.EmailsPath) && Directory.GetFiles(keys.EmailsPath, "*.eml").Length == 3));
-            await Task.Delay(500, TestContext.Current.CancellationToken);
+            // O console exporta em lotes de até 1 s; o processo é encerrado à força depois disso.
+            await Task.Delay(2500, TestContext.Current.CancellationToken);
         }
         finally
         {
