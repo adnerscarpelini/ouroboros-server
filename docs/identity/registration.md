@@ -25,7 +25,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 ## Pré-requisitos
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): `AddEmailTokens` cria a tabela dos tokens e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para o proprietário. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova. A conclusão não tem migration própria.
-- A migration `AddEmailIntents` e a [proteção da outbox](email-outbox.md) configuradas. A API persiste intenção junto do token e não gera `.eml`; publicação é a #86 e processamento durável é a #87.
+- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é a #87.
 
 ## Configuração
 
@@ -42,7 +42,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com a solicitação disponível e o limite atual de entrega: a publicação da intenção ainda depende da #86.
+O [guia de desenvolvimento](../development.md#cadastrar-um-cliente-e-entrar) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; a responsabilidade durável de Notifications ainda é a #87.
 
 ## Solicitar o cadastro
 
@@ -70,7 +70,7 @@ A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que pro
 http://localhost:3000/cadastro/concluir?token=<token>
 ```
 
-A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Nesta entrega, a API não gera `.eml`: a publicação/entrega do link ainda depende das #86/#87.
+A mensagem informa a validade em horas e que o link só pode ser usado uma vez. Nesta entrega, a API não gera `.eml`: o publicador precisa estar habilitado e o worker de Development rodando para produzir o arquivo, sem a garantia durável da #87.
 
 ### E-mail inválido (400)
 
@@ -110,7 +110,7 @@ Acima de 5 solicitações por minuto do mesmo IP, a resposta é `429` com `Retry
 
    Por isso sobra sempre um único token pendente por e-mail, mesmo com solicitações simultâneas, e o link de uma solicitação anterior deixa de valer na conclusão.
 5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo mesmo `OpaqueTokens` do refresh token; `identity.email_tokens` guarda seu SHA-256 e a outbox guarda o link somente cifrado (veja [Persistência](#persistência)).
-6. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A API não chama broker ou provedor. A publicação recuperável pertence à #86 ([Outbox](email-outbox.md)).
+6. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A solicitação HTTP não espera broker ou provedor. O serviço hospedado da #86 faz a publicação recuperável ([Outbox](email-outbox.md)).
 7. **Falha de proteção/gravação não muda a resposta genérica.** A solicitação continua `202` e registra somente `Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.`, sem conteúdo ou detalhes da exceção. Rollback não deixa uma intenção nova publicável; o estado anterior permanece. Cancelamento da requisição continua sendo cancelamento.
 8. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 9. **Nenhum usuário é criado.** A conta só nasce na [conclusão](#concluir-o-cadastro).
@@ -244,10 +244,10 @@ Um token está pendente enquanto `used_at` e `revoked_at` são nulos. Tokens exp
 - **Sem aviso ao dono do e-mail já usado.** Quem tenta se cadastrar com um e-mail que já tem conta não recebe nada, nem o dono da conta é avisado.
 - **Sem reenvio.** Uma nova solicitação cumpre esse papel e invalida o link anterior. Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP.
 - **E-mail que ganhou conta depois da solicitação.** A conclusão responde token inválido e, como a transação é desfeita, o token continua pendente até expirar, mas nunca mais conclui. Uma nova solicitação para esse e-mail não gera token, porque ele já tem conta.
-- **Publicação ainda pendente.** A intenção confirmada é recuperável e protegida, mas não há entrega automática até a #86; o processamento durável/deduplicação de Notifications é a #87 ([Outbox](email-outbox.md)).
+- **Entrega confiável parcial.** O publicador vem desabilitado por padrão; quando habilitado, publica com confirmação e recuperação. Aceitação durável/deduplicação de Notifications ainda é a #87 ([Outbox](email-outbox.md)).
 - **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Log `fail` do EF Core na corrida pelo e-mail.** A violação de unicidade tratada como token inválido ainda gera um log de nível `Error` (`fail`) do EF Core ao salvar, sem dado sensível. Na operação, esse log isolado na conclusão do cadastro é uma corrida esperada, não uma falha do sistema.
-- **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório; a entrega automática do link ainda depende das #86/#87 ([Fluxo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
+- **Sem front-end.** O link aponta para `http://localhost:3000/cadastro/concluir`, que não faz parte deste repositório ([Fluxo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
 - **Dados de cliente** (serviço Customers, ainda inexistente) estão fora do escopo.
 
 ## Como verificar

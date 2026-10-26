@@ -6,7 +6,7 @@ A [#93](https://github.com/adnerscarpelini/ouroboros-server/issues/93) materiali
 
 O [provisionador](../../scripts/messaging/provision-rabbitmq.ps1) declara toda a topologia com a credencial do operador. Essa escolha substitui a recomendação inicial de cada runtime declarar seus objetos: os serviços ficam sem permissão `configure`, impedindo que permissões necessárias para declarar um exchange sejam usadas para administrar filas de mesmo nome. Reexecutar o provisionador converge objetos e permissões, sem apagar mensagens, filas ou volumes.
 
-Identity ainda não publica no broker. O [worker de Notifications](../notifications/worker.md), da #72, consome diretamente somente em Development, decifra o payload e usa adaptador local de e-mail; possui imagem Linux própria. A #85 já implementa proteção/persistência da origem; publicação da outbox e processamento durável/deduplicação permanecem nas #86/#87. A infraestrutura da #93, por si só, não implementa essas garantias.
+Identity publica intenções da outbox quando o serviço hospedado da #86 é explicitamente habilitado. O [worker de Notifications](../notifications/worker.md), da #72, consome diretamente somente em Development, decifra o payload e usa adaptador local de e-mail; possui imagem Linux própria. A #85 já implementa proteção/persistência da origem; a #86 implementa publicação confirmada, e processamento durável/deduplicação permanece na #87. A infraestrutura da #93, por si só, não implementa essas garantias.
 
 ## Topologia e credenciais
 
@@ -53,7 +53,7 @@ Licença verificada em **25/10/2026** no `.nuspec` do pacote 7.2.2 e na [documen
 
 `RabbitConnectionFactory` habilita TLS fora de `localDevelopment`, com nome do servidor e validação padrão de certificado, sem relaxar erros. O Compose local usa AMQP sem TLS e gestão HTTP somente em loopback; outros ambientes precisam de listeners e certificados TLS provisionados pelo operador. A fábrica limita handshake/conexão a 5 s, continuação a 10 s, heartbeat a 15 s, até oito canais e um despacho de consumidor por vez. Recuperação de rede é automática a cada 5 s; recuperação de topologia fica desabilitada porque o runtime não a declara. Falha inicial de conexão ainda deve ser tratada pelo proprietário; a fábrica não implementa o loop do publicador/worker.
 
-Publisher confirms, `mandatory` e mensagens persistentes são usados nos testes do broker. O publicador real e seus limites de lotes, lease e retries são a #86. O consumidor inicial da #72 usa a fábrica, mas desativa a recuperação automática do cliente e reconstrói explicitamente conexão/assinatura a cada cinco segundos; não declara topologia e usa prefetch 1. Aceitação durável é a #87. Recuperar conexão não substitui recuperar progresso persistido nem garante exactly-once no provedor de e-mail.
+Publisher confirms, `mandatory` e mensagens persistentes são usados pelo publicador real da #86 e nos testes do broker; seus lotes, lease, retries e retomada estão na [nota da outbox](../identity/email-outbox.md#publicação-e-recuperação). O consumidor inicial da #72 usa a fábrica, mas desativa a recuperação automática do cliente e reconstrói explicitamente conexão/assinatura a cada cinco segundos; não declara topologia e usa prefetch 1. Aceitação durável é a #87. Recuperar conexão não substitui recuperar progresso persistido nem garante exactly-once no provedor de e-mail.
 
 ## Como verificar
 

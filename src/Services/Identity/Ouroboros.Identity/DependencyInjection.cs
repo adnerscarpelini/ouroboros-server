@@ -57,6 +57,11 @@ public static class DependencyInjection
         services.AddSingleton<IEmailIntentFactory>(provider => provider.GetRequiredService<ProtectedEmailIntentFactory>());
         services.AddHostedService<EmailIntentProtectionStartupCheck>();
         services.AddHostedService<EmailIntentMaintenance>();
+        services.AddSingleton<IValidateOptions<EmailPublisherOptions>, EmailPublisherOptionsValidator>();
+        services.AddOptions<EmailPublisherOptions>().BindConfiguration(EmailPublisherOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<EmailOutboxMetrics>();
+        services.AddScoped<EmailOutboxStore>();
+        services.AddHostedService<EmailOutboxPublisher>();
         AuthRateLimiting.Add(services);
 
         services.AddSingleton<IPasswordHasher, AspNetCorePasswordHasher>();

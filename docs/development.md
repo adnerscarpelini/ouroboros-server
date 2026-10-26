@@ -66,7 +66,7 @@ A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio de
 
 ## RabbitMQ local
 
-O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity ainda não publica nesta etapa. O worker da #72 tem consumo direto restrito a Development; o fluxo confiável depende das #85–#87. [Topologia, contratos e limites](architecture/messaging.md).
+O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbitmq:4.4.0-management`, hostname estável, vhost `ouroboros` e volume `rabbitmq-data`. Identity tem publicador da outbox habilitável explicitamente. O worker da #72 tem consumo direto restrito a Development; aceitação durável/deduplicação dependem da #87. [Topologia, contratos e limites](architecture/messaging.md).
 
 1. Se ainda não existe `.env`, copie `.env.example` uma vez, sem sobrescrever um arquivo existente. Troque as quatro senhas do broker por valores aleatórios **distintos**, de pelo menos 32 caracteres; placeholders `troque-` são recusados pelo provisionador. Use, por exemplo, quatro valores hexadecimais gerados pelo gerenciador de segredos. Hexadecimal evita diferenças de interpretação de `$`/aspas entre o Compose e o leitor literal de `-EnvFile`. Não imprima nem registre senhas em histórico, transcript ou argumentos.
 
@@ -480,7 +480,7 @@ Todo endpoint exige um access token válido da audiência do listener (`Authoriz
 
 ## Executar o worker de Notifications
 
-`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity grava intenções protegidas na outbox e ainda não publica no broker. [Comportamento e limites do worker](notifications/worker.md).
+`Ouroboros.Notifications.Worker` é um processo separado, sem API ou banco nesta etapa. O consumidor vem desligado. A entrega direta só pode ser habilitada em `Development`, com `PickupDirectory`; aceitação durável e deduplicação são a #87. Identity grava intenções protegidas na outbox e pode publicá-las quando o publicador estiver habilitado. [Comportamento e limites do worker](notifications/worker.md).
 
 ### Chaves de proteção de Notifications
 
@@ -579,6 +579,46 @@ Identity exige configuração de proteção de intenção, além do banco e da a
 
 Após a migração, solicitação de cadastro/reset grava token e envelope cifrado na mesma transação; não cria `.eml` em Identity. A manutenção marca vencidas e elimina o conteúdo sem depender do broker. Desabilitá-la com `Identity__EmailIntents__MaintenanceEnabled=false` é opção de ensaio, sem satisfazer a limpeza operacional exigida. Para arquivos gerenciados, configure também `BackupDirectory` e dê à conta da manutenção somente as permissões necessárias à remoção; ela não precisa receber a chave que decifra os backups.
 
+### Publicar e retomar a outbox de Identity
+
+A #86 executa o publicador como serviço hospedado isolado dentro de Identity. A migration `20261026025858_AddEmailPublicationLeases` precisa estar aplicada pela role de migration, conforme o [banco local](#banco-de-dados-local). O caso de uso HTTP continua gravando intenção local, sem esperar o broker. [Confirm, leases, retries e limites](identity/email-outbox.md#publicação-e-recuperação).
+
+| Opção em `Identity:EmailPublisher` | Padrão e limite |
+| --- | --- |
+| `Enabled` | `false`; habilitação explícita |
+| `Host` / `Port` | `localhost` / `5672`; fora de Development exige listener TLS e certificado válido |
+| `User` | `identity_publisher`, sem consumo ou configuração da topologia |
+| `Password` | Externa, no mínimo 32 caracteres; não usar credencial do operador |
+| `BatchSize` | `4`, permitido de 1 a 8; publicações sequenciais por ciclo |
+| `PollSeconds` | `2`, permitido de 1 a 30; espera entre ciclos |
+
+Para ensaio local, [inicie/provisione RabbitMQ](#rabbitmq-local), configure a [proteção da outbox](#configurar-a-outbox-de-identity) e aplique as migrations. As variáveis abaixo habilitam a publicação no processo de Identity sem gravar a senha em argumento ou histórico:
+
+```powershell
+$env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:Identity__EmailPublisher__Enabled = 'true'
+# Pode vir do gerenciador de segredos; use a senha da credencial identity_publisher.
+$env:Identity__EmailPublisher__Password = [Net.NetworkCredential]::new('', (Read-Host 'Senha de identity_publisher' -AsSecureString)).Password
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+`dotnet run` usa o perfil Development padrão. Fora do ambiente local, configure `Identity__EmailPublisher__Host`/`Port` para o listener TLS; não desabilite a validação do certificado. O processo não declara topologia: faça a correção pelo provisionador/operador. Para ver `.eml` em Development, inicie separadamente o [worker](#executar-o-worker-de-notifications) com as privadas de proteção necessárias. Esse consumidor ainda não tem inbox/deduplicação persistente; a #87 completa a responsabilidade durável. Após o ensaio, remova a senha da sessão se foi definida localmente: `Remove-Item Env:Identity__EmailPublisher__Password`.
+
+Broker parado/timeout gera retry com recursos limitados e preserva a intenção até o prazo. `basic.nack` por capacidade é transitório. Autenticação, certificado, permissão/topologia conhecida ou retorno por ausência do binding fixo suspendem a intenção com `last_failure_code=configuration-suspended`: **corrigir e reiniciar não retoma a linha automaticamente**. Corrija a causa, reinicie Identity se alterou opções/credenciais e execute a retomada explícita pela conexão autorizada do banco de Identity. Com autenticação libpq já configurada pelo operador, sem credenciais em argumentos:
+
+```powershell
+$messageId = [Guid]::Parse((Read-Host 'Id público da intenção suspensa')).ToString('D')
+psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file scripts/messaging/resume-email-publication.sql
+```
+
+O script retorna somente id, estado, tentativas e prazo. Só retoma `Pending` suspensa, ainda válida, com conteúdo protegido e sem lease; mantém id, tentativas e expiração. Se nenhuma linha for atualizada, não force estado nem recrie prazo: ela pode estar em processamento ou terminal. Expiradas/canceladas não são ressuscitadas. Envelope inválido/divergente termina em `Failed`, com descarte do conteúdo, e exige nova intenção de negócio após corrigir a causa. Nunca selecione o payload para investigar a retomada.
+
+O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas e retries, sem tags. Gauges refletem o último snapshot obtido pelo ciclo e só emitem após o primeiro; não há exporter/endpoint de métricas da #88. O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'
+```
+
 ### Backup protegido das intenções de e-mail
 
 O wrapper `scripts/messaging/protected-email-backup.ps1` protege um dump custom **já produzido** pelo operador, até 64 MiB. Não acessa o banco, não recebe sua connection string e não substitui a janela/validação do procedimento de transferência. Use diretório de backup novo/dedicado, fora do Git, com chave AES256 de **32 bytes externos** em outro diretório protegido. Essa chave e seu `KeyId` são próprios de backup, distintos de JWT, proteção RSA e HMAC de alias; gere/guarde pelo gerenciador de segredos, sem imprimir bytes ou usar valores em argumentos.
@@ -620,17 +660,17 @@ Backups antigos de `transfer-identity.sh` e seus CSVs de reconciliação não s�
 
 ## E-mails em desenvolvimento
 
-Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática das intenções de Identity ainda depende da #86, e a responsabilidade durável de Notifications depende da #87. Não leia ou registre o token da outbox para contornar essa etapa.
+Identity não possui mais provedor ou pickup local: suas solicitações gravam a [outbox protegida](identity/email-outbox.md). `Identity:Email` é recusada. O worker possui `Notifications:Email` e gera `.eml` somente ao receber um envelope protegido válido, conforme [execução do worker](#executar-o-worker-de-notifications). A publicação automática exige [habilitar o publicador](#publicar-e-retomar-a-outbox-de-identity); a responsabilidade durável de Notifications ainda depende da #87. Não leia ou registre o token da outbox para contornar essa etapa.
 
 ## Cadastrar um cliente e entrar
 
-O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. No estado desta entrega, o primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção; **não gera `.eml` nem entrega automaticamente o link**, pois o publicador é a #86.
+O contrato HTTP mantém as duas etapas: solicitar o cadastro e concluir com o token recebido pelo canal de comunicação. O primeiro comando confirma a resposta genérica e, para e-mail elegível, persiste token/intenção. O caso de uso HTTP não gera `.eml`: em Development, habilite [publicador](#publicar-e-retomar-a-outbox-de-identity) e [worker](#executar-o-worker-de-notifications) para receber o arquivo no pickup de Notifications. A aceitação durável continua pendente da #87.
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
 ```
 
-Resposta `202` tem sempre o mesmo corpo, com ou sem conta, e não garante entrega. Os exemplos da [conclusão de cadastro](identity/registration.md#concluir-o-cadastro) usam `<token do link>` como marcador de contrato; a validação ponta a ponta dessa conclusão está nos testes isolados, sem expor segredos por logs/consulta operacional. Depois de concluir com token válido, o cliente pode entrar pelo [login](identity/login.md#como-usar).
+Resposta `202` tem sempre o mesmo corpo, com ou sem conta, e não garante entrega. Os exemplos da [conclusão de cadastro](identity/registration.md#concluir-o-cadastro) usam `<token do link>` como marcador de contrato; em Development, obtenha-o somente no artefato entregue pelo pickup configurado de Notifications, sem expô-lo em logs ou consultar a outbox protegida. Depois de concluir com token válido, o cliente pode entrar pelo [login](identity/login.md#como-usar).
 
 ## Redefinir a senha em desenvolvimento
 
@@ -640,7 +680,7 @@ Com uma conta de cliente criada, solicite a redefinição pelo listener público
 Invoke-RestMethod -Method Post -Uri http://localhost:5141/api/v1/identity/password-resets -ContentType 'application/json' -Body '{"email":"cliente@example.com"}'
 ```
 
-A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Nesta entrega não há envio ou `.eml` automático. A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A entrega integrada depende das #86/#87.
+A resposta continua genérica `202`; para conta elegível, a intenção é atômica com o token, e a senha atual continua valendo. Com publicador/worker desabilitados, não há `.eml`; para o ensaio local, habilite os dois conforme [publicação](#publicar-e-retomar-a-outbox-de-identity) e [Notifications](#executar-o-worker-de-notifications). A [conclusão de reset](identity/password-reset.md#concluir-a-redefinição) mantém seu contrato com `<token do link>`; testes de integração obtêm o conteúdo usando somente chaves efêmeras de teste. Não há instrução de decifrar a outbox real para copiar o token. A publicação é confirmada na #86, mas a entrega com aceitação/deduplicação durável ainda depende da #87.
 
 ## Exemplos HTTP por funcionalidade
 

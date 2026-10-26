@@ -60,6 +60,16 @@ public sealed class PostgresFixture : IAsyncLifetime
     public Task DropDatabaseAsync(string name) =>
         ExecuteAsync($"""DROP DATABASE IF EXISTS "{name}" WITH (FORCE)""");
 
+    internal async Task ResumeEmailPublicationAsync(string database, Guid messageId)
+    {
+        if (!database.StartsWith("ouroboros_test_", StringComparison.Ordinal)) { throw new ArgumentException("Exige banco efêmero da fixture."); }
+        const string path = "/tmp/resume-email-publication.sql";
+        await _container.CopyAsync(await File.ReadAllBytesAsync(RepositoryRoot.Resolve("scripts", "messaging", "resume-email-publication.sql")), path);
+        var username = new NpgsqlConnectionStringBuilder(_container.GetConnectionString()).Username!;
+        var result = await _container.ExecAsync(["psql", "--username", username, "--dbname", database, "-v", "ON_ERROR_STOP=1", "-v", $"message_id={messageId:D}", "-f", path]);
+        Assert.True(result.ExitCode == 0, "Retomada explícita falhou no banco efêmero.");
+    }
+
     public string ConnectionStringFor(string database) =>
         new NpgsqlConnectionStringBuilder(_container.GetConnectionString()) { Database = database }.ConnectionString;
 

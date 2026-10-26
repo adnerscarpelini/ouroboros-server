@@ -16,6 +16,7 @@ internal sealed class EmailIntentConfiguration : IEntityTypeConfiguration<EmailI
         builder.Property(intent => intent.State).HasConversion<string>().HasMaxLength(24);
         builder.Property(intent => intent.SupersessionKey).HasMaxLength(128);
         builder.Property(intent => intent.ProtectionKeyId).HasMaxLength(128);
+        builder.Property(intent => intent.LastFailureCode).HasMaxLength(32);
         builder.Property(intent => intent.Traceparent).HasMaxLength(55);
         builder.Property(intent => intent.Tracestate).HasMaxLength(512);
         builder.HasIndex(intent => new { intent.SupersessionKey, intent.State }).IsUnique().HasFilter("state = 'Pending'");

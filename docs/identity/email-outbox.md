@@ -1,10 +1,10 @@
-# Intenção de e-mail transacional
+# Outbox de e-mail e publicação confirmada
 
 ## Comportamento disponível
 
-Na solicitação de cadastro ou redefinição de senha, Identity grava token e intenção protegida de e-mail na mesma transação local. A intenção fica em `identity.email_intents`, criada pela migration `20261026015350_AddEmailIntents`. A API não chama broker nem provedor de e-mail, e o adaptador local de envio foi retirado de Identity. Origem: [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85), sobre a [política da #79](../architecture/reliable-delivery.md).
+Na solicitação de cadastro ou redefinição de senha, Identity grava token e intenção protegida de e-mail na mesma transação local. A intenção fica em `identity.email_intents`, criada pela migration `20261026015350_AddEmailIntents`; a migration `20261026025858_AddEmailPublicationLeases` acrescenta progresso de publicação. O caso de uso HTTP não chama broker nem provedor, e o envio local foi retirado de Identity. Origens: [#85](https://github.com/adnerscarpelini/ouroboros-server/issues/85) e [#86](https://github.com/adnerscarpelini/ouroboros-server/issues/86), sobre a [política da #79](../architecture/reliable-delivery.md).
 
-Essa entrega torna a intenção recuperável após commit, inclusive se o processo encerrar. **Ainda não há publicador da outbox**: a #86 fará a passagem ao RabbitMQ. O worker da #72 existe, mas não recebe solicitações HTTP por esse caminho até a publicação; aceitação durável, deduplicação e retries persistidos de Notifications pertencem à #87. `202` não comprova persistência nem entrega e mantém o mesmo corpo contra enumeração.
+A intenção confirmada é recuperável após queda do processo. `EmailOutboxPublisher`, serviço hospedado isolado dentro de Identity, publica no RabbitMQ quando explicitamente habilitado; vem desabilitado por padrão. O worker da #72 pode receber essas mensagens em Development, mas aceitação durável, deduplicação e retries persistidos de Notifications continuam na #87. O fluxo confiável completo ainda não está concluído. `202` não comprova persistência nem entrega e mantém o mesmo corpo contra enumeração.
 
 ## Atomicidade e substituição
 
@@ -23,7 +23,7 @@ Falhas posteriores à validação de entrada, incluindo proteção ou gravação
 
 ## Conteúdo persistido e proteção
 
-Cada intenção possui `ExternalId` UUIDv7 estável, usado como `messageId` do envelope `notification.email.requested` v1. Guarda tipo/versão, origem do token, instantes, prazo absoluto, estado e campos de progresso. Tentativas e publicação estão reservadas à #86; nesta entrega, uma intenção criada começa `Pending`. `expiresAt` é o prazo do token, sem extensão por serialização; instantes do envelope respeitam a precisão de microssegundos persistida pelo PostgreSQL.
+Cada intenção possui `ExternalId` UUIDv7 estável, usado como `messageId` do envelope `notification.email.requested` v1 e nas propriedades AMQP. Guarda tipo/versão, origem do token, instantes, prazo absoluto, estado e progresso (`attempts`, lease, próxima tentativa, código sanitizado e `published_at`). Uma intenção criada começa `Pending`. `expiresAt` é o prazo do token, sem extensão por serialização; instantes do envelope respeitam a precisão de microssegundos persistida pelo PostgreSQL.
 
 O envelope segue os [limites da #93](../architecture/messaging.md#contrato-e-compatibilidade), com ids de correlação/causa e contexto W3C da requisição de origem. `correlationId` deriva do trace id; quando não há Activity W3C, a fábrica gera contexto opaco. Isso preserva a informação para a #88 e não implementa observabilidade distribuída por si só.
 
@@ -39,13 +39,33 @@ Identity exige caminhos externos absolutos em `Identity:EmailIntents:PublicKeyRi
 
 Para rotacionar RSA, gere outro par de Notifications com `keyId` novo, instale a privada no receptor e distribua o manifesto público atualizado à origem antes de ativar a nova entrada. Conserve capacidade de decifrar mensagens e backups ainda necessários pelo prazo aprovado; não remova a privada antiga enquanto houver conteúdo recuperável válido que dependa dela. Com backups de até 30 dias, a retenção da privada deve considerar essa janela e terminar quando não houver conteúdo necessário, sem conservação indefinida. Não reutilize a chave de assinatura JWT nem o segredo HMAC de substituição.
 
+## Publicação e recuperação
+
+O publicador usa o cliente/topologia da #93 e somente `identity_publisher`, sem declarar objetos. Cada ciclo reivindica lote limitado por uma única instrução `UPDATE` com `FOR UPDATE SKIP LOCKED`, em autocommit: incrementa a tentativa e persiste lease UUID por cinco minutos. Não há cursor de maior id, portanto um commit tardio continua elegível. Locks terminam antes de qualquer chamada ao broker; publicadores concorrentes não reivindicam a mesma lease válida.
+
+As publicações são sequenciais, com timeout de cinco segundos, até oito intenções por ciclo conforme configuração. Mantém no máximo uma conexão/canal ativos, reutilizados no lote e descartados ao fim; falha descarta os recursos antes de nova abertura. TLS é obrigatório fora de Development, com validação padrão de certificado. Revalida lease, prazo e cancelamento antes de publicar e condiciona conclusão/retry à identidade da lease; um executor antigo não conclui a reivindicação de outro. Não impede atomicamente um efeito externo já iniciado ao mesmo tempo que um cancelamento.
+
+Publicação é persistente, `mandatory`, com publisher confirms e tracking de `basic.return`/`basic.nack`. Só após confirm positivo, sem retorno, marca `Published`, preenche `published_at` e elimina envelope, chave de proteção, alias e contexto na mesma atualização local. Confirmação do broker não significa aceitação durável de Notifications nem envio de e-mail. Queda entre o confirm e o progresso local pode republicar **o mesmo id**, após recuperação da lease; não há promessa de publicação única ou exactly-once.
+
+| Resultado | Progresso local e retomada |
+| --- | --- |
+| Indisponibilidade transitória, timeout ou confirm desconhecido | Continua `Pending`, código sanitizado e próxima tentativa persistidos; backoff exponencial com jitter de 20%, teto de cinco minutos, somente até `expiresAt` |
+| `basic.nack`, incluindo pressão por capacidade | `Pending`, `broker-rejected`, retry transitório; nunca marca publicada |
+| Autenticação/TLS/permissão/topologia conhecida inválida ou retorno por rota fixa ausente | `Pending` com `configuration-suspended`; não há retry automático, mesmo depois de reparar ou reiniciar. Exige retomada SQL explícita |
+| Envelope armazenado inválido ou divergente dos metadados da intenção | `Failed` e conteúdo descartado; exige nova intenção de negócio após corrigir a causa |
+| Prazo vencido ou substituição | Não publica; limpeza/cancelamento descarta conteúdo e não ressuscita a intenção |
+
+Não descarta uma intenção válida apenas pela contagem de tentativas de publicação. Suspensas continuam pertencendo à unicidade `Pending`, podem ser substituídas normalmente e expiram pelo prazo original. [Configuração e retomada sem ler payload](../development.md#publicar-e-retomar-a-outbox-de-identity).
+
+`Ouroboros.Identity.Outbox` expõe instrumentos `outbox.backlog`, `outbox.oldest.age` (segundos), `outbox.publish.failures` e `outbox.publish.retries`, sem tags ou dados pessoais. Gauges só emitem depois de um snapshot e refletem o último ciclo bem-sucedido; backlog inclui pendentes válidas, inclusive suspensas. Não há exporter, endpoint de métricas ou pipeline OpenTelemetry nesta entrega: integração é a #88. A indisponibilidade do broker foi testada com publicador habilitado e login funcionando. Não existe endpoint readiness nesta base; sua validação pertence à #98 e não foi antecipada.
+
 ## Expiração, descarte e retenção
 
 `EmailIntentMaintenance` roda na inicialização e a cada **30 segundos** quando `MaintenanceEnabled=true`, padrão. Cada operação de banco seleciona lotes de até 100 registros:
 
 - Ao vencer uma intenção ainda com envelope, marca `Expired` e elimina envelope, `ProtectionKeyId`, alias e contexto W3C. A limpeza não depende de publicador ou de worker de envio.
 - Tombstones terminais sem payload (`Published`, `Cancelled`, `Expired`, `Failed`) são removidos depois de `expiresAt + 30 dias`; linhas pendentes não são purgadas por idade como se publicadas fossem.
-- Cancelamento já elimina o conteúdo na transação de substituição. O descarte na transação que confirma publicação será implementado na #86; o estado não deve ser antecipado antes do confirm.
+- Cancelamento elimina o conteúdo na transação de substituição; publicação confirmada e falha permanente também o eliminam na atualização terminal. Nunca antecipa `Published` antes do confirm. O publicador executa a mesma limpeza limitada em cada ciclo, além da manutenção periódica.
 
 O ciclo purga separadamente os backups cifrados gerenciados configurados em `BackupDirectory`, antes de acessar o banco; indisponibilidade de PostgreSQL não impede essa tentativa de limpeza. Configuração ausente não ativa purga de arquivos. Só aceita diretório marcado pelo wrapper, nomes e prazos reconhecidos, sem seguir diretório/arquivos como links. Não adota ou remove backups/CSVs legados. Falhas são sanitizadas e retomadas no ciclo seguinte. Limpeza é periódica, limitada e recuperável, não uma promessa de remoção instantânea.
 
@@ -59,9 +79,12 @@ A transferência de Identity inclui `email_intents` no resumo, linha de base e r
 
 ## Como verificar
 
+[`EmailOutboxPublisherTests`](../../tests/Ouroboros.IntegrationTests/EmailOutboxPublisherTests.cs), com PostgreSQL/RabbitMQ reais, cobre confirm e descarte, queda antes do progresso local com id estável, concorrência/leases/fencing, lotes, expiração/retenção, indisponibilidade com login, retorno/nack reais, suspensão e retomada SQL, além das métricas sem tags.
+
 [`EmailIntentTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentTests.cs) exercita PostgreSQL real: commit/rollback, interrupção após commit, substituição e concorrência, ausência de envio e contexto W3C. [`EmailIntentProtectionTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentProtectionTests.cs) cobre rotação com privadas retidas, alias estável, adulteração e recusa de chave JWT/material privado na origem. [`EmailIntentMaintenanceTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentMaintenanceTests.cs) verifica a limpeza de backups gerenciados quando a manutenção SQL falha. [`IdentityDatabaseTransferSchemaTests`](../../tests/Ouroboros.IntegrationTests/IdentityDatabaseTransferSchemaTests.cs) cobre a recusa de retorno com migrations divergentes. Testes não dependem de chaves ou bancos locais.
 
 ```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailIntentTests'
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailIntentProtectionTests'
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailIntentMaintenanceTests'

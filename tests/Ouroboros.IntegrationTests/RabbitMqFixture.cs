@@ -121,6 +121,9 @@ public sealed class RabbitMqFixture : IAsyncLifetime
         await _container.StartAsync();
     }
 
+    internal Task StopAsync() => _container.StopAsync();
+    internal Task StartAsync() => _container.StartAsync();
+
     public async ValueTask DisposeAsync()
     {
         await _container.DisposeAsync();

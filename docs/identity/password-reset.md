@@ -26,7 +26,7 @@ As rotas existem só no listener público (o administrativo as trata como rota i
 
 - O banco local com as migrations de Identity aplicadas ([Desenvolvimento](../development.md#banco-de-dados-local)): a tabela dos tokens é `identity.email_tokens`, criada por `AddEmailTokens`, e `OwnIdentityParameters` cria ou copia os parâmetros e histórico para Identity. Para banco legado, siga o [procedimento de transferência](parameters.md#upgrade-de-banco-existente) antes de ativar a versão nova.
 - Uma conta de cliente ativa. Em desenvolvimento, crie uma pelo [cadastro](registration.md#fluxo-completo-em-desenvolvimento).
-- A migration `AddEmailIntents` e a [proteção da outbox](email-outbox.md) configuradas. A API persiste intenção junto do token e não gera `.eml`; publicação é a #86 e processamento durável é a #87.
+- As migrations `AddEmailIntents`/`AddEmailPublicationLeases` e a [proteção da outbox](email-outbox.md) configuradas. A solicitação persiste token/intenção; publicação exige habilitar o publicador da #86 e processamento durável é a #87.
 
 ## Configuração
 
@@ -43,7 +43,7 @@ Os limites de requisições por IP ficam em `Identity:RateLimiting:Policies` ([L
 
 ## Fluxo completo em desenvolvimento
 
-O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com a solicitação disponível e o limite atual de entrega: a publicação da intenção ainda depende da #86.
+O [guia de desenvolvimento](../development.md#redefinir-a-senha-em-desenvolvimento) contém o fluxo executável, com solicitação e configuração separada de publicador/worker para ensaio local; a responsabilidade durável de Notifications ainda é a #87.
 
 ## Solicitar a redefinição
 
@@ -71,7 +71,7 @@ A resposta é **sempre a mesma**, com ou sem conta para o e-mail e mesmo que pro
 http://localhost:3000/senha/redefinir?token=<token>
 ```
 
-A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. A API não gera `.eml`; a entrega automática depende das #86/#87 ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
+A mensagem informa a validade em minutos, que o link só pode ser usado uma vez e que a senha atual continua valendo até a redefinição ser concluída. A API não gera `.eml`; a entrega exige publicador/worker configurados, com responsabilidade durável ainda pendente da #87 ([Fluxo completo em desenvolvimento](#fluxo-completo-em-desenvolvimento)).
 
 ### E-mail inválido (400)
 
@@ -104,7 +104,7 @@ Parâmetro ausente ou com validade fora de 1 a 1440 faz toda solicitação respo
    Por isso sobra sempre um único token de redefinição pendente por conta, mesmo com solicitações simultâneas. Tokens de cadastro não são afetados: os dois tipos são independentes. A solicitação não espera o lock do usuário mantido por um login ou por uma conclusão em andamento ([Ordem dos locks](../architecture/identity.md#por-que-for-no-key-update)).
 5. **Token de uso único, gravado só como hash.** O token tem 32 bytes aleatórios em Base64Url, gerados pelo `OpaqueTokens`, o mesmo do cadastro e do refresh token; `identity.email_tokens` guarda seu SHA-256, enquanto a intenção guarda o link cifrado ([Persistência](#persistência)).
 6. **O link vai para o e-mail da conta.** O destinatário é o e-mail gravado no usuário, nunca o texto recebido na requisição.
-7. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A API não chama broker ou provedor. A publicação recuperável pertence à #86 ([Outbox](email-outbox.md)).
+7. **Intenção no mesmo commit.** O link é composto e cifrado antes da transação; token e intenção confirmam juntos. A solicitação HTTP não espera broker ou provedor. O serviço hospedado da #86 faz a publicação recuperável ([Outbox](email-outbox.md)).
 8. **Falha de proteção/gravação não muda a resposta genérica.** A solicitação continua `202` e registra somente `Falha ao registrar intenção de e-mail; nenhum sucesso de entrega é inferido.`, sem conteúdo ou detalhes da exceção. Rollback não deixa uma intenção nova publicável; o estado anterior permanece. Cancelamento da requisição continua sendo cancelamento.
 9. **O token nunca sai por outro caminho.** Não aparece na resposta nem nos logs, em nenhum nível.
 10. **A senha atual continua valendo.** A solicitação não altera o hash da senha, não bloqueia a conta nem encerra sessões.
@@ -230,7 +230,7 @@ Os dois parâmetros e seu histórico pertencem a Identity desde `OwnIdentityPara
 - **Invalidação por terceiros.** Como cada solicitação revoga o link pendente, alguém que conheça o e-mail pode invalidar o link de outra pessoa ao solicitar de novo, limitado pela política de 5 por minuto por IP. A senha atual continua valendo.
 - **Access tokens sobrevivem à redefinição.** Os refresh tokens são revogados, mas um access token emitido antes vale até expirar (15 minutos), porque a validação do JWT não consulta a sessão ([Fazer login](login.md#limitações)).
 - **Sem recuperação para administradores** (veja [Contas de backoffice](#contas-de-backoffice)).
-- **Publicação ainda pendente.** A intenção confirmada é recuperável e protegida, mas não há entrega automática até a #86; o processamento durável/deduplicação de Notifications é a #87 ([Outbox](email-outbox.md)).
+- **Entrega confiável parcial.** O publicador vem desabilitado por padrão; quando habilitado, publica com confirmação e recuperação. Aceitação durável/deduplicação de Notifications ainda é a #87 ([Outbox](email-outbox.md)).
 - **Sem provedor externo de e-mail.** A origem não envia diretamente em nenhum ambiente; o adaptador local de Notifications só funciona em Development.
 - **Sem aviso de "senha alterada"** por e-mail.
 - **Sem front-end.** O link aponta para `http://localhost:3000/senha/redefinir`, que não faz parte deste repositório.

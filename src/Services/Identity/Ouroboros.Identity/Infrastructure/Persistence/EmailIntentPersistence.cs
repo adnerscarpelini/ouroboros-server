@@ -13,7 +13,9 @@ internal static class EmailIntentPersistence
             .ExecuteUpdateAsync(update => update.SetProperty(intent => intent.State, EmailIntentState.Cancelled)
                 .SetProperty(intent => intent.ProtectedEnvelope, (byte[]?)null).SetProperty(intent => intent.ProtectionKeyId, (string?)null)
                 .SetProperty(intent => intent.SupersessionKey, (string?)null).SetProperty(intent => intent.Traceparent, (string?)null)
-                .SetProperty(intent => intent.Tracestate, (string?)null).SetProperty(intent => intent.UpdatedAt, now), cancellationToken);
+                .SetProperty(intent => intent.Tracestate, (string?)null).SetProperty(intent => intent.UpdatedAt, now)
+                .SetProperty(intent => intent.LeaseId, (Guid?)null).SetProperty(intent => intent.LeaseUntil, (DateTimeOffset?)null)
+                .SetProperty(intent => intent.NextAttemptAt, (DateTimeOffset?)null).SetProperty(intent => intent.LastFailureCode, (string?)null), cancellationToken);
     }
 
     internal static async Task MaintainAsync(IdentityDbContext context, DateTimeOffset now, CancellationToken cancellationToken)
@@ -24,7 +26,9 @@ internal static class EmailIntentPersistence
             .ExecuteUpdateAsync(update => update.SetProperty(intent => intent.State, EmailIntentState.Expired)
                 .SetProperty(intent => intent.ProtectedEnvelope, (byte[]?)null).SetProperty(intent => intent.ProtectionKeyId, (string?)null)
                 .SetProperty(intent => intent.SupersessionKey, (string?)null).SetProperty(intent => intent.Traceparent, (string?)null)
-                .SetProperty(intent => intent.Tracestate, (string?)null).SetProperty(intent => intent.UpdatedAt, now), cancellationToken);
+                .SetProperty(intent => intent.Tracestate, (string?)null).SetProperty(intent => intent.UpdatedAt, now)
+                .SetProperty(intent => intent.LeaseId, (Guid?)null).SetProperty(intent => intent.LeaseUntil, (DateTimeOffset?)null)
+                .SetProperty(intent => intent.NextAttemptAt, (DateTimeOffset?)null).SetProperty(intent => intent.LastFailureCode, (string?)null), cancellationToken);
         var cutoff = now.AddDays(-30);
         var removable = await context.EmailIntents.AsNoTracking().Where(intent => intent.ExpiresAt < cutoff && intent.ProtectedEnvelope == null
                 && (intent.State == EmailIntentState.Published || intent.State == EmailIntentState.Cancelled || intent.State == EmailIntentState.Expired || intent.State == EmailIntentState.Failed))

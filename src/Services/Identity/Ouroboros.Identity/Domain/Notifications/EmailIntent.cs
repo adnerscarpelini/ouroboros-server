@@ -29,6 +29,10 @@ internal sealed class EmailIntent : Entity
     public int Attempts { get; private set; }
     public DateTimeOffset? PublishedAt { get; private set; }
     public Guid SourceTokenId { get; private set; }
+    public Guid? LeaseId { get; private set; }
+    public DateTimeOffset? LeaseUntil { get; private set; }
+    public DateTimeOffset? NextAttemptAt { get; private set; }
+    public string? LastFailureCode { get; private set; }
 
     public static EmailIntent Create(DateTimeOffset now, DateTimeOffset expiresAt, string supersessionKey, string? traceparent, string? tracestate) =>
         new(now, expiresAt, supersessionKey, traceparent, tracestate);

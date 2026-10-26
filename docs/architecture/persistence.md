@@ -67,7 +67,7 @@ A troca de uma para a outra é ação do operador, liberada pelo `cutover` da tr
 
 Transações locais protegem parâmetro e histórico, senha e sessões, estado e outbox. Não usar transação distribuída.
 
-Identity inclui `email_intents` desde `20261026015350_AddEmailIntents`: token/intenção e cancelamento de substituídas confirmam juntos, no mesmo contexto e banco. Expiração elimina conteúdo protegido e dados de associação; tombstones terminais sem payload são purgados após o prazo absoluto + 30 dias, em lotes limitados. Publicação confirmada ainda é a #86. [Outbox e retenção](../identity/email-outbox.md).
+Identity inclui `email_intents` desde `20261026015350_AddEmailIntents`: token/intenção e cancelamento de substituídas confirmam juntos, no mesmo contexto e banco. Expiração elimina conteúdo protegido e dados de associação; tombstones terminais sem payload são purgados após o prazo absoluto + 30 dias, em lotes limitados. A #86 acrescenta a migration `AddEmailPublicationLeases`, com reivindicação autocommit/lease e confirmação local condicionada ao proprietário; conteúdo é descartado somente após confirm positivo ou estado terminal. [Outbox e retenção](../identity/email-outbox.md).
 
 ### Backups com intenções de e-mail
 

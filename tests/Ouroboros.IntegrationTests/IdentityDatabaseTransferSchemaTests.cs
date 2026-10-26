@@ -15,7 +15,7 @@ public sealed partial class IdentityDatabaseTransferTests
         // Reproduz a origem anterior à #85 apenas nos bancos desta fixture.
         await Instance.ExecuteAdminAsync(scenario.Source, """
             DROP TABLE identity.email_intents;
-            DELETE FROM identity."__EFMigrationsHistory" WHERE "MigrationId" = '20261026015350_AddEmailIntents';
+            DELETE FROM identity."__EFMigrationsHistory" WHERE "MigrationId" >= '20261026015350_AddEmailIntents';
             """);
         var transfer = await scenario.CutOverAsync();
         await using (var target = new IntegrationApiFactory(Instance.ConnectionStringFor(
