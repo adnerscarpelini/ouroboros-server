@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,8 @@ internal sealed partial class EmailOutboxPublisher(IServiceScopeFactory scopes, 
         await using var publisher = new ConfirmedEmailPublisher(options, environment);
         foreach (var intent in batch)
         {
+            // Os logs da publicação continuam o trace da requisição que gravou a intenção.
+            using var activity = MessageTracing.Start(OutboxTelemetry.Source, "outbox.publish", ActivityKind.Producer, intent.Traceparent, intent.Tracestate);
             if (!await store.IsOwnedAsync(intent.Id, lease, clock.GetUtcNow(), cancellationToken)) { continue; }
             if (intent.ExpiresAt <= clock.GetUtcNow() || intent.LeaseUntil <= clock.GetUtcNow().AddSeconds(10)) { continue; }
             if (intent.Attempts > 1) { metrics.Retry(); }

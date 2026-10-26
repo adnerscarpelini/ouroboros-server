@@ -110,9 +110,9 @@ https://github.com/adnerscarpelini/ouroboros-server/blob/main/docs/errors/<modul
 
 ## Correlação com logs
 
-O `traceId` do corpo é o id W3C completo da requisição, no formato `00-<trace-id>-<span-id>-<flags>`. O escopo de log da requisição traz `TraceId` (32 caracteres hexadecimais) e `SpanId`, que correspondem ao segundo e ao terceiro segmentos do `traceId`. Para achar os logs de uma resposta de erro, busque pelo `<trace-id>`.
+O `traceId` do corpo é o id W3C completo da requisição, no formato `00-<trace-id>-<span-id>-<flags>`. Cada linha JSON do console da API traz os campos `traceId` (32 caracteres hexadecimais) e `spanId` (16), que correspondem ao segundo e ao terceiro segmentos do `traceId` do corpo. Para achar os logs de uma resposta de erro, filtre as linhas pelo `<trace-id>` ([comando](../development.md#logs-dos-executáveis)).
 
-A formatação dos logs com os scopes visíveis no console fica com a [#28](https://github.com/adnerscarpelini/ouroboros-server/issues/28).
+Com um `traceparent` válido na requisição, o `<trace-id>` é o recebido e o `<span-id>` é o span novo da requisição; sem ele ou com valor inválido, o host gera um trace novo. O contrato do `traceId` não muda: a decisão, o formato dos logs e a propagação para as mensagens estão em [Correlação por W3C Trace Context](trace-correlation.md).
 
 ## Comportamento em Development
 
@@ -131,11 +131,14 @@ O handler explícito trata a exceção antes da página de exceção do desenvol
 - `409` com o `type` documentado e `traceId`;
 - `404` de versão inexistente em ProblemDetails, com `traceId`.
 
+[`TraceCorrelationTests`](../../tests/Ouroboros.ArchitectureTests/TraceCorrelationTests.cs) verifica a correspondência entre o `traceId` do ProblemDetails e os campos `traceId`/`spanId` dos logs, com e sem `traceparent` e com contexto inválido ([cenários](trace-correlation.md#como-verificar)).
+
 O comando para executar esses testes está no [guia de desenvolvimento](../development.md#testes).
 
 ## Issues relacionadas
 
 - [#4](https://github.com/adnerscarpelini/ouroboros-server/issues/4): decisão e implementação.
+- [#28](https://github.com/adnerscarpelini/ouroboros-server/issues/28): correspondência entre o `traceId` e os campos `traceId`/`spanId` dos logs JSON.
 - [#9](https://github.com/adnerscarpelini/ouroboros-server/issues/9): `401` e `403` da autenticação e da autorização.
 - [#47](https://github.com/adnerscarpelini/ouroboros-server/issues/47): tradução das falhas de negócio nos controllers das APIs.
 - [#12](https://github.com/adnerscarpelini/ouroboros-server/issues/12): falha de negócio do login, `invalid-credentials`.

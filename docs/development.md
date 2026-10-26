@@ -11,7 +11,7 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e `Ouroboros.Messaging` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
 Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
@@ -477,6 +477,28 @@ Os user-secrets (connection string e caminho do manifesto de assinatura) só sã
 ### Endpoints e limites
 
 Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+
+## Logs dos executáveis
+
+A API de Identity e o worker de Notifications escrevem os logs somente no console (stdout), uma linha JSON por entrada, também no Windows: não há Windows Event Log nem saída de Debug. Cada linha traz `timestamp` (UTC), `level`, `category`, `eventId`, `service` (`identity` ou `notifications`), `serviceVersion`, `traceId` e `spanId` (quando há uma atividade W3C corrente), `message`, `attributes` e, se houver, `exception`. Campos, exemplos e limites em [Correlação por W3C Trace Context](architecture/trace-correlation.md#formato-do-console). Os níveis seguem `Logging:LogLevel` do `appsettings.json` de cada executável.
+
+Para achar os logs de uma resposta de erro, pegue o segundo segmento do `traceId` do ProblemDetails (`00-<trace-id>-<span-id>-<flags>`) e filtre as linhas por ele. Por exemplo, guardando a saída da API em `.local/` (ignorada pelo Git):
+
+```powershell
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api | Tee-Object -FilePath .local/identity.log
+# Em outro terminal, com o <trace-id> da resposta:
+Select-String -Path .local/identity.log -SimpleMatch '"traceId":"<trace-id>"'
+```
+
+O mesmo filtro vale para a saída do worker: a publicação da outbox e o processamento no worker de uma solicitação continuam o trace da requisição. Para que uma chamada continue um trace do cliente, envie um `traceparent` W3C válido (por exemplo, `-Headers @{ traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }` no `Invoke-RestMethod`); valor inválido é descartado e o host gera um trace novo. Os logs podem conter identificadores e detalhes de exceções: não os copie para issues ou para o repositório e apague os arquivos locais depois da investigação.
+
+Testes da correlação, sem Docker:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class '*TraceCorrelationTests'
+```
+
+Os cenários com publicação real e processo do worker ficam em `EmailOutboxPublisherTests` e `NotificationsWorkerTests` (exigem Docker), com os comandos de [outbox](#publicar-e-retomar-a-outbox-de-identity) e de [imagem do worker](#imagem-linux-de-notifications).
 
 ## Executar o worker de Notifications
 

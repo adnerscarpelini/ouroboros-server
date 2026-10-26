@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -33,9 +34,12 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         var row = (await store.ClaimAsync(lease, clock.GetUtcNow(), cancellationToken)).SingleOrDefault();
         if (row is null) { return; }
         var attempt = row.Attempts + 1;
+        var decoded = EnvelopeCodec.TryDecode(row.ProtectedEnvelope!, "notification.email.requested", 1, "identity", out var message, out _);
+        // Cada tentativa de entrega continua o trace da origem gravado no envelope aceito.
+        using var activity = MessageTracing.Start(NotificationsTelemetry.Source, "inbox.deliver", ActivityKind.Consumer, decoded ? message : null);
         try
         {
-            if (!EnvelopeCodec.TryDecode(row.ProtectedEnvelope!, "notification.email.requested", 1, "identity", out var message, out _))
+            if (!decoded)
             {
                 await store.FailAttemptAsync(row.MessageId, lease, "invalid-contract", clock.GetUtcNow(), clock.GetUtcNow(), cancellationToken);
                 return;

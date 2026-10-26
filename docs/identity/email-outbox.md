@@ -25,7 +25,7 @@ Falhas posteriores à validação de entrada, incluindo proteção ou gravação
 
 Cada intenção possui `ExternalId` UUIDv7 estável, usado como `messageId` do envelope `notification.email.requested` v1 e nas propriedades AMQP. Guarda tipo/versão, origem do token, instantes, prazo absoluto, estado e progresso (`attempts`, lease, próxima tentativa, código sanitizado e `published_at`). Uma intenção criada começa `Pending`. `expiresAt` é o prazo do token, sem extensão por serialização; instantes do envelope respeitam a precisão de microssegundos persistida pelo PostgreSQL.
 
-O envelope segue os [limites da #93](../architecture/messaging.md#contrato-e-compatibilidade), com ids de correlação/causa e contexto W3C da requisição de origem. `correlationId` deriva do trace id; quando não há Activity W3C, a fábrica gera contexto opaco. Isso preserva a informação para a #88 e não implementa observabilidade distribuída por si só.
+O envelope segue os [limites da #93](../architecture/messaging.md#contrato-e-compatibilidade), com ids de correlação/causa e contexto W3C da requisição de origem. `correlationId` deriva do trace id; quando não há Activity W3C, a fábrica gera contexto opaco. O publicador continua esse contexto nos logs de cada publicação e o worker, na aceitação e na entrega ([correlação](../architecture/trace-correlation.md#propagação-por-mensagens)); nenhum dos dois é usado como identidade da mensagem. Exporter e spans exportados são da #88.
 
 Destinatário, assunto, texto e link/token bruto existem **somente dentro do payload cifrado** na outbox. A tabela de tokens mantém seu hash como antes; persistir o link protegido não significa gravá-lo em claro. Não há coluna de destinatário em `email_intents`.
 
@@ -79,7 +79,7 @@ A transferência de Identity inclui `email_intents` no resumo, linha de base e r
 
 ## Como verificar
 
-[`EmailOutboxPublisherTests`](../../tests/Ouroboros.IntegrationTests/EmailOutboxPublisherTests.cs), com PostgreSQL/RabbitMQ reais, cobre confirm e descarte, queda antes do progresso local com id estável, concorrência/leases/fencing, lotes, expiração/retenção, indisponibilidade com login, retorno/nack reais, suspensão e retomada SQL, além das métricas sem tags.
+[`EmailOutboxPublisherTests`](../../tests/Ouroboros.IntegrationTests/EmailOutboxPublisherTests.cs), com PostgreSQL/RabbitMQ reais, cobre confirm e descarte, queda antes do progresso local com id estável, concorrência/leases/fencing, lotes, expiração/retenção, indisponibilidade com login, retorno/nack reais, suspensão e retomada SQL, além das métricas sem tags e dos logs da publicação no trace da requisição de origem, com `MessageId` distintos para requisições do mesmo trace.
 
 [`EmailIntentTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentTests.cs) exercita PostgreSQL real: commit/rollback, interrupção após commit, substituição e concorrência, ausência de envio e contexto W3C. [`EmailIntentProtectionTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentProtectionTests.cs) cobre rotação com privadas retidas, alias estável, adulteração e recusa de chave JWT/material privado na origem. [`EmailIntentMaintenanceTests`](../../tests/Ouroboros.IntegrationTests/EmailIntentMaintenanceTests.cs) verifica a limpeza de backups gerenciados quando a manutenção SQL falha. [`IdentityDatabaseTransferSchemaTests`](../../tests/Ouroboros.IntegrationTests/IdentityDatabaseTransferSchemaTests.cs) cobre a recusa de retorno com migrations divergentes. Testes não dependem de chaves ou bancos locais.
 

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Ouroboros.ArchitectureTests;
 
-// Guarda os logs emitidos pelo host junto com o TraceId do escopo da requisição, para comparar
+// Guarda os logs emitidos pelo host junto com o TraceId e o SpanId do escopo da requisição, para comparar
 // com o traceId devolvido no ProblemDetails.
 internal sealed class CapturingLoggerProvider : ILoggerProvider, ISupportExternalScope
 {
@@ -19,9 +19,9 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider, ISupportExterna
     {
     }
 
-    private string? CurrentTraceId()
+    private string? CurrentScopeValue(string name)
     {
-        string? traceId = null;
+        string? found = null;
         _scopes.ForEachScope(
             (scope, _) =>
             {
@@ -29,15 +29,15 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider, ISupportExterna
                 {
                     foreach (var (key, value) in values)
                     {
-                        if (key == "TraceId")
+                        if (key == name)
                         {
-                            traceId = value?.ToString();
+                            found = value?.ToString();
                         }
                     }
                 }
             },
             (object?)null);
-        return traceId;
+        return found;
     }
 
     private sealed class CapturingLogger(CapturingLoggerProvider provider, string category) : ILogger
@@ -53,8 +53,9 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider, ISupportExterna
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter) =>
-            provider.Entries.Enqueue(new CapturedLog(category, logLevel, formatter(state, exception), exception, provider.CurrentTraceId()));
+            provider.Entries.Enqueue(new CapturedLog(category, logLevel, formatter(state, exception), exception,
+                provider.CurrentScopeValue("TraceId"), provider.CurrentScopeValue("SpanId")));
     }
 }
 
-internal sealed record CapturedLog(string Category, LogLevel Level, string Message, Exception? Exception, string? TraceId);
+internal sealed record CapturedLog(string Category, LogLevel Level, string Message, Exception? Exception, string? TraceId, string? SpanId = null);

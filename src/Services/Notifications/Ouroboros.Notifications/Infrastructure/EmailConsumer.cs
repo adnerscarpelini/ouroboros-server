@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,9 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
         consumer.ReceivedAsync += async (_, delivery) =>
         {
             Guid? id = null;
+            // O envelope válido traz o contexto W3C da origem; inválido, a aceitação ocorre em um trace novo.
+            EnvelopeCodec.TryDecode(delivery.Body, "notification.email.requested", 1, "identity", out var envelope, out string _);
+            using var activity = MessageTracing.Start(NotificationsTelemetry.Source, "inbox.accept", ActivityKind.Consumer, envelope);
             try
             {
                 id = Guid.TryParse(delivery.BasicProperties.MessageId, out var parsed) ? parsed : null;

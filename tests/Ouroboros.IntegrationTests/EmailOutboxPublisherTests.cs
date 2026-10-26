@@ -204,6 +204,45 @@ public sealed class EmailOutboxPublisherTests(PostgresFixture postgres, RabbitMq
     }
 
     [Fact]
+    public async Task Publication_logs_continue_the_request_trace_without_using_it_as_message_identity()
+    {
+        const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        await PurgeAsync();
+        foreach (var email in new[] { "first-trace@example.com", "second-trace@example.com" })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/identity/registrations") { Content = JsonContent.Create(new { Email = email }) };
+            request.Headers.Add("traceparent", $"00-{TraceId}-00f067aa0ba902b7-01");
+            using var response = await Client.SendAsync(request, Cancellation);
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+        using var metrics = new EmailOutboxMetrics();
+        var logs = new TraceCapturingLogger<EmailOutboxPublisher>();
+        using var unavailable = new EmailOutboxPublisher(Api.Services.GetRequiredService<IServiceScopeFactory>(), Options.Create(Settings(port: 1)),
+            new DevelopmentEnvironment(), TimeProvider.System, metrics, logs);
+        await unavailable.RunOnceAsync(Cancellation);
+
+        var failures = logs.Entries.Where(entry => entry.Message.Contains("não confirmada", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(2, failures.Length);
+        Assert.All(failures, entry => Assert.Equal(TraceId, entry.TraceId));
+        Assert.NotEqual(failures[0].SpanId, failures[1].SpanId);
+        await ExecuteAsync("UPDATE identity.email_intents SET next_attempt_at=NULL");
+        using var publisher = Publisher(metrics);
+        await publisher.RunOnceAsync(Cancellation);
+        await using var connection = await broker.ConnectAsync();
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: Cancellation);
+        var identities = new HashSet<Guid>();
+        for (var index = 0; index < 2; index++)
+        {
+            var delivery = await channel.BasicGetAsync(RabbitMqFixture.Queue, true, Cancellation);
+            Assert.NotNull(delivery);
+            Assert.True(EnvelopeCodec.TryDecode(delivery.Body, "notification.email.requested", 1, "identity", out var message, out _));
+            Assert.True(System.Diagnostics.ActivityContext.TryParse(message!.Traceparent, message.Tracestate, out var context));
+            Assert.Equal(TraceId, context.TraceId.ToHexString());
+            Assert.True(identities.Add(message.MessageId));
+        }
+    }
+
+    [Fact]
     public async Task Confirmed_publication_discards_secret_and_preserves_id_in_broker_properties_and_envelope()
     {
         await PurgeAsync();

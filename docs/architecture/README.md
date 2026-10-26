@@ -19,6 +19,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Testes de integração](integration-tests.md).
 - [Versionamento HTTP](api-versioning.md).
 - [ProblemDetails](error-responses.md).
+- [Correlação por W3C Trace Context e logs estruturados](trace-correlation.md): `traceparent` em HTTP e no envelope das mensagens, console JSON com `traceId`/`spanId` e correspondência com o `traceId` do ProblemDetails.
 - [Identificadores, datas e nomes](entity-conventions.md).
 - [Política de senha](password-policy.md).
 - [Rate limiting de autenticação](../identity/auth-rate-limiting.md).
