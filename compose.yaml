@@ -169,6 +169,8 @@ services:
       Identity__EmailPublisher__Port: "5672"
       Identity__EmailPublisher__User: "identity_publisher"
       Identity__EmailPublisher__Password: ${IDENTITY_BROKER_PASSWORD:?defina IDENTITY_BROKER_PASSWORD no .env}
+      Identity__ForwardedHeaders__KnownProxies__0: "127.0.0.1"
+      Identity__ForwardedHeaders__KnownNetworks__0: ${IDENTITY_KNOWN_PROXY_NETWORK:-172.16.0.0/12}
       Observability__Otlp__Endpoint: "http://otel-collector:4318/"
     ports:
       - "127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141"
@@ -221,6 +223,67 @@ services:
       - ${NOTIFICATIONS_KEYS_DIR:?defina NOTIFICATIONS_KEYS_DIR no .env}:/run/ouroboros-keys/notifications:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5143/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Gateway externo (#83): encaminha somente /api/v1/identity/* ao listener público do Identity, sem DbContext
+  # nem regras de negócio. Opcional via profile `gateways` para não bloquear o acesso direto às APIs:
+  #   docker compose --profile gateways up -d
+  external-gateway:
+    image: ouroboros-external-gateway-api:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    profiles: ["gateways"]
+    restart: unless-stopped
+    depends_on:
+      identity-api:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      Gateway__Urls__0: "http://0.0.0.0:5151"
+      Gateway__AllowNonLoopback: "true"
+      Gateway__Downstream__IdentityBaseUrl: "http://identity-api:5141"
+      Gateway__Downstream__Timeout: "00:00:05"
+      Observability__Otlp__Endpoint: "http://otel-collector:4318/"
+    ports:
+      - "127.0.0.1:${EXTERNAL_GATEWAY_PORT:-5151}:5151"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5151/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Gateway administrativo (#83): encaminha somente /api/v1/admin/identity/* ao listener administrativo do Identity.
+  # Isolado em loopback no host (127.0.0.1:5152) e sem acesso a bancos de dados ou mensageria.
+  admin-gateway:
+    image: ouroboros-admin-gateway-api:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    profiles: ["gateways"]
+    restart: unless-stopped
+    depends_on:
+      identity-api:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      Gateway__Urls__0: "http://127.0.0.1:5152"
+      Gateway__AllowNonLoopback: "false"
+      Gateway__Downstream__IdentityBaseUrl: "http://127.0.0.1:5142"
+      Gateway__Downstream__Timeout: "00:00:05"
+      Observability__Otlp__Endpoint: "http://otel-collector:4318/"
+    ports:
+      - "127.0.0.1:${ADMIN_GATEWAY_PORT:-5152}:5152"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5152/health/live"]
       interval: 5s
       timeout: 5s
       retries: 10

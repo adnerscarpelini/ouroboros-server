@@ -11,9 +11,9 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services`, `src/Services/Identity` e `src/Gateways` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; os gateways finos `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` ficam em `src/Gateways/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity diretamente (um processo, com os listeners público e administrativo), ou inicie também `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` quando quiser exercitar o encaminhamento de borda ([Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo)). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -22,6 +22,8 @@ dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
 dotnet build src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj
 dotnet build src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj
+dotnet build src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj
+dotnet build src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj
 ```
 
 ## Testes
@@ -46,6 +48,8 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - [`HealthAndContainerArchitectureTests`](../tests/Ouroboros.ArchitectureTests/HealthAndContainerArchitectureTests.cs), nos testes de arquitetura e sem Docker, verifica que `/health/live`, `/health/ready` e `/health` são anônimos e nunca expõem segredos, connection strings ou mensagens de exceção, que os Dockerfiles usam `APP_VERSION`, `SOURCE_REVISION`, usuário não-root (`$APP_UID`) e contextos isolados por serviço, que o `compose.yaml` mantém o listener administrativo (`5142`) não publicado no host e migrations no profile explícito `migrate`, que a CI constrói as duas imagens versionadas e que nenhum comando documentado em `docs/`, `scripts/` ou `compose.yaml` remove volumes do Docker.
 - [`ServiceReadinessAndContainerTests`](../tests/Ouroboros.IntegrationTests/ServiceReadinessAndContainerTests.cs), nos testes de integração com Docker, verifica que os serviços não aplicam migrations na subida e só ficam prontos após o comando explícito `migrate` com suas roles de migration e convergência de privilégios, que com o RabbitMQ parado Identity permanece pronto (`200`) e realiza login enquanto Notifications permanece vivo (`/health/live` `200`) e reporta não pronto (`/health/ready` `503`), que as imagens construídas executam como UID `1654` com o rótulo OCI `<version>-<commit>` sem assemblies do outro serviço ou `.env`, e que `scripts/messaging/new-compose-keys.ps1` gera diretórios externos isolados para Identity e Notifications sem imprimir segredos.
 - [`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs), nos testes de integração com Docker ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89)), valida a atualização e reversão (rollback) de `Ouroboros.Notifications.Worker` entre versões compatíveis do contrato v1 sem reimplantar ou reiniciar `Identity`, a continuidade do login e recuperação de intenções na parada de `Notifications` e do `RabbitMQ`, a reentrega idempotente/deduplicada após falha do publicador ou do consumidor, o impacto comum e recuperação automática (`ClearAllPools`) na parada da instância `PostgreSQL` compartilhada e a preservação de dados em migrations aditivas durante rollback de binário ([procedimento e comandos](#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)).
+- [`GatewayArchitectureTests`](../tests/Ouroboros.ArchitectureTests/GatewayArchitectureTests.cs), nos testes de arquitetura e sem Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica que `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` são executáveis fora de `src/Services` sem `DbContext`, `ControllerBase` ou referência a `Identity`, `Notifications` e `BuildingBlocks`, que o gateway administrativo recusa hosts fora de loopback quando `Gateway:AllowNonLoopback=false`, que os dois gateways isolam os prefixos `/api/v1/identity/*` e `/api/v1/admin/identity/*` com `404` na borda e que indisponibilidade ou lentidão do `Identity` produzem ProblemDetails `502 Bad Gateway` e `504 Gateway Timeout` sanitizados dentro do timeout configurado.
+- [`GatewayIntegrationTests`](../tests/Ouroboros.IntegrationTests/GatewayIntegrationTests.cs), nos testes de integração com Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica o encaminhamento das rotas públicas e administrativas de `Identity` pelos dois gateways finos, a preservação da autenticação, audiência e papel (`Admin` vs. `Customer`) no `Identity` tanto via gateway quanto em acesso direto, a prontidão (`/health/ready`) do gateway refletindo o `Identity` e o rate limiting por IP real do cliente (`X-Forwarded-For` aceito apenas das réplicas de gateway listadas em `Identity:ForwardedHeaders:KnownProxies`, bloqueando falsificação de cabeçalho em chamadas via gateway ou diretas).
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
@@ -55,7 +59,7 @@ O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pul
 
 | Check (nome do job) | O que executa | Equivale localmente a |
 | --- | --- | --- |
-| Build e testes de arquitetura | Restore e build da solution em Release, testes de arquitetura e construção das imagens Linux versionadas (`<version>-<commit>`) de Identity e Notifications | `dotnet build Ouroboros.slnx -c Release`, `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` e `docker build` dos dois Dockerfiles com `--build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=<commit>` |
+| Build e testes de arquitetura | Restore e build da solution em Release, testes de arquitetura e construção das imagens Linux versionadas (`<version>-<commit>`) de Identity, Notifications e dos dois gateways (`ExternalGateway` e `AdminGateway`) | `dotnet build Ouroboros.slnx -c Release`, `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` e `docker build` dos quatro Dockerfiles com `--build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=<commit>` |
 | Testes de integração | Testes de integração com PostgreSQL e RabbitMQ em containers (Testcontainers); confere a disponibilidade de PowerShell para o provisionador | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
 
 Falha de build, de imagem, de teste ou de job reprova o check; publicação em registro e deploy ficam fora da CI. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
@@ -93,6 +97,8 @@ Se ainda não existir `.env`, copie `.env.example` uma única vez (`cp .env.exam
 | `APP_VERSION`, `SOURCE_REVISION`, `IMAGE_TAG` | Versão e revisão imutáveis das imagens (`<APP_VERSION>-<SOURCE_REVISION>`, padrão `0.1.0-local`) |
 | `IDENTITY_PUBLIC_PORT` | Porta de loopback do host para o listener público de Identity (padrão `5141`) |
 | `NOTIFICATIONS_HEALTH_PORT` | Porta de loopback do host para o endpoint de saúde de Notifications (padrão `5143`) |
+| `EXTERNAL_GATEWAY_PORT`, `ADMIN_GATEWAY_PORT` | Portas de loopback do host para os containers opcionais `external-gateway` (padrão `5151`) e `admin-gateway` (padrão `5152`), no profile `gateways` |
+| `IDENTITY_KNOWN_PROXY_NETWORK` | Sub-rede CIDR confiável pela qual `identity-api` aceita `X-Forwarded-For`/`X-Forwarded-Proto` dos gateways no Compose (`Identity:ForwardedHeaders:KnownNetworks:0`, padrão `172.16.0.0/12`) |
 | `IDENTITY_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/identity`, montado somente em `identity-api` como `:ro` |
 | `NOTIFICATIONS_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/notifications`, montado somente em `notifications-worker` como `:ro` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credencial administrativa da instância PostgreSQL; usada apenas por `postgres`, `provision-databases` e `transfer-identity` |
@@ -139,11 +145,13 @@ Com bancos provisionados, migrations aplicadas, privilégios convergidos e topol
 
 ```powershell
 docker compose up -d --build identity-api notifications-worker
+# Opcionalmente, suba também os gateways externo (5151) e administrativo (5152) pelo profile `gateways`:
+docker compose --profile gateways up -d --build external-gateway admin-gateway
 docker compose ps
 ```
 
-- **Imagens versionadas e usuário não-root:** [`src/Services/Identity/Ouroboros.Identity.Api/Dockerfile`](../src/Services/Identity/Ouroboros.Identity.Api/Dockerfile) e [`src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile`](../src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile) recebem `APP_VERSION` e `SOURCE_REVISION`, gravam `/p:Version`, `/p:SourceRevisionId` e os rótulos OCI (`org.opencontainers.image.version="${APP_VERSION}-${SOURCE_REVISION}"`), copiam somente o próprio serviço e bibliotecas técnicas (com `.dockerignore` excluindo `.env`, `*.pem`, `*.key`, `.local` e `backups`) e executam sob `USER $APP_UID` (UID `1654`).
-- **Isolamento do listener administrativo:** `identity-api` publica no host somente o listener público em loopback (`127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141`). O listener administrativo (`5142`) escuta apenas em loopback interno (`http://127.0.0.1:5142`, com `Identity__Listeners__Admin__AllowNonLoopback=false`) e não é publicado no host pelo `compose.yaml`.
+- **Imagens versionadas e usuário não-root:** [`src/Services/Identity/Ouroboros.Identity.Api/Dockerfile`](../src/Services/Identity/Ouroboros.Identity.Api/Dockerfile), [`src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile`](../src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile), [`src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile) e [`src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile) recebem `APP_VERSION` e `SOURCE_REVISION`, gravam `/p:Version`, `/p:SourceRevisionId` e os rótulos OCI (`org.opencontainers.image.version="${APP_VERSION}-${SOURCE_REVISION}"`), copiam somente o próprio executável e bibliotecas técnicas (com `.dockerignore` excluindo `.env`, `*.pem`, `*.key`, `.local` e `backups`) e executam sob `USER $APP_UID` (UID `1654`).
+- **Isolamento do listener administrativo e dos gateways:** `identity-api` publica no host somente o listener público em loopback (`127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141`). O listener administrativo (`5142`) escuta apenas em loopback interno (`http://127.0.0.1:5142`, com `Identity__Listeners__Admin__AllowNonLoopback=false`) e não é publicado no host pelo `compose.yaml`. No profile opcional `gateways`, `external-gateway` publica `127.0.0.1:${EXTERNAL_GATEWAY_PORT:-5151}:5151` encaminhando `/api/v1/identity/*` para `http://identity-api:5141`, e `admin-gateway` publica `127.0.0.1:${ADMIN_GATEWAY_PORT:-5152}:5152` restrito a loopback (`Gateway__AllowNonLoopback=false`, `Gateway__Urls__0=http://127.0.0.1:5152`). Detalhes em [Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo).
 - **Health e readiness sanitizados ([`OuroborosHealthExtensions`](../src/Ouroboros.Hosting/OuroborosHealthExtensions.cs)):**
   - `GET /health/live` (liveness, anônimo e sem rate limit) verifica apenas se o processo está ativo (`Predicate = _ => false`) e responde `200 OK` com `{"status":"Healthy"}`.
   - `GET /health/ready` e `GET /health` (readiness, anônimos e sem rate limit) executam as verificações marcadas com a tag `ready` e respondem `200 OK` com `{"status":"Healthy"}` ou `503 Service Unavailable` com `{"status":"Unhealthy"}` (`Cache-Control: no-store, no-cache`). O writer fixo nunca serializa descrições, mensagens de exceção, nomes de roles, senhas ou connection strings.
@@ -696,6 +704,77 @@ Os user-secrets (connection string e caminho do manifesto de assinatura) só sã
 ### Endpoints e limites
 
 Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. Os endpoints técnicos de liveness (`GET /health/live`) e readiness (`GET /health/ready` e `GET /health`) são anônimos, sem rate limiting, nos dois listeners, respondem apenas `{"status":"Healthy"}` (`200`) ou `{"status":"Unhealthy"}` (`503`) sem expor segredos ou mensagens de exceção, e a prontidão de Identity depende exclusivamente do próprio banco, nunca do RabbitMQ ([Executar os serviços com Docker Compose](#4-subir-os-serviços-e-verificar-health-e-readiness)). O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+
+## Executar os gateways externo e administrativo
+
+A entrega [#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83) adiciona dois gateways HTTP finos em `src/Gateways/`, separados por público e sem `DbContext`, regras de domínio ou orquestração síncrona ([arquitetura e garantias](architecture/hosts.md#gateways)):
+
+| Executável | Público | Escuta padrão (`Gateway:Urls`) | `Gateway:AllowNonLoopback` | Prefixo encaminhado | Destino padrão (`Gateway:Downstream:IdentityBaseUrl`) |
+| --- | --- | --- | --- | --- | --- |
+| `Ouroboros.ExternalGateway.Api` | Externo (`External`) | `http://localhost:5151` (`http://0.0.0.0:5151` no Compose) | `true` | `/api/v1/identity/*` | `http://localhost:5141` (`http://identity-api:5141` no Compose) |
+| `Ouroboros.AdminGateway.Api` | Administrativo (`Admin`) | `http://127.0.0.1:5152` | `false` | `/api/v1/admin/identity/*` | `http://127.0.0.1:5142` |
+
+### Executar localmente com `dotnet run`
+
+1. Inicie a API de Identity ([Executar a API de Identity](#executar-a-api-de-identity)). Para que o `Identity` aceite o `X-Forwarded-For` e o `X-Forwarded-Proto` repassados pelos gateways locais em loopback e contabilize o rate limit pelo IP real do cliente, defina `Identity:ForwardedHeaders:KnownProxies:0=127.0.0.1` (e `::1` quando usar IPv6 loopback) ao subir o `Identity`:
+
+   ```powershell
+   $env:Identity__ForwardedHeaders__KnownProxies__0 = '127.0.0.1'
+   $env:Identity__ForwardedHeaders__KnownProxies__1 = '::1'
+   dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+   ```
+
+2. Em outros terminais, na raiz do repositório, inicie os gateways finos:
+
+   ```powershell
+   # Gateway externo (escuta em http://localhost:5151 e encaminha /api/v1/identity/* para http://localhost:5141)
+   dotnet run --project src/Gateways/Ouroboros.ExternalGateway.Api
+
+   # Gateway administrativo (escuta apenas em loopback http://127.0.0.1:5152 e encaminha /api/v1/admin/identity/* para http://127.0.0.1:5142)
+   dotnet run --project src/Gateways/Ouroboros.AdminGateway.Api
+   ```
+
+3. Consulte a prontidão e exercite as rotas através de cada gateway:
+
+   ```powershell
+   # Saúde e rotas públicas pelo ExternalGateway (:5151)
+   Invoke-RestMethod -Uri http://localhost:5151/health/live
+   Invoke-RestMethod -Uri http://localhost:5151/health/ready
+   Invoke-RestMethod -Uri http://localhost:5151/api/v1/identity/keys
+
+   # Saúde e login administrativo pelo AdminGateway (:5152, restrito a loopback)
+   Invoke-RestMethod -Uri http://127.0.0.1:5152/health/live
+   Invoke-RestMethod -Uri http://127.0.0.1:5152/health/ready
+   ```
+
+- Rotas do outro público (`/api/v1/admin/identity/*` em `:5151` ou `/api/v1/identity/*` em `:5152`) são recusadas na borda com `404 Not Found` sem chamar o `Identity`.
+- Se o `Identity` estiver parado ou exceder `Gateway:Downstream:Timeout` (padrão `00:00:05`, máximo `00:00:30`), o gateway responde com ProblemDetails sanitizado `502 Bad Gateway` ou `504 Gateway Timeout`, sem expor URLs internas nem mensagens de socket.
+- Tentar configurar um endereço fora de loopback em `Ouroboros.AdminGateway.Api` com `Gateway:AllowNonLoopback=false` impede a subida com `OptionsValidationException`.
+
+### Executar com Docker Compose (`--profile gateways`)
+
+No [`compose.yaml`](../compose.yaml), os gateways ficam no profile opcional `gateways` para não bloquear o acesso direto a `identity-api`:
+
+```powershell
+docker compose --profile gateways up -d --build external-gateway admin-gateway
+Invoke-RestMethod -Uri http://127.0.0.1:5151/health/ready
+Invoke-RestMethod -Uri http://127.0.0.1:5151/api/v1/identity/keys
+Invoke-RestMethod -Uri http://127.0.0.1:5152/health/live
+```
+
+No Compose, `identity-api` já configura `Identity__ForwardedHeaders__KnownProxies__0=127.0.0.1` e `Identity__ForwardedHeaders__KnownNetworks__0=${IDENTITY_KNOWN_PROXY_NETWORK:-172.16.0.0/12}` para aceitar `X-Forwarded-For` das réplicas na rede do Compose. Para expor o `AdminGateway` a outro container na rede interna do Compose ou testar encaminhamento entre containers para o listener administrativo, ambos (`Identity:Listeners:Admin` e `AdminGateway`) permanecem restritos a loopback por padrão (`AllowNonLoopback=false`) e exigem configuração explícita e controle de rede dedicado.
+
+### Verificar os testes dos gateways
+
+Na raiz do repositório:
+
+```powershell
+# Testes de arquitetura dos gateways (sem Docker): isolamento, opções, sem DbContext/serviços e respostas 502/504 sanitizadas
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayArchitectureTests"
+
+# Testes de integração dos gateways (exige Docker): rotas públicas e administrativas, autorização no Identity e rate limit com X-Forwarded-For entre réplicas
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*GatewayIntegrationTests"
+```
 
 ## Logs dos executáveis
 

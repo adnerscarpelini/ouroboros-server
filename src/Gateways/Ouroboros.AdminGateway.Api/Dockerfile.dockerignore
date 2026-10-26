@@ -1,0 +1,13 @@
+**/bin
+**/obj
+.git
+.env
+**/*.env
+**/*.pem
+**/*.key
+.local
+.vs
+.claude
+.codex
+backups
+TestResults

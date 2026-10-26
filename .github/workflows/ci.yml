@@ -75,6 +75,12 @@ jobs:
           docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile \
             --build-arg APP_VERSION="$version" --build-arg SOURCE_REVISION="$commit" \
             -t "ouroboros-notifications-worker:$tag" .
+          docker build -f src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile \
+            --build-arg APP_VERSION="$version" --build-arg SOURCE_REVISION="$commit" \
+            -t "ouroboros-external-gateway-api:$tag" .
+          docker build -f src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile \
+            --build-arg APP_VERSION="$version" --build-arg SOURCE_REVISION="$commit" \
+            -t "ouroboros-admin-gateway-api:$tag" .
 
       - uses: actions/upload-artifact@v4
         if: always()

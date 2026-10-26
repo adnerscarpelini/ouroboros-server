@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="../../Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
+    <ProjectReference Include="../../Ouroboros.Observability/Ouroboros.Observability.csproj" />
+  </ItemGroup>
+</Project>

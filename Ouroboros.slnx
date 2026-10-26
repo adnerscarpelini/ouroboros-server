@@ -17,4 +17,8 @@
     <Project Path="src/Services/Notifications/Ouroboros.Notifications/Ouroboros.Notifications.csproj" />
     <Project Path="src/Services/Notifications/Ouroboros.Notifications.Worker/Ouroboros.Notifications.Worker.csproj" />
   </Folder>
+  <Folder Name="/src/Gateways/">
+    <Project Path="src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj" />
+    <Project Path="src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj" />
+  </Folder>
 </Solution>

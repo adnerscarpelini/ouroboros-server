@@ -17,7 +17,7 @@ Não separar saldo e lançamentos por conveniência de pastas. Ledger e suas reg
 
 Serviços ficam em src/Services. Cada serviço HTTP possui sua API; Notifications pode ser worker sem API de negócio. Bibliotecas técnicas não compartilham entidades ou regras nem obrigam implantação conjunta. O [plano de entregas](migration-plan.md) define dependências, segurança, locks e critérios de transferência.
 
-APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa. Gateways são posteriores, sem bloquear as primeiras entregas. Não conterão DbContexts ou regras de negócio; cada serviço continuará autorizando chamadas.
+APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa no próprio serviço. Os pontos de entrada opcionais de borda são separados por público em `src/Gateways`: [`Ouroboros.ExternalGateway.Api`](../../src/Gateways/Ouroboros.ExternalGateway.Api) encaminha `/api/v1/identity/*` ao listener público de Identity e [`Ouroboros.AdminGateway.Api`](../../src/Gateways/Ouroboros.AdminGateway.Api) encaminha `/api/v1/admin/identity/*` ao listener administrativo, restrito a loopback por padrão ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83); [detalhes](hosts.md#gateways)). Os gateways são finos: não contêm `DbContext`, regras de domínio nem orquestração síncrona entre serviços, repassam `X-Forwarded-For`/`X-Forwarded-Proto` a partir da conexão real, respondem `502`/`504` sanitizados dentro do timeout configurado e nunca substituem a autenticação, a validação de audiência ou a autorização no serviço proprietário.
 
 ## Um banco por módulo/serviço, uma instância local
 
