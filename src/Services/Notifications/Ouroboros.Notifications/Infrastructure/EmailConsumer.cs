@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -29,7 +30,7 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
             catch (Exception exception) when (exception is RabbitMQ.Client.Exceptions.RabbitMQClientException or IOException or TimeoutException)
             {
-                LogBrokerUnavailable(logger);
+                LogBrokerUnavailable(logger, exception);
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
             }
         }
@@ -47,6 +48,10 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
         consumer.ReceivedAsync += async (_, delivery) =>
         {
             Guid? id = null;
+            // O envelope válido traz o contexto W3C da origem; inválido, a aceitação ocorre em um trace novo.
+            EnvelopeCodec.TryDecode(delivery.Body, "notification.email.requested", 1, "identity", out var envelope, out string _);
+            using var activity = MessageTracing.Start(NotificationsTelemetry.Source, "inbox.accept", ActivityKind.Consumer, envelope);
+            MessageTracing.Describe(activity, "accept", envelope?.MessageId);
             try
             {
                 id = Guid.TryParse(delivery.BasicProperties.MessageId, out var parsed) ? parsed : null;
@@ -56,12 +61,15 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
                 var result = await scope.ServiceProvider.GetRequiredService<InboxAcceptance>()
                     .AcceptAsync(delivery.Body, delivery.BasicProperties.MessageId, timeout.Token);
                 await channel.BasicAckAsync(delivery.DeliveryTag, false, stoppingToken);
+                activity?.SetTag("messaging.acceptance.result", result.ToString());
+                if (result is AcceptanceResult.Rejected or AcceptanceResult.Conflict) { activity?.SetStatus(ActivityStatusCode.Error); }
                 LogHandled(logger, id, result.ToString());
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-            catch (Exception)
+            catch (Exception exception)
             {
-                LogSuspended(logger, id, "acceptance-unavailable");
+                activity?.SetStatus(ActivityStatusCode.Error);
+                LogSuspended(logger, id, "acceptance-unavailable", exception);
                 ended.TrySetException(new IOException("acceptance-unavailable"));
             }
         };
@@ -72,9 +80,9 @@ internal sealed partial class EmailConsumer(IOptions<NotificationOptions> option
     [LoggerMessage(Level = LogLevel.Information, Message = "Consumo de Notifications desabilitado.")]
     private static partial void LogDisabled(ILogger logger);
     [LoggerMessage(Level = LogLevel.Warning, Message = "Broker de Notifications indisponível; nova conexão será tentada.")]
-    private static partial void LogBrokerUnavailable(ILogger logger);
+    private static partial void LogBrokerUnavailable(ILogger logger, Exception exception);
     [LoggerMessage(Level = LogLevel.Error, Message = "Notifications suspenso para {MessageId}: {Code}. Nenhum ACK.")]
-    private static partial void LogSuspended(ILogger logger, Guid? messageId, string code);
+    private static partial void LogSuspended(ILogger logger, Guid? messageId, string code, Exception exception);
     [LoggerMessage(Level = LogLevel.Information, Message = "Notifications processou {MessageId}: {State}.")]
     private static partial void LogHandled(ILogger logger, Guid? messageId, string state);
 }

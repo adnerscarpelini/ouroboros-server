@@ -10,6 +10,7 @@ using Ouroboros.Identity.Api.Listeners;
 using Ouroboros.Identity.Api.Routing;
 using Ouroboros.Identity.Api.Security;
 using Ouroboros.Identity.Contracts;
+using Ouroboros.Observability;
 
 namespace Ouroboros.Identity.Api;
 
@@ -28,6 +29,7 @@ public static class IdentityApiHost
             Args = args,
             ApplicationName = typeof(IdentityApiEntryPoint).Assembly.GetName().Name,
         });
+        builder.AddOuroborosObservability("identity", typeof(IdentityApiEntryPoint).Assembly);
         configure?.Invoke(builder);
         builder.AddOuroborosHost();
         builder.Services.AddIdentityModule();

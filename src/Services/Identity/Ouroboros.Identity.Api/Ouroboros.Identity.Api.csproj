@@ -8,6 +8,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../../Ouroboros.Hosting/Ouroboros.Hosting.csproj" />
+    <ProjectReference Include="../../../Ouroboros.Observability/Ouroboros.Observability.csproj" />
     <ProjectReference Include="../Ouroboros.Identity/Ouroboros.Identity.csproj" />
   </ItemGroup>
 </Project>

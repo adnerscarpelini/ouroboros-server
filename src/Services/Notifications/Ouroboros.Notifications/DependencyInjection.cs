@@ -28,6 +28,7 @@ public static class DependencyInjection
             provider.GetRequiredService<IConfiguration>().GetConnectionString("Notifications"),
             postgres => postgres.MigrationsHistoryTable("__EFMigrationsHistory", NotificationsDbContext.Schema)));
         services.AddSingleton<MessageFingerprints>();
+        services.AddSingleton<InboxMetrics>();
         services.AddScoped<InboxAcceptance>();
         services.AddScoped<InboxExecutionStore>();
         services.AddScoped<FailureDispatchStore>();

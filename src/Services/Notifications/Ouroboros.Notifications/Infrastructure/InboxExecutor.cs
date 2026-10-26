@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -18,7 +19,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         {
             try { await RunOnceAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception) { LogInterrupted(logger); }
+            catch (Exception exception) { LogInterrupted(logger, exception); }
             await Task.Delay(TimeSpan.FromSeconds(options.Value.ProcessingPollSeconds), clock, stoppingToken);
         }
     }
@@ -33,11 +34,18 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
         var row = (await store.ClaimAsync(lease, clock.GetUtcNow(), cancellationToken)).SingleOrDefault();
         if (row is null) { return; }
         var attempt = row.Attempts + 1;
+        var decoded = EnvelopeCodec.TryDecode(row.ProtectedEnvelope!, "notification.email.requested", 1, "identity", out var message, out _);
+        // Cada tentativa de entrega continua o trace da origem gravado no envelope aceito.
+        using var activity = MessageTracing.Start(NotificationsTelemetry.Source, "inbox.deliver", ActivityKind.Consumer, decoded ? message : null);
+        MessageTracing.Describe(activity, "deliver", row.MessageId);
+        var metrics = scope.ServiceProvider.GetRequiredService<InboxMetrics>();
         try
         {
-            if (!EnvelopeCodec.TryDecode(row.ProtectedEnvelope!, "notification.email.requested", 1, "identity", out var message, out _))
+            if (!decoded)
             {
-                await store.FailAttemptAsync(row.MessageId, lease, "invalid-contract", clock.GetUtcNow(), clock.GetUtcNow(), cancellationToken);
+                var outcome = await store.FailAttemptAsync(row.MessageId, lease, "invalid-contract", clock.GetUtcNow(), clock.GetUtcNow(), cancellationToken);
+                if (outcome is not null) { metrics.Attempt(outcome); }
+                activity?.SetStatus(ActivityStatusCode.Error);
                 return;
             }
             var content = scope.ServiceProvider.GetRequiredService<IEmailPayloadReader>().Read(message!);
@@ -51,16 +59,21 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
             // BeginAttempt é durável; nenhuma transação/lock de negócio continua aberto nesta chamada.
             await scope.ServiceProvider.GetRequiredService<IEmailTransport>().SendAsync(row.MessageId, content, timeout.Token);
             var recorded = await store.DeliverAsync(row.MessageId, lease, clock.GetUtcNow(), cancellationToken);
+            if (recorded == 1) { metrics.Attempt("delivered"); activity?.SetTag("messaging.delivery.outcome", "delivered"); }
             LogResult(logger, row.MessageId, recorded == 1 ? "Delivered" : "ResultNotOwned");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (NotificationDeliveryException exception) when (exception.Kind == DeliveryFailure.Configuration)
         {
+            LogDeliveryFailed(logger, row.MessageId, "configuration-suspended", exception);
             var recorded = await store.SuspendAsync(row.MessageId, lease, clock.GetUtcNow(), cancellationToken);
+            if (recorded == 1) { metrics.Attempt("suspended"); activity?.SetTag("messaging.delivery.outcome", "suspended"); }
+            activity?.SetStatus(ActivityStatusCode.Error);
             LogResult(logger, row.MessageId, recorded == 1 ? "Suspended" : "ResultNotOwned");
         }
         catch (Exception exception)
         {
+            LogDeliveryFailed(logger, row.MessageId, "delivery-failed", exception);
             var now = clock.GetUtcNow();
             var permanent = exception is NotificationDeliveryException { Kind: DeliveryFailure.InvalidContent } ? "invalid-contract"
                 : exception is NotificationDeliveryException { Kind: DeliveryFailure.Permanent } ? "provider-permanent" : null;
@@ -69,7 +82,9 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
             // Retry-After não pode estourar DateTimeOffset nem ampliar o prazo absoluto.
             var remaining = row.ExpiresAt - now;
             var retryAt = delay >= remaining ? row.ExpiresAt : now.Add(delay);
-            await store.FailAttemptAsync(row.MessageId, lease, permanent, now, retryAt, cancellationToken);
+            var outcome = await store.FailAttemptAsync(row.MessageId, lease, permanent, now, retryAt, cancellationToken);
+            if (outcome is not null) { metrics.Attempt(outcome); activity?.SetTag("messaging.delivery.outcome", outcome); }
+            activity?.SetStatus(ActivityStatusCode.Error);
             LogResult(logger, row.MessageId, permanent ?? "RetryOrExhausted");
         }
     }
@@ -83,5 +98,7 @@ internal sealed partial class InboxExecutor(IServiceScopeFactory scopes, IOption
     [LoggerMessage(Level = LogLevel.Information, Message = "Processamento de {MessageId}: {State}.")]
     private static partial void LogResult(ILogger logger, Guid messageId, string state);
     [LoggerMessage(Level = LogLevel.Error, Message = "Executor de Notifications interrompido; estado persistido será recuperado.")]
-    private static partial void LogInterrupted(ILogger logger);
+    private static partial void LogInterrupted(ILogger logger, Exception exception);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Falha de entrega de Notifications para {MessageId}: {Code}.")]
+    private static partial void LogDeliveryFailed(ILogger logger, Guid messageId, string code, Exception exception);
 }

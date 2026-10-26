@@ -309,6 +309,13 @@ public sealed partial class NotificationsWorkerTests
 
     private async Task WaitForEmptyMainQueueAsync()
     {
+        // As estatísticas da gestão são atualizadas periodicamente e podem mostrar 0 antes de a publicação
+        // aparecer; a contagem de prontas pela AMQP é imediata. A gestão cobre também as não reconhecidas.
+        await using (var connection = await broker.ConnectAsync())
+        await using (var channel = await connection.CreateChannelAsync(cancellationToken: Cancellation))
+        {
+            await WaitAsync(async () => (await channel.QueueDeclarePassiveAsync(RabbitMqFixture.Queue, Cancellation)).MessageCount == 0);
+        }
         using var client = broker.ManagementClient();
         await WaitAsync(async () =>
         {

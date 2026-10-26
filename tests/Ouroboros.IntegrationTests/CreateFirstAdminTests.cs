@@ -22,6 +22,53 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
     private const string ProcessPassword = "uma frase longa e exclusiva para processos";
 
     [Fact]
+    public async Task Failed_command_process_flushes_one_correlated_sanitized_diagnostic_before_exit()
+    {
+        await ExecuteAsync("""
+            CREATE FUNCTION fail_command_process_write() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'Password=command-process-sensitive-value'; END $$;
+            CREATE TRIGGER fail_command_process_write BEFORE INSERT ON identity.users
+            FOR EACH ROW EXECUTE FUNCTION fail_command_process_write();
+            """);
+        using var process = StartCommandProcess(Email);
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(CreateAdminCommand.Failure, process.ExitCode);
+        var console = await output;
+        var stderr = await error;
+        Assert.Contains("Consulte os diagnósticos correlacionados", stderr);
+        var diagnostics = console.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith('{')).Select(line => System.Text.Json.JsonDocument.Parse(line).RootElement.Clone())
+            .Where(record => record.GetProperty("message").GetString()!.Contains("command-failed", StringComparison.Ordinal)).ToArray();
+        var diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("identity", diagnostic.GetProperty("service").GetString());
+        Assert.Equal(32, diagnostic.GetProperty("traceId").GetString()!.Length);
+        Assert.Equal(typeof(DbUpdateException).FullName, diagnostic.GetProperty("attributes").GetProperty("exception.type").GetString());
+        Assert.Contains("Npgsql.PostgresException", diagnostic.ToString());
+        Assert.DoesNotContain("command-process-sensitive-value", console + stderr);
+        Assert.DoesNotContain(ProcessPassword, console + stderr);
+        Assert.Equal(0L, await CountUsersAsync());
+    }
+
+    [Fact]
+    public async Task Command_failure_returns_generic_error_without_disclosing_provider_details()
+    {
+        await ExecuteAsync("""
+            CREATE FUNCTION fail_command_write() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'Password=command-sensitive-value'; END $$;
+            CREATE TRIGGER fail_command_write BEFORE INSERT ON identity.users
+            FOR EACH ROW EXECUTE FUNCTION fail_command_write();
+            """);
+        var (exit, output, error) = await RunCommandAsync(["create-admin", "--email", Email], Password);
+        Assert.Equal(CreateAdminCommand.Failure, exit);
+        Assert.Equal("", output);
+        Assert.Contains("Consulte os diagnósticos correlacionados", error);
+        Assert.DoesNotContain("command-sensitive-value", error);
+        Assert.Equal(0L, await CountUsersAsync());
+    }
+
+    [Fact]
     public async Task Command_creates_active_admin_and_exits_with_zero()
     {
         var (exitCode, output, error) = await RunCommandAsync(["create-admin", "--email", "  OI@AdnerScarpelini.com "], Password);

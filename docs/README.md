@@ -3,6 +3,8 @@
 - [Arquitetura de microsserviços](architecture/README.md).
 - [Contrato e política de entrega confiável](architecture/reliable-delivery.md): decisão da #79 para Identity e Notifications, com recuperação, duplicatas, expiração e proteção de payloads; implementação distribuída em entregas próprias.
 - [RabbitMQ e contrato executável](architecture/messaging.md): topologia, credenciais mínimas, envelope opaco e limites; [provisionamento local](development.md#rabbitmq-local).
+- [Correlação por W3C Trace Context](architecture/trace-correlation.md): logs JSON no console dos dois executáveis, com `traceId`/`spanId` ligados ao ProblemDetails e ao envelope das mensagens; [como filtrar os logs](development.md#logs-dos-executáveis).
+- [Pipeline de diagnósticos sanitizados](architecture/diagnostics-pipeline.md): sanitização antes de qualquer destino, coletor e destino dedicado com retenção limitada, independentes dos bancos de negócio; [como subir e consultar](development.md#diagnósticos-no-coletor-local).
 - [Estrutura dos serviços](architecture/module-structure.md).
 - [Assinatura RS256, JWKS e rotação](architecture/authentication.md): principal, audiências e transição HS256; [geração e operação das chaves](development.md#chave-de-assinatura-dos-tokens).
 - [Estado de implementação](implementation-status.md).

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +17,7 @@ using RabbitMQ.Client;
 
 namespace Ouroboros.IntegrationTests;
 
+[Collection("Telemetry")]
 public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, ProvisionedInstance database)
     : IClassFixture<RabbitMqFixture>, IClassFixture<ProvisionedInstance>
 {
@@ -122,6 +124,53 @@ public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, Pro
     }
 
     [Fact]
+    public async Task Worker_process_logs_json_lines_that_continue_each_message_trace_without_deduplicating_by_trace()
+    {
+        const string TraceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+        using var keys = new NotificationTestKeys();
+        var traced = new[] { "opaque-trace-a", "opaque-trace-b" }.Select(key => keys.Message(changeMetadata: metadata => metadata with
+        { SupersessionKey = key, Traceparent = $"00-{TraceId}-00f067aa0ba902b7-01", Tracestate = "vendor=opaque" })).ToArray();
+        var untraced = keys.Message(changeMetadata: metadata => metadata with { SupersessionKey = "opaque-trace-c", Traceparent = null, Tracestate = null });
+        await PurgeAsync();
+        await NotificationDatabaseScenario.ResetAsync(database);
+        using var process = StartWorker(keys);
+        var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
+        var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            foreach (var message in traced.Append(untraced)) { await PublishAsync(EnvelopeCodec.Encode(message), message.MessageId); }
+            await WaitAsync(() => Task.FromResult(Directory.Exists(keys.EmailsPath) && Directory.GetFiles(keys.EmailsPath, "*.eml").Length == 3));
+            // O console exporta em lotes de até 1 s; o processo é encerrado à força depois disso.
+            await Task.Delay(2500, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); }
+            await process.WaitForExitAsync(TestContext.Current.CancellationToken);
+        }
+        var diagnosticError = await error;
+        Assert.True(diagnosticError.Length == 0, diagnosticError);
+        var lines = (await output).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var entries = lines.Select(line => JsonDocument.Parse(line).RootElement.Clone()).ToArray();
+        Assert.All(entries, entry => Assert.Equal("notifications", entry.GetProperty("service").GetString()));
+        Assert.All(entries, entry => Assert.False(string.IsNullOrWhiteSpace(entry.GetProperty("serviceVersion").GetString())));
+        string[] TracesOf(Guid id) => entries.Where(entry => entry.TryGetProperty("attributes", out var attributes)
+                && attributes.TryGetProperty("MessageId", out var value) && value.GetString() == id.ToString("D"))
+            .Select(entry => entry.GetProperty("traceId").GetString()!).ToArray();
+        foreach (var message in traced)
+        {
+            var traces = TracesOf(message.MessageId);
+            Assert.True(traces.Length >= 2);
+            Assert.All(traces, trace => Assert.Equal(TraceId, trace));
+        }
+        var fresh = TracesOf(untraced.MessageId);
+        Assert.True(fresh.Length >= 2);
+        Assert.All(fresh, trace => Assert.Matches("^[0-9a-f]{32}$", trace));
+        Assert.All(fresh, trace => Assert.NotEqual(TraceId, trace));
+        Assert.DoesNotContain(NotificationTestKeys.Content.Recipient, await output);
+    }
+
+    [Fact]
     public async Task Incompatible_message_is_durably_classified_and_acked_without_copying_original_to_failure_queue()
     {
         using var keys = new NotificationTestKeys();
@@ -207,11 +256,11 @@ public sealed partial class NotificationsWorkerTests(RabbitMqFixture broker, Pro
         return Process.Start(start) ?? throw new InvalidOperationException("Worker não iniciou.");
     }
 
-    private async Task PublishAsync(byte[] body)
+    private async Task PublishAsync(byte[] body, Guid? messageId = null)
     {
         await using var connection = await broker.ConnectAsync("identity_publisher", broker.IdentityPassword);
         await using var channel = await connection.CreateChannelAsync(new CreateChannelOptions(true, true), TestContext.Current.CancellationToken);
-        await channel.BasicPublishAsync(RabbitMqFixture.Exchange, "email.requested.v1", true, new BasicProperties { Persistent = true }, body, TestContext.Current.CancellationToken);
+        await channel.BasicPublishAsync(RabbitMqFixture.Exchange, "email.requested.v1", true, new BasicProperties { Persistent = true, MessageId = messageId?.ToString("D") }, body, TestContext.Current.CancellationToken);
     }
 
     private async Task PurgeAsync()

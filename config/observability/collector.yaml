@@ -1,0 +1,106 @@
+# Coletor de diagnósticos (OpenTelemetry Collector). Recebe OTLP/HTTP das APIs e dos workers, limita memória,
+# aplica uma segunda sanitização (defesa em profundidade; a primeira ocorre no processo de origem) e encaminha
+# ao destino dedicado diagnostics-store. Não acessa bancos de negócio.
+extensions:
+  file_storage/queue:
+    directory: /var/lib/ouroboros-collector
+    timeout: 1s
+    fsync: true
+    create_directory: false
+    # Um arquivo bbolt por sinal/exportador. Arquivos inválidos não são recriados automaticamente.
+    max_size: 33554432
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: /var/lib/ouroboros-collector
+      cleanup_on_start: true
+      rebound_needed_threshold_mib: 16
+      rebound_trigger_threshold_mib: 4
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 4194304
+
+processors:
+  # Recusa novos dados (o exportador do processo de origem descarta pela fila limitada) antes de esgotar a memória.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 160
+    spike_limit_mib: 40
+  transform/sanitize:
+    error_mode: ignore
+    trace_statements:
+      - delete_key(span.attributes, "url.full")
+      - delete_key(span.attributes, "url.query")
+      - delete_key(span.attributes, "url.path")
+      - delete_key(span.attributes, "http.target")
+      - delete_matching_keys(span.attributes, "(?i).*(password|senha|secret|token|authorization|cookie|credential|email|payload|ciphertext|user[.]id).*")
+      - replace_all_patterns(span.attributes, "value", "eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]*", "[REDACTED]")
+      - replace_all_patterns(span.attributes, "value", "(?i)(bearer|basic)[ ]+[A-Za-z0-9._~+/=-]+", "$$1 [REDACTED]")
+      - replace_all_patterns(span.attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}", "[EMAIL]")
+      - replace_all_patterns(span.attributes, "value", "(?i)((password|passwd|pwd|senha|secret|segredo|client_secret|token|api[_-]?key|authorization|cookie|credentials?|credencial)[^A-Za-z0-9 ]{0,2}[ ]*[=:][ ]*)[^,;&}]{1,128}", "$$1[REDACTED]")
+    log_statements:
+      - replace_pattern(log.body, "eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]*", "[REDACTED]")
+      - replace_pattern(log.body, "(?i)(bearer|basic)[ ]+[A-Za-z0-9._~+/=-]+", "$$1 [REDACTED]")
+      - replace_pattern(log.body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}", "[EMAIL]")
+      - replace_all_patterns(log.attributes, "value", "eyJ[A-Za-z0-9_-]+[.][A-Za-z0-9_-]+[.][A-Za-z0-9_-]*", "[REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "(?i)(bearer|basic)[ ]+[A-Za-z0-9._~+/=-]+", "$$1 [REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+([.][A-Za-z0-9-]+)*[.][A-Za-z]{2,}", "[EMAIL]")
+      - replace_pattern(log.body, "(?i)((password|passwd|pwd|senha|secret|segredo|client_secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|private[_-]?key|credentials?|credencial)[^A-Za-z0-9 ]{0,2}[ ]*[=:][ ]*)[^,;&}]{1,128}", "$$1[REDACTED]")
+      - replace_all_patterns(log.attributes, "value", "(?i)((password|passwd|pwd|senha|secret|segredo|client_secret|token|access_token|refresh_token|api[_-]?key|authorization|cookie|private[_-]?key|credentials?|credencial)[^A-Za-z0-9 ]{0,2}[ ]*[=:][ ]*)[^,;&}]{1,128}", "$$1[REDACTED]")
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 1s
+
+exporters:
+  otlp_http/store:
+    endpoint: http://diagnostics-store:4318
+    compression: gzip
+    timeout: 5s
+    # Até 8 MiB serializados por sinal, sem bloquear quem envia; arquivo limitado a 32 MiB.
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      storage: file_storage/queue
+      sizer: bytes
+      queue_size: 8388608
+      block_on_overflow: false
+      wait_for_result: false
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+service:
+  extensions: [health_check, file_storage/queue]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/sanitize, batch]
+      exporters: [otlp_http/store]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/sanitize, batch]
+      exporters: [otlp_http/store]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/store]

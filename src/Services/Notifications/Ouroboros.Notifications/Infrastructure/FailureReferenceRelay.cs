@@ -21,7 +21,7 @@ internal sealed partial class FailureReferenceRelay(IServiceScopeFactory scopes,
         {
             try { await RunOnceAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-            catch (Exception) { LogInterrupted(logger); }
+            catch (Exception exception) { LogInterrupted(logger, exception); }
             await Task.Delay(TimeSpan.FromSeconds(options.Value.ProcessingPollSeconds), clock, stoppingToken);
         }
     }
@@ -68,7 +68,7 @@ internal sealed partial class FailureReferenceRelay(IServiceScopeFactory scopes,
                 var suspended = ConfigurationFailure(exception);
                 var delay = Math.Min(300, Math.Pow(2, Math.Min(row.Attempts, 9)) * (0.8 + Random.Shared.NextDouble() * 0.4));
                 await store.RetryAsync(row.Id, lease, suspended, suspended ? null : clock.GetUtcNow().AddSeconds(delay), cancellationToken);
-                LogRetry(logger, row.Id, suspended);
+                LogRetry(logger, row.Id, row.MessageId, suspended, exception);
             }
         }
     }
@@ -88,8 +88,8 @@ internal sealed partial class FailureReferenceRelay(IServiceScopeFactory scopes,
         return false;
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Referência de falha {FailureId} não publicada; suspensa: {Suspended}.")]
-    private static partial void LogRetry(ILogger logger, Guid failureId, bool suspended);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Referência de falha {FailureId} de {MessageId} não publicada; suspensa: {Suspended}.")]
+    private static partial void LogRetry(ILogger logger, Guid failureId, Guid? messageId, bool suspended, Exception exception);
     [LoggerMessage(Level = LogLevel.Error, Message = "Relay sanitizado interrompido; classificação durável preservada.")]
-    private static partial void LogInterrupted(ILogger logger);
+    private static partial void LogInterrupted(ILogger logger, Exception exception);
 }

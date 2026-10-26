@@ -3,7 +3,7 @@ using Ouroboros.Identity.Api.CommandLine;
 
 // API de Identity: clientes e integrações no listener público, administradores no listener administrativo
 // (por padrão só em loopback). Os dois públicos compartilham processo, banco e casos de uso.
-var app = IdentityApiHost.Build(args);
+await using var app = IdentityApiHost.Build(args);
 
 // Comandos de operação (por exemplo, create-admin) rodam e encerram sem subir o servidor HTTP.
 if (CreateAdminCommand.Matches(args))

@@ -58,6 +58,6 @@ dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*Notif
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*NotificationsWorkerTests'
 ```
 
-Os cenários usam PostgreSQL/RabbitMQ e processos reais, credenciais/chaves efêmeras e provedor local/falso, sem depender de segredos do operador. Não validam SMTP, exporter/observabilidade da #88 nem empacotamento operacional/probes da #98.
+Os cenários usam PostgreSQL/RabbitMQ e processos reais, credenciais/chaves efêmeras e provedor local/falso, sem depender de segredos do operador. A observabilidade da #88 acrescenta [métricas de aceitação, entrega e falhas](../architecture/diagnostics-pipeline.md#métricas-do-fluxo) e spans correlacionados ao contexto do envelope. O teste distribuído em [`MicroservicesBatchEndToEndTests`](../../tests/Ouroboros.IntegrationTests/MicroservicesBatchEndToEndTests.cs) verifica sua exportação no coletor/destino reais com worker separado. SMTP e empacotamento operacional/probes da #98 continuam fora dessa validação.
 
 [Voltar à documentação](../README.md)

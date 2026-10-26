@@ -1,0 +1,66 @@
+# Destino dedicado dos diagnósticos: grava os logs recebidos do coletor em arquivos JSON (OTLP/JSON, uma linha
+# por lote) no volume diagnostics-data, com rotação e retenção limitadas. Recebe somente pela rede interna do
+# Compose; não acessa bancos de negócio e não é auditoria.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 8388608
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 96
+    spike_limit_mib: 24
+
+exporters:
+  file/traces:
+    path: /var/lib/ouroboros-diagnostics/traces.jsonl
+    format: json
+    rotation:
+      max_megabytes: 32
+      max_days: 7
+      max_backups: 8
+      localtime: false
+  file/metrics:
+    path: /var/lib/ouroboros-diagnostics/metrics.jsonl
+    format: json
+    rotation:
+      max_megabytes: 32
+      max_days: 7
+      max_backups: 8
+      localtime: false
+  # Rotação por tamanho: até 1 arquivo ativo + 8 rotacionados de 32 MiB (~288 MiB); rotacionados com mais de
+  # 7 dias são apagados na próxima rotação.
+  file/logs:
+    path: /var/lib/ouroboros-diagnostics/logs.jsonl
+    format: json
+    rotation:
+      max_megabytes: 32
+      max_days: 7
+      max_backups: 8
+      localtime: false
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [file/logs]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [file/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [file/metrics]

@@ -84,6 +84,62 @@ services:
       - ./backups:/backups
     entrypoint: ["bash", "/scripts/transfer-identity.sh"]
 
+  # Diagnósticos (OpenTelemetry). As APIs e os workers enviam OTLP/HTTP ao coletor em 127.0.0.1:4318 quando
+  # Observability:Otlp:Endpoint está configurado; o coletor sanitiza de novo e encaminha ao destino dedicado,
+  # que grava arquivos rotacionados no volume diagnostics-data. Nenhum deles acessa os bancos de negócio.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    environment:
+      GOMEMLIMIT: 200MiB
+    mem_limit: 256m
+    volumes:
+      - ./config/observability/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - collector-queue:/var/lib/ouroboros-collector
+    ports:
+      - "127.0.0.1:${OTEL_COLLECTOR_PORT:-4318}:4318"
+    depends_on:
+      diagnostics-store:
+        condition: service_started
+      diagnostics-volume-init:
+        condition: service_completed_successfully
+
+  diagnostics-store:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+    command: ["--config=/etc/otelcol/diagnostics-store.yaml"]
+    environment:
+      GOMEMLIMIT: 120MiB
+    mem_limit: 160m
+    volumes:
+      - ./config/observability/diagnostics-store.yaml:/etc/otelcol/diagnostics-store.yaml:ro
+      - diagnostics-data:/var/lib/ouroboros-diagnostics
+    depends_on:
+      diagnostics-volume-init:
+        condition: service_completed_successfully
+
+  # O coletor roda como o usuário sem privilégios 10001; o volume novo nasce do root. Ajusta só o dono do volume.
+  diagnostics-volume-init:
+    image: busybox:1.37.0
+    restart: "no"
+    command: ["sh", "-c", "chown 10001:10001 /data /queue && chmod 0750 /data /queue"]
+    volumes:
+      - diagnostics-data:/data
+      - collector-queue:/queue
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  diagnostics-data:
+  collector-queue:

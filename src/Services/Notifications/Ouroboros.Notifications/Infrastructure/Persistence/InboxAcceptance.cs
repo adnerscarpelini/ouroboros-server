@@ -9,7 +9,7 @@ namespace Ouroboros.Notifications.Infrastructure.Persistence;
 
 internal enum AcceptanceResult { Accepted, Duplicate, Expired, Superseded, Rejected, Conflict }
 
-internal sealed class InboxAcceptance(NotificationsDbContext context, MessageFingerprints fingerprints, TimeProvider clock)
+internal sealed class InboxAcceptance(NotificationsDbContext context, MessageFingerprints fingerprints, TimeProvider clock, InboxMetrics metrics)
 {
     internal async Task<AcceptanceResult> AcceptAsync(ReadOnlyMemory<byte> body, string? transportId, CancellationToken cancellationToken)
     {
@@ -33,6 +33,7 @@ internal sealed class InboxAcceptance(NotificationsDbContext context, MessageFin
                 if (existing.ExpiresAt <= now)
                 { await InboxPersistence.TerminalAsync(context, id, null, InboxState.Expired, null, now, cancellationToken); }
                 await transaction.CommitAsync(cancellationToken);
+                metrics.Accepted(AcceptanceResult.Duplicate);
                 return AcceptanceResult.Duplicate;
             }
             // Não sobrescrever a identidade/conteúdo aceitos; interromper trabalho ainda não concluído.
@@ -40,6 +41,7 @@ internal sealed class InboxAcceptance(NotificationsDbContext context, MessageFin
             await InboxPersistence.AddFailureAsync(context, id, "content-conflict", comparison.Value, existing.ExpiresAt, now, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            metrics.Accepted(AcceptanceResult.Conflict);
             return AcceptanceResult.Conflict;
         }
         var row = new InboxMessage
@@ -91,6 +93,7 @@ internal sealed class InboxAcceptance(NotificationsDbContext context, MessageFin
         context.Inbox.Add(row);
         await context.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        metrics.Accepted(result);
         return result;
     }
 

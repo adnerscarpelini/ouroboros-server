@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,42 @@ namespace Ouroboros.IntegrationTests;
 public sealed class NotificationInboxTests(ProvisionedInstance database) : IClassFixture<ProvisionedInstance>
 {
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task Metrics_distinguish_rejection_delay_and_permanent_delivery_failure_after_durable_progress()
+    {
+        var measurements = new List<(string Instrument, string Label, string Value)>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, observer) =>
+        {
+            if (instrument.Meter.Name == "Ouroboros.Notifications.Inbox") { observer.EnableMeasurementEvents(instrument); }
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, tags, _) =>
+        {
+            foreach (var tag in tags) { measurements.Add((instrument.Name, tag.Key, tag.Value!.ToString()!)); }
+        });
+        listener.Start();
+        var transport = new CountingTransport { Failure = () => new NotificationDeliveryException(DeliveryFailure.Permanent) };
+        await using var scenario = await NotificationDatabaseScenario.CreateAsync(database, transport);
+        await scenario.AcceptAsync(Encoding.UTF8.GetBytes("[]"));
+        var pending = scenario.Message();
+        await scenario.AcceptAsync(pending);
+        await using (var context = scenario.Context())
+        {
+            await context.Inbox.Where(row => row.MessageId == pending.MessageId)
+                .ExecuteUpdateAsync(update => update.SetProperty(row => row.NextAttemptAt, scenario.Clock.GetUtcNow().AddMinutes(5)), Cancellation);
+        }
+        await scenario.RunAsync();
+        Assert.Equal(0, transport.Calls);
+        Assert.DoesNotContain(measurements, measurement => measurement.Instrument == "inbox.delivery.attempts");
+        scenario.Clock.Advance(TimeSpan.FromMinutes(6));
+        await scenario.RunAsync();
+        Assert.Contains(("inbox.acceptances", "result", "Rejected"), measurements);
+        Assert.Contains(("inbox.acceptances", "result", "Accepted"), measurements);
+        Assert.Contains(("inbox.delivery.attempts", "outcome", "permanent"), measurements);
+        Assert.Equal(InboxState.Failed, (await scenario.RowAsync(pending.MessageId)).State);
+        Assert.All(measurements, measurement => Assert.Contains(measurement.Label, new[] { "result", "outcome", "state" }));
+    }
 
     [Fact]
     public async Task Newer_expired_message_cancels_unsent_predecessor_and_preserves_supersession_cursor()

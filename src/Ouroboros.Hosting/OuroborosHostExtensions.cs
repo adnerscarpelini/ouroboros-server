@@ -15,7 +15,8 @@ public static class OuroborosHostExtensions
     {
         // Os controllers são públicos e ficam no projeto da API do serviço; a descoberta padrão do
         // ASP.NET Core encontra só os dessa API.
-        builder.Services.AddControllers();
+        builder.Services.AddControllers(options => options.Filters.Add<HttpFailureResultFilter>());
+        builder.Services.AddExceptionHandler<SafeExceptionHandler>();
 
         // A versão maior vem sempre na URL (api/v{version:apiVersion}/...) e não há versão implícita.
         builder.Services.AddApiVersioning(options =>
@@ -27,7 +28,10 @@ public static class OuroborosHostExtensions
         // Todo erro sai em application/problem+json (RFC 9457) com o trace id W3C da requisição, o
         // mesmo dos logs. Falhas de negócio definem o próprio type nos controllers da API.
         builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
-            context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier);
+        {
+            context.ProblemDetails.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+            HttpFailureResultFilter.Capture(context.HttpContext, context.ProblemDetails);
+        });
 
         // Nega por padrão: um endpoint só é anônimo se declarar [AllowAnonymous]. Exigências além de estar
         // autenticado (papéis, políticas) pertencem à API do serviço.
@@ -39,7 +43,8 @@ public static class OuroborosHostExtensions
 
     public static WebApplication UseOuroborosHost(this WebApplication app)
     {
-        app.UseExceptionHandler();
+        app.UseMiddleware<HttpFailureDiagnostics>();
+        app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
         app.UseStatusCodePages();
 
         // Antes da autenticação, para recusar o excesso sem validar token. As políticas vêm do serviço

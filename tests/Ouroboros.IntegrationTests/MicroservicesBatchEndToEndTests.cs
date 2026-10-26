@@ -3,7 +3,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -12,12 +14,141 @@ using Microsoft.IdentityModel.JsonWebTokens;
 using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Infrastructure.Messaging;
 using Ouroboros.Identity.Infrastructure.Persistence;
+using Ouroboros.Messaging;
 using Ouroboros.Notifications.Domain;
 
 namespace Ouroboros.IntegrationTests;
 
 public sealed partial class NotificationsWorkerTests
 {
+    [Fact]
+    public async Task Worker_catch_exports_correlated_exception_with_service_and_safe_message_id_without_payload()
+    {
+        await using var pipeline = new DiagnosticsPipelineFixture();
+        await pipeline.InitializeAsync();
+        await PurgeAsync();
+        await using var notifications = await NotificationDatabaseScenario.CreateAsync(database);
+        const string trace = "8bf92f3577b34da6a3ce929d0e0e4736";
+        var message = notifications.Keys.Message(changeMetadata: metadata => metadata with { Traceparent = $"00-{trace}-00f067aa0ba902b7-01" });
+        using var worker = StartWorker(notifications.Keys, new Dictionary<string, string>
+        {
+            ["Notifications__PrivateKeyRingPath"] = Path.Combine(notifications.Keys.DirectoryPath, "missing-keys.json"),
+            ["Observability__Otlp__Endpoint"] = pipeline.OtlpEndpoint,
+        });
+        var output = worker.StandardOutput.ReadToEndAsync(Cancellation);
+        var error = worker.StandardError.ReadToEndAsync(Cancellation);
+        try
+        {
+            await PublishAsync(EnvelopeCodec.Encode(message), message.MessageId);
+            var record = await pipeline.WaitForRecordAsync(item => item.GetProperty("record").TryGetProperty("traceId", out var id) && id.GetString() == trace
+                && OtlpJson.Attribute(item.GetProperty("record"), "Code") == "configuration-suspended");
+            Assert.Equal("notifications", OtlpJson.Attribute(record.GetProperty("resource"), "service.name"));
+            Assert.Equal(message.MessageId.ToString("D"), OtlpJson.Attribute(record.GetProperty("record"), "MessageId"));
+            Assert.NotNull(OtlpJson.Attribute(record.GetProperty("record"), "exception.type"));
+            var text = await pipeline.StoredTextAsync();
+            Assert.DoesNotContain(message.Payload.Ciphertext, text);
+            Assert.DoesNotContain(NotificationTestKeys.Content.Recipient, text);
+            Assert.DoesNotContain("private-test-token", text);
+        }
+        finally { await StopAsync(worker); }
+        Assert.DoesNotContain(message.Payload.Ciphertext, await output + await error);
+    }
+
+    [Fact]
+    public async Task Deferred_publication_and_worker_export_same_trace_and_bounded_metric_labels_to_real_collector()
+    {
+        const string trace = "4bf92f3577b34da6a3ce929d0e0e4736";
+        await using var pipeline = new DiagnosticsPipelineFixture();
+        await pipeline.InitializeAsync();
+        await PurgeAsync();
+        await using var notifications = await NotificationDatabaseScenario.CreateAsync(database);
+        await using var factory = new IntegrationApiFactory(database.ConnectionStringFor(ProvisionedInstance.IdentityMigrator, ProvisionedInstance.IdentityDatabase));
+        await using var api = factory.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration(configuration =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Observability:Otlp:Endpoint"] = pipeline.OtlpEndpoint })));
+        using var client = api.CreateClient();
+        await using (var scope = api.Services.CreateAsyncScope())
+        { await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().Database.MigrateAsync(Cancellation); }
+        using var worker = StartWorker(notifications.Keys, new Dictionary<string, string>
+        {
+            ["Notifications__PrivateKeyRingPath"] = TestSigningKeys.EmailPrivateKeyRingPath,
+            ["Observability__Otlp__Endpoint"] = pipeline.OtlpEndpoint,
+        });
+        var output = worker.StandardOutput.ReadToEndAsync(Cancellation);
+        var error = worker.StandardError.ReadToEndAsync(Cancellation);
+        const string email = "distributed-trace@example.com";
+        Guid id = Guid.Empty;
+        try
+        {
+            using (var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/identity/registrations?token=never-export-this-query"))
+            {
+                request.Headers.Add("traceparent", $"00-{trace}-00f067aa0ba902b7-00");
+                request.Content = JsonContent.Create(new { Email = email });
+                using var response = await client.SendAsync(request, Cancellation);
+                Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            }
+            await using (var scope = api.Services.CreateAsyncScope())
+            {
+                id = await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().EmailIntents.Where(row => row.State == EmailIntentState.Pending)
+                    .Select(row => row.ExternalId).SingleAsync(Cancellation);
+            }
+            Assert.False(File.Exists(Path.Combine(notifications.Keys.EmailsPath, id.ToString("N") + ".eml")));
+            using var metrics = new EmailOutboxMetrics();
+            using var publisher = new EmailOutboxPublisher(api.Services.GetRequiredService<IServiceScopeFactory>(),
+                Options.Create(new EmailPublisherOptions { Host = broker.Host, Port = broker.Port, Password = broker.IdentityPassword }),
+                notifications.Services.GetRequiredService<IHostEnvironment>(), TimeProvider.System, metrics, NullLogger<EmailOutboxPublisher>.Instance);
+            await publisher.RunOnceAsync(Cancellation);
+            var deliveredToken = await DeliveredTokenAsync(notifications, id);
+            await WaitAsync(async () => (await pipeline.StoredTextAsync("traces")).Contains("inbox.deliver", StringComparison.Ordinal));
+            var spans = (await pipeline.StoredTextAsync("traces")).Split('\n', StringSplitOptions.RemoveEmptyEntries).SelectMany(line =>
+            {
+                using var json = JsonDocument.Parse(line);
+                return json.RootElement.GetProperty("resourceSpans").EnumerateArray().SelectMany(resource =>
+                    resource.GetProperty("scopeSpans").EnumerateArray().SelectMany(scope => scope.GetProperty("spans").EnumerateArray().Select(span => span.Clone()))).ToArray();
+            }).ToArray();
+            foreach (var name in new[] { "outbox.publish", "inbox.accept", "inbox.deliver" })
+            {
+                var span = Assert.Single(spans, span => span.GetProperty("name").GetString() == name);
+                Assert.Equal(trace, span.GetProperty("traceId").GetString());
+                Assert.Single(span.GetProperty("links").EnumerateArray());
+                Assert.Equal(id.ToString("D"), OtlpJson.Attribute(span, "messaging.message.id"));
+            }
+            Assert.Contains(spans, span => span.GetProperty("traceId").GetString() == trace
+                && OtlpJson.Attribute(span, "http.request.method") == "POST");
+            var cycle = Assert.Single(spans, span => span.GetProperty("name").GetString() == "outbox.publish.cycle");
+            Assert.NotEqual(trace, cycle.GetProperty("traceId").GetString());
+            Assert.Single(cycle.GetProperty("links").EnumerateArray());
+            await WaitAsync(async () => (await pipeline.StoredTextAsync("metrics")).Contains("inbox.delivery.attempts", StringComparison.Ordinal));
+            var metricText = await pipeline.StoredTextAsync("metrics");
+            foreach (var line in metricText.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                using var json = JsonDocument.Parse(line);
+                foreach (var resource in json.RootElement.GetProperty("resourceMetrics").EnumerateArray())
+                    foreach (var scope in resource.GetProperty("scopeMetrics").EnumerateArray())
+                        foreach (var metric in scope.GetProperty("metrics").EnumerateArray())
+                            foreach (var data in metric.EnumerateObject().Where(property => property.Value.ValueKind == JsonValueKind.Object && property.Value.TryGetProperty("dataPoints", out _)))
+                                foreach (var point in data.Value.GetProperty("dataPoints").EnumerateArray())
+                                {
+                                    if (!point.TryGetProperty("attributes", out var attributes)) { continue; }
+                                    Assert.All(attributes.EnumerateArray(), attribute => Assert.Contains(attribute.GetProperty("key").GetString(),
+                                        new[] { "code", "state", "result", "outcome", "http.route", "http.request.method", "http.response.status_code" }));
+                                }
+            }
+            var diagnostics = await pipeline.StoredTextAsync() + await pipeline.StoredTextAsync("traces") + metricText;
+            foreach (var secret in new[] { email, deliveredToken, "never-export-this-query", "?token=", "PRIVATE KEY" })
+            { Assert.DoesNotContain(secret, diagnostics); }
+        }
+        finally
+        {
+            await StopAsync(worker);
+            // A fixture compartilha o banco entre métodos; remova só os dados fictícios deste cenário.
+            await using var scope = api.Services.CreateAsyncScope();
+            var context = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+            await context.EmailIntents.Where(row => row.ExternalId == id).ExecuteDeleteAsync(Cancellation);
+            await context.EmailTokens.Where(row => row.Email == email).ExecuteDeleteAsync(Cancellation);
+        }
+        Assert.DoesNotContain(email, await output + await error);
+    }
+
     [Fact]
     public async Task Registration_and_password_reset_cross_real_broker_and_separate_worker_using_isolated_databases_then_issue_valid_rsa_tokens()
     {

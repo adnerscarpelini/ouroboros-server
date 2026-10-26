@@ -6,12 +6,12 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 - .NET SDK 10.0.402, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
-- Docker com Docker Compose, para PostgreSQL e RabbitMQ de desenvolvimento; os testes de integração também exigem o Docker em execução.
+- Docker com Docker Compose, para PostgreSQL, RabbitMQ e o coletor de diagnósticos de desenvolvimento; os testes de integração também exigem o Docker em execução.
 - PowerShell 7 (`pwsh`) para provisionar o RabbitMQ e para sua fixture de teste, inclusive em Linux.
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting` e `Ouroboros.Messaging` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
 Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
@@ -40,6 +40,7 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - Os testes de integração exigem o Docker em execução. Eles sobem o próprio PostgreSQL em container com Testcontainers e não usam o banco do Docker Compose, o `.env` nem os user-secrets. A primeira execução baixa a imagem `postgres:18-alpine`. Os testes de mensageria também baixam `rabbitmq:4.4.0-management` e exigem `pwsh`; contratos e topologia estão descritos em [RabbitMQ e contrato de mensagem](architecture/messaging.md#como-verificar).
 - Os testes de provisionamento (`DatabaseProvisioningTests`) também exigem o Docker. [ProvisionedInstance](../tests/Ouroboros.IntegrationTests/ProvisionedInstance.cs) sobe uma instância PostgreSQL própria, separada da `PostgresFixture` porque o provisionamento cria roles e revoga `CONNECT`, efeitos de instância inteira. A instância nasce com um banco `ouroboros` com dados legados e com log verboso (`log_statement=all`, `log_min_duration_statement=0`), para provar que as senhas não chegam ao log do servidor. O teste copia `scripts/database` para o container e executa o mesmo `psql` do comando do Compose, com senhas aleatórias geradas a cada execução; não usa o `.env`.
 - Os testes da transferência do banco de Identity (`IdentityDatabaseTransferTests` e `IdentityDatabaseTransferHardeningTests`) também exigem o Docker e usam a mesma `ProvisionedInstance`, que copia `scripts/database` para o container e executa `transfer-identity.sh` com a credencial administrativa da instância de teste. Cobrem backup restaurado e comparado, janela sem escrita, equivalência de origem e destino, falha de validação sem troca e com origem intacta, recusas do `copy`, privilégios da role de runtime (sem DDL, sem banco alheio, sem `public`), migrations só pela role de migration, rollback sem e com novas escritas, reconciliação (idempotência, conflito, sequências nunca usadas) e login, renovação e `me` com a API real na role de runtime após a troca. Não substituem o ensaio em cópia do ambiente real.
+- Os testes do pipeline de diagnósticos (`DiagnosticsPipelineTests`) também exigem o Docker e baixam `otel/opentelemetry-collector-contrib:0.162.0` e `busybox:1.37.0`. Sobem coletor e destino reais com os arquivos de `config/observability`, em rede e volume próprios de teste; não usam os serviços nem o volume do Compose ([cenários](architecture/diagnostics-pipeline.md#como-verificar)).
 - `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
 - `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
 
@@ -324,7 +325,7 @@ No bash: `OUROBOROS_ADMIN_PASSWORD='<senha>' dotnet run --project src/Services/I
 - O e-mail precisa ser do domínio do parâmetro `Identity:AdminInvitations:AllowedEmailDomain` (valor inicial `adnerscarpelini.com`), sem subdomínios.
 - A senha tem de 15 a 128 caracteres, sem regras de composição (frases com espaços e acentos valem), e não pode ser comum nem conter `ouroboros` ou a parte local do e-mail ([Política de senha](architecture/password-policy.md)).
 - Só funciona enquanto não houver nenhum `Admin`; os próximos entram por convite.
-- Código de saída `0`: criado; `1`: recusado, com a mensagem da regra e `Nada foi criado.`; `2`: falta `--email` ou a variável da senha.
+- Código de saída `0`: criado; `1`: recusa de regra, erro técnico ou cancelamento solicitado; `2`: falta `--email` ou a variável da senha. Recusa informa a regra e `Nada foi criado.`; erro técnico tem saída genérica e diagnóstico sanitizado `command-failed` com trace W3C; cancelamento informa `Comando cancelado.`. O processo drena as filas ao descartar o host antes de sair.
 
 Detalhes em [Criar o primeiro administrador](identity/first-admin.md). Com o `Admin` criado, entre pelo login administrativo, no listener administrativo, `POST /api/v1/admin/identity/sessions` ([Fazer login com e-mail e senha](identity/login.md#como-usar)).
 
@@ -477,6 +478,124 @@ Os user-secrets (connection string e caminho do manifesto de assinatura) só sã
 ### Endpoints e limites
 
 Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+
+## Logs dos executáveis
+
+A API de Identity e o worker de Notifications registram pelo OpenTelemetry, único provedor de log, também no Windows: não há Windows Event Log nem saída de Debug. Cada entrada é sanitizada e escrita no console (stdout), uma linha JSON por entrada, com `timestamp` (UTC), `level`, `category`, `eventId`, `service` (`identity` ou `notifications`), `serviceVersion`, `traceId` e `spanId` (quando há uma atividade W3C corrente), `occurrenceId`, `message` e `attributes`; uma exceção aparece em `attributes` como `exception.type`, `exception.message` e `exception.stacktrace`, já sanitizados. Campos, exemplos e limites em [Correlação por W3C Trace Context](architecture/trace-correlation.md#formato-do-console). As linhas saem em lotes, em até cerca de 1 s depois do log. Os níveis seguem `Logging:LogLevel` do `appsettings.json` de cada executável; as categorias `Microsoft.EntityFrameworkCore.Database.Command` e `Microsoft.EntityFrameworkCore.Update` são suprimidas pela configuração comum para evitar SQL, parâmetros e duplicação da exceção. A fronteira ou catch registra a falha sanitizada, sem habilitar logging sensível do EF. Para guardar os diagnósticos fora do console, use o [coletor local](#diagnósticos-no-coletor-local).
+
+Para achar os logs de uma resposta de erro, pegue o segundo segmento do `traceId` do ProblemDetails (`00-<trace-id>-<span-id>-<flags>`) e filtre as linhas por ele. Por exemplo, guardando a saída da API em `.local/` (ignorada pelo Git):
+
+```powershell
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api | Tee-Object -FilePath .local/identity.log
+# Em outro terminal, com o <trace-id> da resposta:
+Select-String -Path .local/identity.log -SimpleMatch '"traceId":"<trace-id>"'
+```
+
+O mesmo filtro vale para a saída do worker: a publicação da outbox e o processamento no worker de uma solicitação continuam o trace da requisição. Para que uma chamada continue um trace do cliente, envie um `traceparent` W3C válido (por exemplo, `-Headers @{ traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' }` no `Invoke-RestMethod`); valor inválido é descartado e o host gera um trace novo. Os logs são sanitizados, mas a sanitização reconhece só chaves e padrões ([limites](architecture/diagnostics-pipeline.md#limites)) e as linhas trazem identificadores e pilhas de exceção: não os copie para issues ou para o repositório e apague os arquivos locais depois da investigação.
+
+Falhas do próprio pipeline, como fila cheia ou falha e timeout ao exportar para o coletor, não aparecem no stdout: saem em stderr, em linhas que começam com `ouroboros-observability` ([como interpretar](#interpretar-o-sinal-em-stderr)).
+
+Nos dois públicos HTTP, cada `4xx`/`5xx` gera um resumo `Warning` com `Status`, `Route` normalizada, `DurationMs`, `Classification` e `Code`. Validação usa `validation-failed`; falha de negócio usa o código permitido do catálogo; erro sem código usa `http-<status>`; exceção não tratada usa `unhandled-exception`. Só a ocorrência técnica `Error` recebe a exceção, e o resumo compartilha o trace sem repeti-la. Cancelamento esperado fica em `Information`, com `expected-cancellation`. Catches de e-mail, publicador, consumidor, executor, relay e manutenção registram as falhas relevantes com contexto seguro. Critérios e limites em [Política de captura de falhas](architecture/error-responses.md#política-de-captura-de-falhas).
+
+Testes da correlação e da sanitização, sem Docker:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class '*TraceCorrelationTests'
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class '*DiagnosticSanitizationTests'
+```
+
+Os cenários com publicação real e processo do worker ficam em `EmailOutboxPublisherTests` e `NotificationsWorkerTests` (exigem Docker), com os comandos de [outbox](#publicar-e-retomar-a-outbox-de-identity) e de [imagem do worker](#imagem-linux-de-notifications).
+
+## Diagnósticos no coletor local
+
+O coletor (`otel-collector`) e o destino dedicado (`diagnostics-store`) guardam os diagnósticos da API e do worker em arquivos rotacionados no volume `diagnostics-data`, com retenção limitada, sem acessar os bancos. O uso é opcional: sem endpoint configurado, os executáveis só escrevem no console. Decisão, recursos e limites em [Pipeline de diagnósticos sanitizados](architecture/diagnostics-pipeline.md).
+
+### Subir o coletor
+
+O Compose valida as variáveis do arquivo inteiro, então o `.env` precisa existir, como para o [RabbitMQ](#rabbitmq-local); o coletor e o destino não usam credenciais. Na raiz do repositório:
+
+```powershell
+docker compose up -d otel-collector
+docker compose ps otel-collector diagnostics-store
+```
+
+O comando sobe também `diagnostics-volume-init`, que prepara `diagnostics-data` e `collector-queue` com dono 10001 e modo `0750`, e `diagnostics-store`. O coletor recebe OTLP/HTTP em `127.0.0.1:4318` (`OTEL_COLLECTOR_PORT` altera a porta da máquina); o destino e a telemetria interna não têm portas publicadas. OTLP sem TLS nem autenticação se restringe ao desenvolvimento local. Os erros dos dois ficam em `docker compose logs otel-collector diagnostics-store`, com rotação Docker de aproximadamente 10 MiB por container.
+
+### Enviar os diagnósticos
+
+Defina `Observability:Otlp:Endpoint` no executável. Por exemplo, para a API:
+
+```powershell
+$env:Observability__Otlp__Endpoint = 'http://127.0.0.1:4318/'
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+```
+
+O mesmo vale para o worker de Notifications. De um container na rede do Compose, use `http://otel-collector:4318/`. O valor é uma URL `http` ou `https` absoluta só com host e porta: credenciais, caminho, query ou fragmento impedem a subida. O executável acrescenta `v1/logs`, `v1/traces` e `v1/metrics` para enviar os três sinais. Os appsettings não definem endpoint; `Remove-Item Env:Observability__Otlp__Endpoint` desativa o envio OTLP e mantém logs no console. Com o coletor parado, o executável continua funcionando e o descarte aparece em [stderr](#interpretar-o-sinal-em-stderr).
+
+### Ler o destino
+
+A imagem do coletor não tem shell; leia o volume por um container temporário, só leitura:
+
+```powershell
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 ls -l /data
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/logs.jsonl | Select-String -SimpleMatch '"traceId":"<trace-id>"'
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/traces.jsonl | Select-String -SimpleMatch '"traceId":"<trace-id>"'
+docker run --rm -v ouroboros_diagnostics-data:/data:ro busybox:1.37.0 cat /data/metrics.jsonl | Select-String -SimpleMatch 'outbox.backlog'
+```
+
+Cada linha de `logs.jsonl` é um lote em OTLP/JSON (`resourceLogs`): o resource traz `service.name`, `service.version`, `service.instance.id` e `deployment.environment.name`, e cada registro traz `traceId`, `spanId`, a mensagem em `body` e os atributos, entre eles `log.record.uid`, igual ao `occurrenceId` do console. Para achar uma ocorrência vista no console, filtre pelo valor do `occurrenceId`. `traces.jsonl` contém `resourceSpans`, com spans HTTP, `outbox.publish`, `inbox.accept`, `inbox.deliver` e o ciclo raiz `outbox.publish.cycle`; filtre pelo mesmo trace. `metrics.jsonl` contém `resourceMetrics`, com as agregações dos [instrumentos e dimensões permitidas](architecture/diagnostics-pipeline.md#métricas-do-fluxo).
+
+Os sinais chegam alguns segundos depois do evento, por causa dos lotes e do leitor periódico de métricas. Os gauges só aparecem depois do primeiro snapshot de cada serviço; valores terminais refletem linhas ainda retidas, sem contagem histórica durável. Cada sinal tem um arquivo ativo e até 8 rotacionados de 32 MiB, removidos por idade acima de 7 dias quando há rotação: aproximadamente 864 MiB para os três sinais ([retenção e limites](architecture/diagnostics-pipeline.md#retenção-e-limpeza)). Não copie o conteúdo para issues ou para o repositório.
+
+### Interpretar o sinal em stderr
+
+Os eventos `Warning` ou mais graves do OpenTelemetry no processo saem em stderr, nunca no stdout nem no destino, no formato:
+
+```text
+ouroboros-observability <instante UTC> <nível> <fonte>#<evento>: <mensagem> (suprimidos desde o último aviso: N)
+```
+
+| Mensagem | Significado |
+| --- | --- |
+| `'BatchLogRecordExportProcessor' exporting to 'OtlpLogExporter' dropped '<N>' item(s) due to buffer full` | A fila do processo para o coletor encheu (coletor lento ou indisponível, ou volume alto) e `N` registros não foram enviados a ele; o console tem fila própria |
+| O mesmo, com `exporting to 'JsonConsoleLogExporter'` | O stdout não acompanhou o volume e `N` linhas do console foram descartadas |
+| `BatchActivityExportProcessor` com `OtlpTraceExporter` e `dropped` | A fila de spans para o coletor encheu; os spans novos excedentes foram descartados |
+| Falha ou timeout do exportador OTLP | O coletor não respondeu em 5 s ou recusou o lote: confira se está no ar, a porta e `docker compose logs otel-collector` |
+
+Cada evento sai no máximo uma vez a cada 30 s; `N` no fim conta as repetições suprimidas. O descarte é informado de forma agregada, quando o processador encerra ou a exportação falha. O aviso do SDK de meter não assinado é excluído por representar a seleção intencional de métricas; outros motivos, instrumentos duplicados e falhas de exportação continuam visíveis. Para separar o sinal da saída normal, redirecione o stderr, por exemplo com `2> .local/identity-diagnostics.err` no `dotnet run`. A linha passa pela mesma sanitização de padrões, mas não a publique em issues.
+
+### Recuperar o buffer do coletor
+
+A fila persistente usa `collector-queue` em `/var/lib/ouroboros-collector`, separado de `diagnostics-data`: até 8 MiB serializados por sinal, arquivos ativos de até 32 MiB cada (96 MiB no total) e temporários de compactação no mesmo filesystem, que podem elevar o uso a aproximadamente 192 MiB. Reserve esse espaço além dos arquivos do destino. O executável continua com filas em memória; `200` OTLP pode anteceder a escrita da fila, pois há um batch em memória no coletor. Os 300 s de retry são por lote em processamento, sem TTL global da fila ([garantias e limites](architecture/diagnostics-pipeline.md#fila-persistente-e-isolamento-das-instâncias)).
+
+Com o volume válido e preservado, reiniciar ou substituir o container retoma entradas já gravadas, inclusive depois de SIGKILL. `fsync` não protege perda do volume/host e o destino pode receber duplicatas. Não execute duas instâncias com o mesmo diretório ou escale o serviço compartilhando esse volume: cada instância precisa de volume exclusivo, por exemplo em projetos Compose distintos. O bbolt recusa o segundo escritor por timeout de lock.
+
+Em erro de permissão, arquivo inválido ou disco cheio, confira os logs do coletor e a capacidade do filesystem. Preserve os arquivos; pare a instância antes de inspecionar ou fazer backup do volume. Corrija a permissão para o usuário 10001 ou a causa de falta de espaço, e reinicie usando o mesmo volume. Arquivo inválido pode impedir a subida e exige avaliação/restauração pelo operador: não é recriado automaticamente. Não apague o volume ou arquivos da fila como procedimento de recuperação.
+
+Para observar admissão, envio e ocupação, leia as métricas Prometheus pela rede interna. Com o nome padrão do projeto, por exemplo (substitua `ouroboros_default` pela rede do projeto usado):
+
+```powershell
+docker run --rm --network ouroboros_default busybox:1.37.0 wget -qO- http://otel-collector:8888/metrics | Select-String 'otelcol_exporter_(enqueue_failed|send_failed|queue_size|queue_capacity)'
+```
+
+`enqueue_failed_*` indica falha ao admitir dados; `send_failed_*` inclui tentativas que ainda podem ser recuperadas. Crescimento desses contadores, junto da ocupação e dos logs, indica saturação ou falha; não os some como uma contagem de perdas únicas. A porta 8888 permanece interna, sem publicação no host.
+
+### Parar o coletor
+
+```powershell
+docker compose stop otel-collector diagnostics-store
+```
+
+Entradas já gravadas em `collector-queue` permanecem para a próxima subida, desde que o volume seja preservado e continue válido. O batch em memória do coletor e as filas dos executáveis ainda têm janela de perda. `docker compose down` mantém `diagnostics-data` e `collector-queue`; os comandos documentados não removem esses volumes.
+
+### Testes do pipeline
+
+Com coletor e destino reais, exigem Docker e não usam os containers do Compose:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*DiagnosticsPipelineTests'
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*CollectorRecoveryTests'
+```
 
 ## Executar o worker de Notifications
 
@@ -670,7 +789,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file script
 
 O script retorna somente id, estado, tentativas e prazo. Só retoma `Pending` suspensa, ainda válida, com conteúdo protegido e sem lease; mantém id, tentativas e expiração. Se nenhuma linha for atualizada, não force estado nem recrie prazo: ela pode estar em processamento ou terminal. Expiradas/canceladas não são ressuscitadas. Envelope inválido/divergente termina em `Failed`, com descarte do conteúdo, e exige nova intenção de negócio após corrigir a causa. Nunca selecione o payload para investigar a retomada.
 
-O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas e retries, sem tags. Gauges refletem o último snapshot obtido pelo ciclo e só emitem após o primeiro; não há exporter/endpoint de métricas da #88. O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
+O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas, retries e estados terminais. Falhas/retries têm somente o código de conjunto fechado, e estados terminais têm `state`; gauges refletem o último snapshot do ciclo e só emitem após o primeiro. Com `Observability:Otlp:Endpoint`, as métricas seguem ao [coletor local](#diagnósticos-no-coletor-local), junto dos sinais de Notifications ([instrumentos](architecture/diagnostics-pipeline.md#métricas-do-fluxo)). O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
 
 ```powershell
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'

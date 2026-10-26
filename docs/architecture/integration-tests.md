@@ -6,6 +6,8 @@ Cada proprietário é testado contra PostgreSQL real com Testcontainers, banco i
 
 O contrato de mensageria tem testes próprios, e a topologia é verificada com RabbitMQ real em container e volume exclusivos de teste. `RabbitMqFixture` executa o provisionador PowerShell com credenciais efêmeras, valida persistência após reinício/reprovisionamento e remove somente seus recursos. Exige `pwsh`, inclusive em Linux. [`NotificationsWorkerTests`](../../tests/Ouroboros.IntegrationTests/NotificationsWorkerTests.cs) também inicia o worker em processo filho, publica mensagens protegidas de teste e verifica consumo, `.eml`, logs sanitizados e reentrega após recusa de contrato. Esses testes não comprovam outbox ou deduplicação persistente das #85–#87 ([limites do worker](../notifications/worker.md#como-verificar)).
 
+O pipeline de diagnósticos é verificado com o coletor e o destino reais: [`DiagnosticsPipelineFixture`](../../tests/Ouroboros.IntegrationTests/DiagnosticsPipelineFixture.cs) sobe os dois com os arquivos de `config/observability` do repositório, em rede e volume exclusivos de teste preparados como no Compose, lê os arquivos do destino pela API do Docker e remove somente seus recursos ([cenários](diagnostics-pipeline.md#como-verificar)).
+
 ## Como executar
 
 Comandos disponíveis no [guia de desenvolvimento](../development.md#testes). A [CI Linux](../development.md#integração-contínua) executa a mesma suíte contra PostgreSQL em container.
