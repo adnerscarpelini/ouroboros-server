@@ -1,5 +1,9 @@
+using System.Text;
 using Ouroboros.Identity.Api;
 using Ouroboros.Identity.Api.CommandLine;
+
+// Mantém os comandos operacionais legíveis também quando a saída é redirecionada no Windows.
+Console.OutputEncoding = Encoding.UTF8;
 
 // API de Identity: clientes e integrações no listener público, administradores no listener administrativo
 // (por padrão só em loopback). Os dois públicos compartilham processo, banco e casos de uso.

@@ -632,6 +632,8 @@ Os valores de `Authentication:Jwt` disponíveis são:
 | Issuer | `ouroboros` |
 | Audience | `ouroboros-api`: tokens de `Customer`, aceitos no listener público |
 | AdminAudience | `ouroboros-backoffice`: tokens de `Admin`, aceitos no listener administrativo. Obrigatória na API de Identity e diferente de `Audience` |
+Os comandos operacionais da API de Identity escrevem em UTF-8, inclusive com saída redirecionada no Windows.
+
 | AccessTokenLifetime | `00:15:00` |
 | RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
 | KeyRingPath | Externo ao Git, caminho absoluto do manifesto; privada PEM PKCS#8 apontada por `privateKeyPath` |

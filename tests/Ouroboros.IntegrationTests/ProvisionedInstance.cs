@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using Docker.DotNet;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -19,20 +20,16 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     public const string NotificationsRuntime = "notifications_runtime";
     public const string NotificationsMigrator = "notifications_migrator";
 
-    private readonly int _hostPort = FreeTcpPort();
-
     // A instância registra todas as instruções e durações: o provisionamento precisa neutralizar isso
     // nas próprias sessões, senão as senhas apareceriam no log do servidor.
-    private readonly PostgreSqlContainer _container;
+    private PostgreSqlContainer _container = CreateContainer();
 
-    public ProvisionedInstance()
-    {
-        _container = new PostgreSqlBuilder("postgres:18-alpine")
-            .WithPortBinding(_hostPort, 5432)
+    private static PostgreSqlContainer CreateContainer() =>
+        new PostgreSqlBuilder("postgres:18-alpine")
+            .WithPortBinding(FreeTcpPort(), 5432)
             .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1",
                 "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0")
             .Build();
-    }
 
     // Senhas só de teste, geradas a cada execução; nunca aparecem em saída nem em logs.
     public IReadOnlyDictionary<string, string> Passwords { get; } = new Dictionary<string, string>
@@ -45,7 +42,20 @@ public sealed class ProvisionedInstance : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await _container.StartAsync();
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await _container.StartAsync();
+                break;
+            }
+            catch (DockerApiException exception) when (attempt < 2 && exception.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase))
+            {
+                // A seleção no host e o bind pelo daemon não são atômicos, especialmente no Docker Desktop.
+                await _container.DisposeAsync();
+                _container = CreateContainer();
+            }
+        }
         await ExecuteAdminAsync("postgres", $"""CREATE DATABASE "{LegacyDatabase}" """);
         await ExecuteAdminAsync(LegacyDatabase, "CREATE TABLE legacy_users (id int PRIMARY KEY, email text NOT NULL); INSERT INTO legacy_users VALUES (1, 'a@example.com'), (2, 'b@example.com');");
 

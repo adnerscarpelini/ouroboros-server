@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using Docker.DotNet;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Volumes;
@@ -18,24 +19,29 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     internal const string FailuresExchange = "ouroboros.notification-failures";
     internal const string FailuresQueue = "notifications.failures.v1";
     private readonly string _adminPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-    private readonly int _amqpPort = FreeTcpPort();
-    private readonly int _managementPort = FreeTcpPort();
+    private int _amqpPort;
     internal readonly string IdentityPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     internal readonly string ConsumerPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     internal readonly string FailuresPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-    private readonly IContainer _container;
+    private IContainer _container;
     private readonly IVolume _volume = new VolumeBuilder().Build();
     internal string Host => _container.Hostname;
     internal int Port => _amqpPort;
 
     public RabbitMqFixture()
     {
-        _container = new ContainerBuilder("rabbitmq:4.4.0-management")
+        _container = CreateContainer();
+    }
+
+    private IContainer CreateContainer()
+    {
+        _amqpPort = FreeTcpPort();
+        return new ContainerBuilder("rabbitmq:4.4.0-management")
             .WithEnvironment("RABBITMQ_DEFAULT_USER", "test_operator")
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", _adminPassword)
             .WithEnvironment("RABBITMQ_DEFAULT_VHOST", "ouroboros")
             .WithVolumeMount(_volume, "/var/lib/rabbitmq")
-            .WithPortBinding(_amqpPort, 5672).WithPortBinding(_managementPort, 15672)
+            .WithPortBinding(_amqpPort, 5672).WithPortBinding(FreeTcpPort(), 15672)
             .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(15672))
             .Build();
     }
@@ -43,7 +49,19 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await _volume.CreateAsync();
-        await _container.StartAsync();
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await _container.StartAsync();
+                break;
+            }
+            catch (DockerApiException exception) when (attempt < 2 && exception.Message.Contains("address already in use", StringComparison.OrdinalIgnoreCase))
+            {
+                await _container.DisposeAsync();
+                _container = CreateContainer();
+            }
+        }
         await ProvisionAsync();
     }
 
