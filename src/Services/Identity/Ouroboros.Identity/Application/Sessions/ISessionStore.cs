@@ -8,6 +8,9 @@ namespace Ouroboros.Identity.Application.Sessions;
 internal interface ISessionStore
 {
     Task<User?> FindUserAsync(string normalizedEmail, CancellationToken cancellationToken);
+    Task<User?> FindUserAsync(Guid userId, CancellationToken cancellationToken);
+    Task<bool> OwnsSessionAsync(long userId, Guid sessionId, CancellationToken cancellationToken);
+    Task ChangePasswordAndRevokeOtherTokensAsync(long userId, Guid sessionId, string hash, DateTimeOffset now, CancellationToken cancellationToken);
     Task<long?> FindUserIdAsync(Guid userId, CancellationToken cancellationToken);
     Task<StoredRefreshToken?> FindRefreshTokenAsync(byte[] hash, CancellationToken cancellationToken);
     Task<RefreshTokenReference?> FindRefreshTokenReferenceAsync(byte[] hash, CancellationToken cancellationToken);

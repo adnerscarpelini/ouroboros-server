@@ -8,6 +8,24 @@ namespace Ouroboros.Identity.Infrastructure.Persistence;
 
 internal sealed class SessionStore(IdentityDbContext context) : ISessionStore
 {
+    public Task<User?> FindUserAsync(Guid userId, CancellationToken cancellationToken) =>
+        context.Users.AsNoTracking().SingleOrDefaultAsync(user => user.ExternalId == userId, cancellationToken);
+
+    public Task<bool> OwnsSessionAsync(long userId, Guid sessionId, CancellationToken cancellationToken) =>
+        context.Sessions.AnyAsync(session => session.UserId == userId && session.ExternalId == sessionId, cancellationToken);
+
+    public async Task ChangePasswordAndRevokeOtherTokensAsync(long userId, Guid sessionId, string hash, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (context.Database.CurrentTransaction is null) { throw new InvalidOperationException("A troca exige a transação local de Identity."); }
+        await context.Users.Where(user => user.Id == userId).ExecuteUpdateAsync(setters => setters
+            .SetProperty(user => user.PasswordHash, hash).SetProperty(user => user.FailedLoginCount, 0)
+            .SetProperty(user => user.LockedUntil, (DateTimeOffset?)null).SetProperty(user => user.UpdatedAt, now), cancellationToken);
+        await context.RefreshTokens.Where(token => token.RevokedAt == null && context.Sessions.Any(session =>
+                session.Id == token.SessionId && session.UserId == userId && session.ExternalId != sessionId))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(token => token.RevokedAt, now)
+                .SetProperty(token => token.UpdatedAt, now), cancellationToken);
+    }
+
     public Task<User?> FindUserAsync(string normalizedEmail, CancellationToken cancellationToken) =>
         context.Users.SingleOrDefaultAsync(user => user.Email == normalizedEmail, cancellationToken);
 

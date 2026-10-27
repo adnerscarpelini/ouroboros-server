@@ -2,7 +2,7 @@
 
 ## Contexto
 
-A [criação do primeiro administrador](../identity/first-admin.md), o [cadastro de cliente](../identity/registration.md#concluir-o-cadastro) e a [redefinição de senha](../identity/password-reset.md#concluir-a-redefinição) aplicam a mesma política de Identity. Fluxos de troca e convite devem respeitar essa regra. O projeto adota senhas longas, sem regras de composição, verificadas contra uma lista local de senhas comuns.
+A [criação do primeiro administrador](../identity/first-admin.md), o [cadastro de cliente](../identity/registration.md#concluir-o-cadastro), a [redefinição de senha](../identity/password-reset.md#concluir-a-redefinição) e a [troca autenticada de senha](../identity/change-password.md) aplicam a mesma política de Identity. O fluxo futuro de convite deve respeitar essa regra. O projeto adota senhas longas, sem regras de composição, verificadas contra uma lista local de senhas comuns.
 
 ## Decisão
 
@@ -39,7 +39,7 @@ O [`AspNetCorePasswordHasher`](../../src/Services/Identity/Ouroboros.Identity/In
 
 - Todo fluxo que receber uma senha nova (cadastro, redefinição, troca, convite) chama `PasswordPolicy.Validate` antes de `IPasswordHasher.Hash`; nenhum deles define regras próprias.
 - Usam a política o [`create-admin`](../identity/first-admin.md#regras), que mostra a regra violada com o código de saída `1`, e a [conclusão do cadastro de cliente](../identity/registration.md#senha-recusada-400) (#21), que a devolve no `detail` do erro [`password-rejected`](../errors/identity.md#password-rejected), com o e-mail gravado no token de cadastro como contexto, e a [redefinição de senha](../identity/password-reset.md#senha-recusada-400) (#23), que a devolve da mesma forma, com o e-mail da conta como contexto. Na API, a regra só é mostrada a quem apresenta um token válido; com token inválido, a resposta é a de token inválido, qualquer que seja a senha.
-- A redefinição de senha acrescenta uma regra fora da política: a senha nova não pode ser igual à atual (`A nova senha não pode ser igual à atual.`, no mesmo `password-rejected`). A regra fica no caso de uso, porque depende do hash gravado, e não na `PasswordPolicy`, que não conhece o usuário.
+- A redefinição e a troca autenticada de senha acrescentam uma regra fora da política: a senha nova não pode ser igual à atual (`A nova senha não pode ser igual à atual.`, no mesmo `password-rejected`). A regra fica no caso de uso, porque depende do hash gravado, e não na `PasswordPolicy`, que não conhece o usuário.
 - A lista local é pequena e mantida à mão; não cobre senhas vazadas em geral.
 - A política pertence a Identity. Outros serviços não referenciam sua implementação nem recebem senhas para reproduzir sua validação; operações sobre credenciais são executadas no proprietário por contrato HTTP apropriado.
 
