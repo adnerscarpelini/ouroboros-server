@@ -170,10 +170,12 @@ services:
       Identity__EmailPublisher__User: "identity_publisher"
       Identity__EmailPublisher__Password: ${IDENTITY_BROKER_PASSWORD:?defina IDENTITY_BROKER_PASSWORD no .env}
       Identity__ForwardedHeaders__KnownProxies__0: "127.0.0.1"
-      Identity__ForwardedHeaders__KnownNetworks__0: ${IDENTITY_KNOWN_PROXY_NETWORK:-172.16.0.0/12}
+      Identity__ForwardedHeaders__KnownProxies__1: ${EXTERNAL_GATEWAY_IP:-172.30.230.10}
       Observability__Otlp__Endpoint: "http://otel-collector:4318/"
     ports:
       - "127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141"
+      # O gateway administrativo compartilha esta rede para alcançar o listener 5142 em loopback.
+      - "127.0.0.1:${ADMIN_GATEWAY_PORT:-5152}:5152"
     volumes:
       - ${IDENTITY_KEYS_DIR:?defina IDENTITY_KEYS_DIR no .env}:/run/ouroboros-keys/identity:ro
     healthcheck:
@@ -239,6 +241,9 @@ services:
         APP_VERSION: ${APP_VERSION:-0.1.0}
         SOURCE_REVISION: ${SOURCE_REVISION:-local}
     profiles: ["gateways"]
+    networks:
+      default:
+        ipv4_address: ${EXTERNAL_GATEWAY_IP:-172.30.230.10}
     restart: unless-stopped
     depends_on:
       identity-api:
@@ -269,19 +274,18 @@ services:
         APP_VERSION: ${APP_VERSION:-0.1.0}
         SOURCE_REVISION: ${SOURCE_REVISION:-local}
     profiles: ["gateways"]
+    network_mode: "service:identity-api"
     restart: unless-stopped
     depends_on:
       identity-api:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
-      Gateway__Urls__0: "http://127.0.0.1:5152"
-      Gateway__AllowNonLoopback: "false"
+      Gateway__Urls__0: "http://0.0.0.0:5152"
+      Gateway__AllowNonLoopback: "true"
       Gateway__Downstream__IdentityBaseUrl: "http://127.0.0.1:5142"
       Gateway__Downstream__Timeout: "00:00:05"
       Observability__Otlp__Endpoint: "http://otel-collector:4318/"
-    ports:
-      - "127.0.0.1:${ADMIN_GATEWAY_PORT:-5152}:5152"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5152/health/live"]
       interval: 5s
@@ -341,6 +345,12 @@ services:
     volumes:
       - diagnostics-data:/data
       - collector-queue:/queue
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${GATEWAY_NETWORK_SUBNET:-172.30.230.0/24}
 
 volumes:
   postgres-data:

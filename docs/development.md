@@ -98,7 +98,7 @@ Se ainda não existir `.env`, copie `.env.example` uma única vez (`cp .env.exam
 | `IDENTITY_PUBLIC_PORT` | Porta de loopback do host para o listener público de Identity (padrão `5141`) |
 | `NOTIFICATIONS_HEALTH_PORT` | Porta de loopback do host para o endpoint de saúde de Notifications (padrão `5143`) |
 | `EXTERNAL_GATEWAY_PORT`, `ADMIN_GATEWAY_PORT` | Portas de loopback do host para os containers opcionais `external-gateway` (padrão `5151`) e `admin-gateway` (padrão `5152`), no profile `gateways` |
-| `IDENTITY_KNOWN_PROXY_NETWORK` | Sub-rede CIDR confiável pela qual `identity-api` aceita `X-Forwarded-For`/`X-Forwarded-Proto` dos gateways no Compose (`Identity:ForwardedHeaders:KnownNetworks:0`, padrão `172.16.0.0/12`) |
+| EXTERNAL_GATEWAY_IP, GATEWAY_NETWORK_SUBNET | IP estático exato do proxy externo e subnet da rede Compose (padrões 172.30.230.10 e 172.30.230.0/24). O IP deve pertencer à subnet; ajuste ambos em caso de sobreposição. Identity confia no IP exato e em loopback, sem confiar em toda a rede |
 | `IDENTITY_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/identity`, montado somente em `identity-api` como `:ro` |
 | `NOTIFICATIONS_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/notifications`, montado somente em `notifications-worker` como `:ro` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credencial administrativa da instância PostgreSQL; usada apenas por `postgres`, `provision-databases` e `transfer-identity` |
@@ -151,7 +151,7 @@ docker compose ps
 ```
 
 - **Imagens versionadas e usuário não-root:** [`src/Services/Identity/Ouroboros.Identity.Api/Dockerfile`](../src/Services/Identity/Ouroboros.Identity.Api/Dockerfile), [`src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile`](../src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile), [`src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile) e [`src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile) recebem `APP_VERSION` e `SOURCE_REVISION`, gravam `/p:Version`, `/p:SourceRevisionId` e os rótulos OCI (`org.opencontainers.image.version="${APP_VERSION}-${SOURCE_REVISION}"`), copiam somente o próprio executável e bibliotecas técnicas (com `.dockerignore` excluindo `.env`, `*.pem`, `*.key`, `.local` e `backups`) e executam sob `USER $APP_UID` (UID `1654`).
-- **Isolamento do listener administrativo e dos gateways:** `identity-api` publica no host somente o listener público em loopback (`127.0.0.1:${IDENTITY_PUBLIC_PORT:-5141}:5141`). O listener administrativo (`5142`) escuta apenas em loopback interno (`http://127.0.0.1:5142`, com `Identity__Listeners__Admin__AllowNonLoopback=false`) e não é publicado no host pelo `compose.yaml`. No profile opcional `gateways`, `external-gateway` publica `127.0.0.1:${EXTERNAL_GATEWAY_PORT:-5151}:5151` encaminhando `/api/v1/identity/*` para `http://identity-api:5141`, e `admin-gateway` publica `127.0.0.1:${ADMIN_GATEWAY_PORT:-5152}:5152` restrito a loopback (`Gateway__AllowNonLoopback=false`, `Gateway__Urls__0=http://127.0.0.1:5152`). Detalhes em [Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo).
+- **Isolamento administrativo:** o listener 5142 de Identity continua em loopback interno, sem publicação. O gateway administrativo compartilha o namespace de rede de identity-api para acessá-lo e escuta em 0.0.0.0:5152 (AllowNonLoopback=true); a publicação dessa porta fica no serviço identity-api, restrita a 127.0.0.1 no host. O gateway externo publica sua própria porta de loopback. Veja [Execução dos gateways](#executar-os-gateways-externo-e-administrativo).
 - **Health e readiness sanitizados ([`OuroborosHealthExtensions`](../src/Ouroboros.Hosting/OuroborosHealthExtensions.cs)):**
   - `GET /health/live` (liveness, anônimo e sem rate limit) verifica apenas se o processo está ativo (`Predicate = _ => false`) e responde `200 OK` com `{"status":"Healthy"}`.
   - `GET /health/ready` e `GET /health` (readiness, anônimos e sem rate limit) executam as verificações marcadas com a tag `ready` e respondem `200 OK` com `{"status":"Healthy"}` ou `503 Service Unavailable` com `{"status":"Unhealthy"}` (`Cache-Control: no-store, no-cache`). O writer fixo nunca serializa descrições, mensagens de exceção, nomes de roles, senhas ou connection strings.
@@ -538,6 +538,8 @@ O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na
 
 ## Criar o primeiro administrador
 
+Os comandos operacionais da API de Identity escrevem em UTF-8, inclusive com saída redirecionada no Windows.
+
 Administradores não se cadastram sozinhos. Com o banco configurado e as migrations de Identity aplicadas, incluindo seus parâmetros locais, crie o primeiro `Admin` pelo comando `create-admin` da API de Identity, que roda e encerra sem subir o servidor HTTP nem abrir os listeners. A senha vai na variável de ambiente `OUROBOROS_ADMIN_PASSWORD`, nunca em argumento (argumentos ficam no histórico do shell e na lista de processos):
 
 ```powershell
@@ -632,8 +634,6 @@ Os valores de `Authentication:Jwt` disponíveis são:
 | Issuer | `ouroboros` |
 | Audience | `ouroboros-api`: tokens de `Customer`, aceitos no listener público |
 | AdminAudience | `ouroboros-backoffice`: tokens de `Admin`, aceitos no listener administrativo. Obrigatória na API de Identity e diferente de `Audience` |
-Os comandos operacionais da API de Identity escrevem em UTF-8, inclusive com saída redirecionada no Windows.
-
 | AccessTokenLifetime | `00:15:00` |
 | RefreshTokenLifetime | `7.00:00:00`, contados novamente a cada renovação |
 | KeyRingPath | Externo ao Git, caminho absoluto do manifesto; privada PEM PKCS#8 apontada por `privateKeyPath` |
@@ -764,7 +764,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:5151/api/v1/identity/keys
 Invoke-RestMethod -Uri http://127.0.0.1:5152/health/live
 ```
 
-No Compose, `identity-api` já configura `Identity__ForwardedHeaders__KnownProxies__0=127.0.0.1` e `Identity__ForwardedHeaders__KnownNetworks__0=${IDENTITY_KNOWN_PROXY_NETWORK:-172.16.0.0/12}` para aceitar `X-Forwarded-For` das réplicas na rede do Compose. Para expor o `AdminGateway` a outro container na rede interna do Compose ou testar encaminhamento entre containers para o listener administrativo, ambos (`Identity:Listeners:Admin` e `AdminGateway`) permanecem restritos a loopback por padrão (`AllowNonLoopback=false`) e exigem configuração explícita e controle de rede dedicado.
+No Compose, Identity aceita cabeçalhos encaminhados somente de loopback e do IP estático EXTERNAL_GATEWAY_IP. A antiga variável IDENTITY_KNOWN_PROXY_NETWORK não é usada. O gateway administrativo usa network_mode: service:identity-api, acessa 127.0.0.1:5142 e tem sua porta 5152 publicada em loopback pelo serviço Identity. Compartilhar rede não compartilha processo, volumes ou segredos. Ao recriar Identity, recrie também o gateway administrativo.
+
+Para aplicar a subnet a uma rede Compose já existente, pare e remova os containers e a rede com docker compose --profile gateways down, preservando os volumes; depois execute novamente a sequência de subida. Não use opções de remoção de volumes. Se houver sobreposição de rede, ajuste GATEWAY_NETWORK_SUBNET e EXTERNAL_GATEWAY_IP no .env antes de subir.
+
+URLs HTTPS em Gateway:Urls ativam TLS e exigem certificado configurado no Kestrel. [GatewayTlsTests](../tests/Ouroboros.IntegrationTests/GatewayTlsTests.cs) verifica o handshake dos dois públicos.
 
 ### Verificar os testes dos gateways
 

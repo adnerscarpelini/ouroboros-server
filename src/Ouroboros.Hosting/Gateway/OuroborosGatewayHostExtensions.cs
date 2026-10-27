@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -58,17 +59,25 @@ public static class OuroborosGatewayHostExtensions
             foreach (var rawUrl in options.Urls)
             {
                 var uri = new Uri(rawUrl, UriKind.Absolute);
+                void ConfigureListener(ListenOptions listener)
+                {
+                    if (uri.Scheme == Uri.UriSchemeHttps)
+                    {
+                        listener.UseHttps();
+                    }
+                }
+
                 if (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase))
                 {
-                    kestrel.ListenLocalhost(uri.Port);
+                    kestrel.ListenLocalhost(uri.Port, ConfigureListener);
                 }
                 else if (IPAddress.TryParse(uri.Host, out var address))
                 {
-                    kestrel.Listen(address, uri.Port);
+                    kestrel.Listen(address, uri.Port, ConfigureListener);
                 }
                 else
                 {
-                    kestrel.ListenAnyIP(uri.Port);
+                    kestrel.ListenAnyIP(uri.Port, ConfigureListener);
                 }
             }
         });
