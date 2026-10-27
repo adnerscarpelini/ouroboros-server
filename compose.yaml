@@ -37,7 +37,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -139,6 +139,28 @@ services:
       - ./scripts/database:/scripts:ro
       - ./backups:/backups
     entrypoint: ["bash", "/scripts/transfer-identity.sh"]
+
+  # Inventaria, gera backup final verificável, rotaciona/revoga a credencial antiga e desativa de forma
+  # controlada (sem exclusão) o banco original após o cutover (#97). Nunca roda em `docker compose up`:
+  #   docker compose --profile decommission run --rm decommission-original-db <inventory|verify-unused|final-backup|rotate-admin-credential|deactivate|reactivate> [id]
+  decommission-original-db:
+    image: postgres:18-alpine
+    profiles: ["decommission"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PGHOST: postgres
+      PGDATABASE: postgres
+      PGUSER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      SOURCE_DATABASE: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
+      DECOMMISSION_DIR: /backups
+    volumes:
+      - ./scripts/database:/scripts:ro
+      - ./backups:/backups
+    entrypoint: ["bash", "/scripts/decommission-original-db.sh"]
 
   # API de Identity: usa somente ouroboros_identity (role identity_runtime) e identity_publisher no broker.
   # Apenas o listener público é publicado em loopback; o listener administrativo (5142) permanece não publicado no host.

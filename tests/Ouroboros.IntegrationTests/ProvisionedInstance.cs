@@ -148,6 +148,39 @@ public sealed class ProvisionedInstance : IAsyncLifetime
         return new ScriptResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
     }
 
+    // Executa scripts/database/decommission-original-db.sh no container, com a credencial administrativa da instância.
+    public async Task<ScriptResult> DecommissionAsync(string source, string command, string? id = null, IReadOnlyDictionary<string, string>? extra = null)
+    {
+        await _container.CopyAsync(RepositoryRoot.Resolve("scripts", "database"), "/scripts");
+        var variables = new Dictionary<string, string>
+        {
+            ["SOURCE_DATABASE"] = source,
+            ["POSTGRES_DB"] = LegacyDatabase,
+            ["DECOMMISSION_DIR"] = "/tmp/decommission",
+            ["IDENTITY_RUNTIME_PASSWORD"] = Passwords[IdentityRuntime],
+            ["IDENTITY_MIGRATION_PASSWORD"] = Passwords[IdentityMigrator],
+            ["NOTIFICATIONS_RUNTIME_PASSWORD"] = Passwords[NotificationsRuntime],
+            ["NOTIFICATIONS_MIGRATION_PASSWORD"] = Passwords[NotificationsMigrator],
+            ["PGUSER"] = "postgres",
+            ["PGDATABASE"] = "postgres",
+        };
+        foreach (var (key, value) in extra ?? new Dictionary<string, string>())
+        {
+            variables[key] = value;
+        }
+
+        var arguments = new List<string> { "env" };
+        arguments.AddRange(variables.Select(pair => $"{pair.Key}={pair.Value}"));
+        arguments.AddRange(["bash", "/scripts/decommission-original-db.sh", command]);
+        if (id is not null)
+        {
+            arguments.Add(id);
+        }
+
+        var result = await _container.ExecAsync(arguments);
+        return new ScriptResult(result.ExitCode ?? -1, result.Stdout, result.Stderr);
+    }
+
     // Comando qualquer no container (por exemplo, test -f), para conferir arquivos preservados.
     public async Task<ScriptResult> ExecAsync(params string[] command)
     {

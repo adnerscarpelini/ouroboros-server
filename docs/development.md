@@ -50,6 +50,8 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - [`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs), nos testes de integração com Docker ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89)), valida a atualização e reversão (rollback) de `Ouroboros.Notifications.Worker` entre versões compatíveis do contrato v1 sem reimplantar ou reiniciar `Identity`, a continuidade do login e recuperação de intenções na parada de `Notifications` e do `RabbitMQ`, a reentrega idempotente/deduplicada após falha do publicador ou do consumidor, o impacto comum e recuperação automática (`ClearAllPools`) na parada da instância `PostgreSQL` compartilhada e a preservação de dados em migrations aditivas durante rollback de binário ([procedimento e comandos](#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)).
 - [`GatewayArchitectureTests`](../tests/Ouroboros.ArchitectureTests/GatewayArchitectureTests.cs), nos testes de arquitetura e sem Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica que `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` são executáveis fora de `src/Services` sem `DbContext`, `ControllerBase` ou referência a `Identity`, `Notifications` e `BuildingBlocks`, que o gateway administrativo recusa hosts fora de loopback quando `Gateway:AllowNonLoopback=false`, que os dois gateways isolam os prefixos `/api/v1/identity/*` e `/api/v1/admin/identity/*` com `404` na borda e que indisponibilidade ou lentidão do `Identity` produzem ProblemDetails `502 Bad Gateway` e `504 Gateway Timeout` sanitizados dentro do timeout configurado.
 - [`GatewayIntegrationTests`](../tests/Ouroboros.IntegrationTests/GatewayIntegrationTests.cs), nos testes de integração com Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica o encaminhamento das rotas públicas e administrativas de `Identity` pelos dois gateways finos, a preservação da autenticação, audiência e papel (`Admin` vs. `Customer`) no `Identity` tanto via gateway quanto em acesso direto, a prontidão (`/health/ready`) do gateway refletindo o `Identity` e o rate limiting por IP real do cliente (`X-Forwarded-For` aceito apenas das réplicas de gateway listadas em `Identity:ForwardedHeaders:KnownProxies`, bloqueando falsificação de cabeçalho em chamadas via gateway ou diretas).
+- [`OriginalDatabaseArchitectureTests`](../tests/Ouroboros.ArchitectureTests/OriginalDatabaseArchitectureTests.cs), nos testes de arquitetura e sem Docker ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)), verifica que `scripts/database/decommission-original-db.sh` existe com finais de linha LF, exige `CONFIRM_ORIGINAL_DB_DEACTIVATION`, `RETENTION_DAYS`, `final-backup-verified` e `session-safety.sql`, aplica bloqueio não destrutivo (`ALLOW_CONNECTIONS false CONNECTION LIMIT 0`) sem nunca executar `DROP DATABASE` sobre o banco original (apenas sobre o banco temporário de verificação `$CHECK_DATABASE`) e que o `compose.yaml` expõe `decommission-original-db` exclusivamente no profile `decommission`.
+- [`OriginalDatabaseDecommissioningTests`](../tests/Ouroboros.IntegrationTests/OriginalDatabaseDecommissioningTests.cs), nos testes de integração com Docker ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)), valida em PostgreSQL real o inventário (`inventory`) dos schemas remanescentes (`identity` transferido, `settings` e `public` retidos apenas na origem), o `final-backup` com restore e comparação de digest/SHA-256, a recusa de `deactivate` sem confirmação explícita, sem `RETENTION_DAYS`, com sessão ativa ou com role de serviço tendo `CONNECT`, o bloqueio de conexões sem exclusão, a continuidade do login em `ouroboros_identity`, a reativação em somente leitura (`reactivate`) e a rotação/revogação da credencial antiga ampla (`rotate-admin-credential`) sem afetar `Identity` e `Notifications` e sem vazar senhas nos logs.
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
@@ -101,7 +103,7 @@ Se ainda não existir `.env`, copie `.env.example` uma única vez (`cp .env.exam
 | EXTERNAL_GATEWAY_IP, GATEWAY_NETWORK_SUBNET | IP estático exato do proxy externo e subnet da rede Compose (padrões 172.30.230.10 e 172.30.230.0/24). O IP deve pertencer à subnet; ajuste ambos em caso de sobreposição. Identity confia no IP exato e em loopback, sem confiar em toda a rede |
 | `IDENTITY_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/identity`, montado somente em `identity-api` como `:ro` |
 | `NOTIFICATIONS_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/notifications`, montado somente em `notifications-worker` como `:ro` |
-| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credencial administrativa da instância PostgreSQL; usada apenas por `postgres`, `provision-databases` e `transfer-identity` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credencial administrativa da instância PostgreSQL; usada apenas por `postgres`, `provision-databases`, `transfer-identity` e `decommission-original-db` |
 | `IDENTITY_RUNTIME_PASSWORD`, `IDENTITY_MIGRATION_PASSWORD` | Senhas distintas das roles `identity_runtime` e `identity_migrator` no banco `ouroboros_identity` |
 | `NOTIFICATIONS_RUNTIME_PASSWORD`, `NOTIFICATIONS_MIGRATION_PASSWORD` | Senhas distintas das roles `notifications_runtime` e `notifications_migrator` no banco `ouroboros_notifications` |
 | `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASSWORD` | Credencial administrativa do RabbitMQ; usada apenas por `rabbitmq` e `provision-rabbitmq` |
@@ -381,7 +383,7 @@ A API de Identity lê a connection string de `ConnectionStrings:Identity`, o ban
 
    No primeiro `database update` em um banco vazio, o log mostra `Failed executing DbCommand` sobre `__EFMigrationsHistory` antes de criar a tabela. É um comportamento conhecido do EF Core: o comando termina com `Done.`. Repetir o comando não altera nada.
 
-5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua retido, sem novas escritas e sem projeto que o acesse (seu destino é a #97); não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
+5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua retido, sem novas escritas e sem projeto que o acesse ([inventário, backup final e desativação controlada](#desativar-o-banco-original-e-rotacionar-a-credencial-antiga)); não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
 
    ```powershell
    docker compose exec postgres psql -U ouroboros -d ouroboros -c "\dn"
@@ -512,7 +514,7 @@ A troca é ação do operador e só é liberada pelo `cutover`. Com as APIs de I
 dotnet user-secrets set "ConnectionStrings:Identity" "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=<IDENTITY_RUNTIME_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity.Api
 ```
 
-Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação da credencial antiga não fazem parte deste procedimento (#97).
+Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação/rotação da credencial antiga seguem procedimento separado ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)): [Desativar o banco original e rotacionar a credencial antiga](#desativar-o-banco-original-e-rotacionar-a-credencial-antiga).
 
 ### Voltar ao banco original
 
@@ -535,6 +537,98 @@ docker compose --profile transfer run --rm transfer-identity rollback <id>
 Limites: linhas excluídas no destino não são reconciliadas (o `rollback` aborta se linhas copiadas deixaram de existir); há um único ciclo de `rollback` e `reconcile`; se os históricos de migrations divergem, `rollback` e `reconcile` recusam e a reconciliação é manual. Aplicar #85 só no destino impede voltar diretamente à origem pré-#85; preserve a outbox e reconcilie schema/escritas antes de mudar a connection string.
 
 O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na origem (`FORCE_TERMINATE=1` as encerra, como no `freeze`). Os testes do procedimento estão descritos em [Testes](#testes).
+
+## Desativar o banco original e rotacionar a credencial antiga
+
+Após a validação do `cutover` de Identity ([#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82)), a retirada dos hosts agregadores e do projeto `Ouroboros.Settings` ([#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96)) e o encerramento da janela operacional de rollback, o operador inventaria o banco original (`POSTGRES_DB`, padrão `ouroboros`), verifica sessões e privilégios na origem, com confirmação manual das configurações de runtime, gera um backup final completo e verificável, rotaciona/revoga a credencial ampla antiga e desativa conexões ao banco original sem excluir dados, schemas, bancos ou volumes ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)). O procedimento versionado é [`scripts/database/decommission-original-db.sh`](../scripts/database/decommission-original-db.sh), exposto no [`compose.yaml`](../compose.yaml) pelo serviço `decommission-original-db` sob o profile explícito `decommission`. Decisão, inventário e critérios de retenção em [Destino e desativação do banco original (#97)](architecture/persistence.md#destino-e-desativação-do-banco-original-97).
+
+**Comando geral** (executado na raiz do repositório; `<id>` é o identificador impresso por `final-backup`):
+
+```powershell
+docker compose --profile decommission run --rm decommission-original-db <comando> [id]
+```
+
+| Comando | O que faz |
+| --- | --- |
+| `inventory` | Lista os schemas remanescentes no banco original (`identity`, `settings`, `public`), a contagem de linhas de cada tabela e os históricos `__EFMigrationsHistory`, classificando o que foi transferido para `ouroboros_identity` (`transferred_to_target`, `migration_history_transferred`) e o que permanece retido apenas na origem (`retained_only_in_source`, `migration_history_retired_in_source`). |
+| `verify-unused` | Verifica que há zero sessões ativas no banco original (`pg_stat_activity`), que `PUBLIC` não possui `CONNECT` no banco original, que nenhuma role de serviço (`identity_runtime`, `identity_migrator`, `notifications_runtime`, `notifications_migrator`) possui `CONNECT` nele e que `ouroboros_identity` já contém o schema `identity`. |
+| `final-backup` | Exige `verify-unused`, congela o banco original em modo somente leitura (`default_transaction_read_only = on`), gera `./backups/original-<id>/final.dump` (formato custom com todos os schemas remanescentes), `final.dump.sha256` e `inventory.txt`, restaura em banco temporário `original_decommission_check_<id>`, compara os digests de schemas, colunas (nome/tipo/nulabilidade), sequências e linhas de tabelas comuns, remove apenas o banco temporário e grava `final-backup-verified`. Imprime `Pacote: <id>`. |
+| `rotate-admin-credential` | Rotaciona a senha da credencial administrativa ampla (`ADMIN_ROLE`, padrão `POSTGRES_USER`) para `NEW_ADMIN_PASSWORD` com `session-safety.sql` (sem registrar nos logs) e, se `LEGACY_ROLE` for informada, encerra suas sessões, revoga `CONNECT`/`TEMPORARY` em todos os bancos e aplica `NOLOGIN PASSWORD NULL`, validando em seguida a conectividade de `identity_runtime` e `notifications_runtime`. |
+| `deactivate <id>` | Desativa novas conexões ao banco original (`ALLOW_CONNECTIONS false CONNECTION LIMIT 0` e `default_transaction_read_only = on`) sem apagar o banco, schemas ou volumes; exige `CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:<banco>`, `RETENTION_DAYS` (`>= 1`), backup final verificado (`<id>`), `verify-unused` e digest inalterado desde o backup final, gravando `deactivated.manifest`. |
+| `reactivate <id>` | Reabilita conexões em modo somente leitura (`ALLOW_CONNECTIONS true CONNECTION LIMIT -1` e `default_transaction_read_only = on`) e grava `reactivated` no pacote, permitindo inspeção ou recuperação autorizada durante a janela de retenção. |
+| `help` | Mostra a ajuda do script. |
+
+### Passo a passo operacional
+
+**Retenção aprovada:** conservar o banco original e o backup final por 30 dias a partir do cutover validado. O operador deve registrar o instante do cutover e conferir o prazo antes de qualquer decisão posterior. RETENTION_DAYS=30 registra a política no manifesto; o script não acompanha o relógio nem exclui dados ao fim do prazo. As operações continuam manuais e exigem aprovação explícita; não foram executadas no ambiente existente nesta entrega.
+
+1. **Inventariar o banco original e confirmar ausência de uso por runtime:**
+
+   A inspeção de configurações é manual: verify-unused não lê variáveis nem user-secrets dos processos. Certifique-se de que `ConnectionStrings:Identity` (ou `ConnectionStrings__Identity`) está ativa em todos os processos de `Identity` e que `ConnectionStrings:Ouroboros` foi removida dos user-secrets e variáveis de ambiente das aplicações:
+
+   ```powershell
+   dotnet user-secrets remove "ConnectionStrings:Ouroboros" --project src/Services/Identity/Ouroboros.Identity.Api
+   docker compose --profile decommission run --rm decommission-original-db inventory
+   docker compose --profile decommission run --rm decommission-original-db verify-unused
+   ```
+
+2. **Gerar e validar o backup final completo (`final-backup`):**
+
+   ```powershell
+   docker compose --profile decommission run --rm decommission-original-db final-backup
+   ```
+
+   O pacote inclui source-database, que o vincula à origem, e um ID com timestamp e sufixo aleatório. Anote o <id> impresso em `Pacote: <id>`. Os artefatos (`final.dump`, `final.dump.sha256`, `inventory.txt`, `source-inventory.digest`, `restore-check.digest` e `final-backup-verified`) ficam em `./backups/original-<id>/` com permissões restritas (`0700`/`0600`). Proteja esse diretório fora do Git pela janela de retenção aprovada.
+
+3. **Revogar/rotacionar a credencial antiga ampla (`rotate-admin-credential`):**
+
+   Ao encerrar a janela de rollback, passe a nova senha administrativa via variável de ambiente da sessão (sem gravá-la em argumento ou histórico) e, se existir uma role legada ampla dedicada (`LEGACY_ROLE`), informe-a para revogação:
+
+   ```powershell
+   $env:NEW_ADMIN_PASSWORD = [Net.NetworkCredential]::new('', (Read-Host 'Nova senha para POSTGRES_USER' -AsSecureString)).Password
+   # Opcional: se havia uma role ampla legada distinta de POSTGRES_USER:
+   # $env:LEGACY_ROLE = 'nome_da_role_legada'
+   docker compose --profile decommission run --rm -e NEW_ADMIN_PASSWORD -e LEGACY_ROLE decommission-original-db rotate-admin-credential
+   Remove-Item Env:NEW_ADMIN_PASSWORD
+   Remove-Item Env:LEGACY_ROLE -ErrorAction SilentlyContinue
+   ```
+
+   Atualize `POSTGRES_PASSWORD` no `.env` (ou no cofre de segredos do ambiente) com a nova senha administrativa para os próximos comandos de manutenção. `identity-api` e `notifications-worker` continuam operando normalmente com `identity_runtime` e `notifications_runtime`, sem reinício.
+
+4. **Desativar o banco original sem exclusão (`deactivate <id>`):**
+
+   Com a decisão explícita do dono do projeto sobre a janela de retenção (`RETENTION_DAYS`, 30 dias a partir do cutover validado, conforme decisão aprovada) e a confirmação nominal `CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:<banco>` (por exemplo, `DEACTIVATE:ouroboros`):
+
+   ```powershell
+   docker compose --profile decommission run --rm `
+     -e RETENTION_DAYS=30 `
+     -e CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:ouroboros `
+     decommission-original-db deactivate <id>
+   ```
+
+   O banco original permanece preservado no volume `postgres-data`, mas recusa novas conexões (`ALLOW_CONNECTIONS false`, SQLSTATE `55000`). O healthcheck do container `postgres` consulta `-d postgres` e permanece `healthy`.
+
+5. **Reativar em modo somente leitura para inspeção ou recuperação (`reactivate <id>`):**
+
+   Se for necessário inspecionar os dados retidos (`settings` ou `public`) ou executar um rollback tardio autorizado dentro da janela de retenção:
+
+   ```powershell
+   docker compose --profile decommission run --rm decommission-original-db reactivate <id>
+   ```
+
+   Se o retorno ao banco original ocorrer após novas escritas em `ouroboros_identity`, reative primeiro o banco original com `reactivate <id>` e, em seguida, execute `transfer-identity rollback <transfer_id>`, `transfer-identity reconcile <transfer_id>` e `transfer-identity unfreeze` conforme [Voltar ao banco original](#voltar-ao-banco-original) antes de voltar a connection string.
+
+### Verificar os testes da desativação do banco original
+
+Na raiz do repositório:
+
+```powershell
+# Testes de arquitetura (sem Docker): script LF, aprovação explícita, final-backup-verified, bloqueio sem DROP DATABASE da origem e sem remoção de volumes
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*OriginalDatabaseArchitectureTests"
+
+# Testes de integração (exige Docker): inventário, final-backup restaurado, recusas de deactivate, bloqueio, reactivate e rotação/revogação de credencial sem vazar senha nos logs
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*OriginalDatabaseDecommissioningTests"
+```
 
 ## Criar o primeiro administrador
 
