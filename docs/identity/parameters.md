@@ -8,7 +8,7 @@ O contrato [`Identity.Contracts.ISystemParameters`](../../src/Services/Identity/
 
 `ParameterWriter` usa `IParameterPersistence`; `ParameterPersistence` aplica as [regras de tipo, padrão e sensibilidade](../architecture/system-parameters.md), grava parâmetro e histórico num único `SaveChangesAsync` e preserva autor, instante e revisão. Os tipos de domínio e os adaptadores estão no próprio Identity; registros são scoped em `AddIdentityModule`. EF, SQL e tradução de concorrência/unicidade permanecem em Infrastructure. Revisão é token de concorrência; a combinação chave/revisão do histórico é única, e conflito desfaz a operação inteira.
 
-O contexto é o mesmo que poderá gravar a intenção de aviso da #34; a listagem administrativa está disponível desde a #30; edição, consulta HTTP de histórico e aviso da alteração continuam pendentes nas #34/#35. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
+O contexto é o mesmo que poderá gravar a intenção de aviso da #34; a listagem administrativa está disponível desde a #30; a consulta HTTP de histórico está disponível desde a #35. Edição e aviso da alteração continuam pendentes na #34. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
 
 ## Listagem administrativa
 
@@ -18,9 +18,31 @@ A política nomeada `settings:parameters.read` exige papel `Admin`. Além da aud
 
 A resposta `200` é `CursorPage<ParameterView>`, com `data`, `hasMore` e `nextCursor`. Cada item contém `id` (ExternalId), `key`, `value`, `description`, `dataType`, `validationPattern`, `isSensitive`, `revision`, `updatedBy` e `updatedAt`. O valor é devolvido como texto; `isSensitive` informa a classificação do parâmetro. O contrato de [paginação por cursor](../architecture/cursor-pagination.md) define ordenação por ExternalId crescente, limite padrão 50/máximo 100, continuação, erros `400` e limites de consistência.
 
-[`ParametersController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/ParametersController.cs) usa `IListParameters` e `IGetCurrentUser`. `ControllerRouteTests` mantém uma exceção nominal para a rota compatível deste controller de Identity. A #30 entrega somente a listagem atual; endpoints de histórico (#35) e edição (#34) não fazem parte dela.
+[`ParametersController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/ParametersController.cs) usa `IListParameters` e `IGetCurrentUser`. `ControllerRouteTests` mantém uma exceção nominal para a rota compatível deste controller de Identity. A #30 entrega a listagem atual; a #35 acrescenta o histórico abaixo. A edição (#34) continua pendente.
 
 Origem: [#30](https://github.com/adnerscarpelini/ouroboros-server/issues/30). Comando e cobertura de verificação em [Paginação por cursor](../architecture/cursor-pagination.md#camadas-e-verificação).
+
+## Histórico administrativo
+
+`GET /api/v1/admin/settings/parameters/{key}/history?limit=50&after=<cursor>` consulta o histórico da chave informada, incluindo a criação (`revision: 0`). Use a chave codificada como segmento de URL e omita `after` na primeira chamada. Os registros vêm do banco próprio de Identity, em `identity.parameter_history`, sem consultar o schema legado `settings`.
+
+A rota reutiliza `settings:parameters.read`, audiência administrativa e a consulta do usuário ativo com papel `Admin` atual no banco, como a listagem. Também é encaminhada pelo gateway administrativo e recusada no externo. Não escreve parâmetros nem cria revisões.
+
+A resposta `200` usa o envelope `data`, `hasMore`, `nextCursor`. Cada item contém `id` (ExternalId), `key`, `revision`, `previousValue`, `newValue`, `previousDescription`, `newDescription`, `dataType`, `validationPattern`, `isSensitive`, `changedBy` e `changedAt`. Valores anteriores podem ser nulos na criação; `changedBy` pode ser nulo. Valores e descrições são os da revisão registrada, não uma reconstrução do estado atual.
+
+A ordenação é `changedAt` decrescente, com desempate por `ExternalId` decrescente. A continuação seleciona datas menores que a posição ou, na mesma data, ids menores. O [cursor de histórico](../architecture/cursor-pagination.md#histórico-de-parâmetro) vincula chave, ordenação, instante UTC e id; limite padrão 50/máximo 100, tamanho de página variável e envelope são os mesmos da listagem. Chave inexistente retorna `404` com título `Parâmetro não encontrado.`. Limite/cursor inválido, cursor de outra chave ou da listagem e cursor sem data retornam `400`. A autorização é avaliada antes da consulta.
+
+[`IGetParameterHistory`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Parameters/IGetParameterHistory.cs) expõe o caso de uso [`GetParameterHistory`](../../src/Services/Identity/Ouroboros.Identity/Application/Parameters/GetParameterHistory.cs), que valida e pagina pela porta interna `IParameterHistoryReader`; [`ParameterHistoryReader`](../../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/ParameterHistoryReader.cs) consulta existência da chave e projeta o histórico sem rastreamento.
+
+Com os pré-requisitos de [desenvolvimento](../development.md), execute:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ParameterHistoryTests"
+```
+
+O QA independente aprovou 12/12 casos de [`ParameterHistoryTests`](../../tests/Ouroboros.IntegrationTests/ParameterHistoryTests.cs), além de 13/13 da paginação e 2/2 dos cenários selecionados de gateway. A validação inclui paginação de chave Unicode longa, sem crescimento do cursor proporcional ao tamanho da chave. A persistência usa PostgreSQL real; as chamadas HTTP usam TestServer, e o encaminhamento de gateway usa `InMemoryIdentityDownstreamFactory`. Essa evidência não representa execução completa da suíte de integração nem desses cenários em Kestrel real.
+
+Origem: [#35](https://github.com/adnerscarpelini/ouroboros-server/issues/35).
 
 ## Migração e preservação
 

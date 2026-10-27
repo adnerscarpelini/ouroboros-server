@@ -18,11 +18,19 @@ A primeira consulta ordena pelo identificador público `ExternalId` (UUIDv7) cre
 
 ## Cursor e validação
 
-[`ParameterCursor`](../../src/Services/Identity/Ouroboros.Identity/Application/Parameters/ParameterCursor.cs) codifica um JSON de versão 1 com escopo e posição Guid em Base64url, sem padding. O escopo atual é `identity:parameters:v1:external-id:asc`, que vincula a posição à consulta e à ordenação. O consumidor deve tratar o cursor como opaco e devolvê-lo sem editar. O limite não integra o cursor: é permitido mudar o tamanho da página entre chamadas.
+[`ParameterCursor`](../../src/Services/Identity/Ouroboros.Identity/Application/Parameters/ParameterCursor.cs) codifica um JSON de versão 1 com escopo, posição Guid e `ChangedAt` opcional em Base64url, sem padding. Na listagem, o escopo é `identity:parameters:v1:external-id:asc`, que vincula a posição à consulta e à ordenação. O consumidor deve tratar o cursor como opaco e devolvê-lo sem editar. O limite não integra o cursor: é permitido mudar o tamanho da página entre chamadas.
 
 O cursor não é token de autorização, não é assinado e não contém segredo. É uma posição de consulta, que não concede acesso a dados: autenticação e autorização continuam obrigatórias em cada chamada.
 
 Limite fora de 1–100, valor não numérico, cursor vazio, maior que 1024 caracteres, Base64url/JSON inválido, versão ou escopo incompatíveis e posição Guid vazia/inválida retornam `400` com ProblemDetails. Ausência de `after` inicia a navegação; enviar `after=` é inválido. Não reutilize cursores entre consultas ou ordenações diferentes.
+
+### Histórico de parâmetro
+
+A [#35](https://github.com/adnerscarpelini/ouroboros-server/issues/35) reutiliza o envelope na [consulta de histórico](../identity/parameters.md#histórico-administrativo), com ordenação composta `ChangedAt DESC, ExternalId DESC`. A posição guarda ambos: a próxima página seleciona `ChangedAt < instante` ou, para o mesmo instante, `ExternalId < id`, sem `OFFSET`. Revisões novas anteriores à posição na ordem de navegação não deslocam os itens restantes; cada chamada continua sem snapshot global.
+
+O escopo é o prefixo `identity:parameter-history:v1:changed-at-desc:id-desc:` seguido do SHA-256 hexadecimal dos bytes UTF-8 da chave. A chave bruta não integra o cursor. O hash vincula o recurso à ordenação com comprimento fixo, inclusive para chaves Unicode longas; não assina o cursor nem substitui autorização.
+
+O campo opcional `ChangedAt` foi acrescentado à versão 1: cursores antigos da listagem, sem esse campo, continuam compatíveis. No histórico, a data é obrigatória e somente UTC (offset zero) é aceita. Cursores sem data, com data inválida ou não UTC, de outra chave ou da listagem são recusados com `400`. O sentido inverso, cursor de histórico usado na listagem, também é recusado pelo escopo. O limite permanece fora do cursor, permitindo mudar o tamanho da página.
 
 ## Camadas e verificação
 

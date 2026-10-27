@@ -20,7 +20,7 @@ As funcionalidades ficam em `<service-name>/<feature-name>.md`, na pasta do serv
 
 - Identity
   - [Outbox e publicação confirmada de e-mail](identity/email-outbox.md): token/intenção no mesmo commit, confirmação recuperável, substituição, expiração, retenção e backups; aceitação/deduplicação persistentes em Notifications.
-  - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, preservação do histórico, procedimento com backup/restauração antes do corte e relação com a transferência do banco.
+  - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, listagem e consulta administrativa de histórico paginadas, preservação do histórico, procedimento com backup/restauração antes do corte e relação com a transferência do banco.
   - [Portas de leitura e escrita de parâmetros](identity/parameter-ports.md): contratos internos de Application e adaptadores locais, com leitura sem cache e valor, autor, revisão e histórico confirmados atomicamente.
   - [Persistência do ciclo de sessões por portas](identity/session-persistence.md): orquestração em Application, EF e SQL em Infrastructure, unidade de trabalho completa e locks compartilhados com a redefinição de senha.
   - [Criar o primeiro administrador](identity/first-admin.md): comando `create-admin` da API de Identity, com a senha em variável de ambiente, só enquanto não houver `Admin`.

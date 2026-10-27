@@ -138,6 +138,10 @@ public sealed class GatewayIntegrationTests(PostgresFixture postgres) : Integrat
             parameters.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
             using var parametersResponse = await client.SendAsync(parameters, Cancellation);
             Assert.Equal(HttpStatusCode.OK, parametersResponse.StatusCode);
+            using var historyRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/settings/parameters/Identity:Lockout:MaxFailedAttempts/history?limit=1");
+            historyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
+            using var historyResponse = await client.SendAsync(historyRequest, Cancellation);
+            Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
             using var wrongRole = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/settings/parameters");
             wrongRole.Headers.Authorization = new AuthenticationHeaderValue("Bearer", wrongRoleAdminAudienceToken);
             using var refused = await client.SendAsync(wrongRole, Cancellation);

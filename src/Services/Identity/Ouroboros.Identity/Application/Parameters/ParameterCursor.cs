@@ -6,10 +6,12 @@ namespace Ouroboros.Identity.Application.Parameters;
 // Cursor não é autorização. O escopo vincula a posição à consulta e à sua ordenação.
 internal static class ParameterCursor
 {
-    public static string Encode(string scope, Guid position) => Convert.ToBase64String(
-        JsonSerializer.SerializeToUtf8Bytes(new Cursor(1, scope, position))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    public static string Encode(string scope, Guid position, DateTimeOffset? changedAt = null) => Convert.ToBase64String(
+        JsonSerializer.SerializeToUtf8Bytes(new Cursor(1, scope, position, changedAt))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
-    public static Guid? Decode(PageRequest request, string scope)
+    public static Guid? Decode(PageRequest request, string scope) => DecodePosition(request, scope)?.Position;
+
+    public static Cursor? DecodePosition(PageRequest request, string scope)
     {
         if (request.Limit is < 1 or > 100) { throw new InvalidPageException(); }
         if (request.After is null) { return null; }
@@ -21,11 +23,12 @@ internal static class ParameterCursor
             text = text.PadRight(text.Length + (4 - text.Length % 4) % 4, '=');
             var cursor = JsonSerializer.Deserialize<Cursor>(Convert.FromBase64String(text));
             return cursor is { Version: 1 } && cursor.Scope == scope && cursor.Position != Guid.Empty
-                ? cursor.Position : throw new InvalidPageException();
+                && (cursor.ChangedAt is null || cursor.ChangedAt.Value.Offset == TimeSpan.Zero)
+                ? cursor : throw new InvalidPageException();
         }
         catch (Exception exception) when (exception is JsonException or FormatException)
         { throw new InvalidPageException(); }
     }
 
-    private sealed record Cursor(int Version, string Scope, Guid Position);
+    internal sealed record Cursor(int Version, string Scope, Guid Position, DateTimeOffset? ChangedAt = null);
 }

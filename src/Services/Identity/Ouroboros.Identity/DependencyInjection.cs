@@ -90,6 +90,8 @@ public static class DependencyInjection
         services.AddScoped<ParameterWriter>();
         services.AddScoped<IListParameters, ListParameters>();
         services.AddScoped<IParameterListReader, ParameterListReader>();
+        services.AddScoped<IGetParameterHistory, GetParameterHistory>();
+        services.AddScoped<IParameterHistoryReader, ParameterHistoryReader>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();
