@@ -99,13 +99,15 @@ internal sealed partial class GatewayForwarder(
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeoutCts.CancelAfter(settings.Downstream.Timeout);
 
-        HttpResponseMessage downstreamResponse;
         try
         {
-            downstreamResponse = await clientFactory.CreateInvoker().SendAsync(outgoing, timeoutCts.Token);
+            using var downstreamResponse = await clientFactory.CreateInvoker().SendAsync(outgoing, timeoutCts.Token);
+            await CopyDownstreamResponseAsync(context, downstreamResponse, timeoutCts.Token);
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        catch (Exception exception) when (context.RequestAborted.IsCancellationRequested
+            && exception is OperationCanceledException or HttpRequestException or IOException)
         {
+            context.Abort();
             return;
         }
         catch (OperationCanceledException exception)
@@ -127,11 +129,6 @@ internal sealed partial class GatewayForwarder(
                 "https://tools.ietf.org/html/rfc9110#section-15.6.3",
                 "Serviço temporariamente indisponível.");
             return;
-        }
-
-        using (downstreamResponse)
-        {
-            await CopyDownstreamResponseAsync(context, downstreamResponse, timeoutCts.Token);
         }
     }
 
@@ -242,6 +239,8 @@ internal sealed partial class GatewayForwarder(
     {
         if (context.Response.HasStarted)
         {
+            // Status e corpo já enviados não podem ser substituídos por ProblemDetails.
+            context.Abort();
             return;
         }
 

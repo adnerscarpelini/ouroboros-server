@@ -149,9 +149,17 @@ No Compose, Identity confia apenas no loopback e no IP estático exato EXTERNAL_
 ### Timeout e respostas sanitizadas de indisponibilidade (`502` e `504`)
 
 - `Gateway:Downstream:IdentityBaseUrl` exige URL HTTP/HTTPS absoluta sem credenciais, caminho, query ou fragmento; `Gateway:Downstream:Timeout` (padrão `00:00:05`) deve ser maior que zero e de no máximo 30 segundos, validados na subida (`ValidateOnStart`).
-- Se o `Identity` não responder dentro de `Gateway:Downstream:Timeout`, o gateway cancela a chamada downstream e retorna `504 Gateway Timeout` em `application/problem+json` (`title`: `"Tempo limite excedido ao contatar o serviço."`, com `traceId` W3C).
-- Se a conexão ao `Identity` falhar (`HttpRequestException` ou `IOException`, como conexão recusada ou DNS indisponível), o gateway retorna `502 Bad Gateway` em `application/problem+json` (`title`: `"Serviço temporariamente indisponível."`, com `traceId` W3C).
-- As respostas `502` e `504` são sempre sanitizadas: nunca expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces.
+- Desde a [#113](https://github.com/adnerscarpelini/ouroboros-server/issues/113), um único prazo de `Gateway:Downstream:Timeout` abrange o envio da requisição (`SendAsync`) e a transferência do corpo da resposta. O mesmo token de cancelamento é ligado ao `RequestAborted` do cliente. O corpo é transferido em streaming, sem aguardar buffering integral e sem retry automático.
+- **Antes do início da resposta** (`Response.HasStarted == false`), timeout retorna `504 Gateway Timeout` em `application/problem+json` (`title`: `"Tempo limite excedido ao contatar o serviço."`). Falha de transporte (`HttpRequestException` ou `IOException`), inclusive durante a leitura do corpo, retorna `502 Bad Gateway` (`title`: `"Serviço temporariamente indisponível."`). Os headers previamente copiados do downstream são limpos antes do ProblemDetails, que contém `traceId` W3C.
+- **Depois do início da resposta**, timeout ou falha de transporte gera diagnóstico sanitizado e `HttpContext.Abort()`. O gateway não reescreve o status já enviado nem acrescenta ProblemDetails ao corpo parcial. O cliente deve tratar a interrupção como falha de transferência, mesmo que tenha recebido inicialmente status de sucesso.
+- **Cancelamento pelo cliente** é tratado separadamente quando `RequestAborted` está sinalizado e ocorre `OperationCanceledException`, `HttpRequestException` ou `IOException`: o gateway aborta a resposta, sem classificar o caso como exceção inesperada nem gerar `502`/`504`.
+- As respostas de erro e os diagnósticos seguem a sanitização do projeto: não expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces ao cliente.
+
+[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Usa HTTP em TestServer com downstream stub; essa cobertura não comprova comportamento em sockets/Kestrel real. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayResponseTransferTests"
+```
 
 ## Alternativa avaliada e risco aceito
 
