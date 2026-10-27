@@ -5,4 +5,5 @@ namespace Ouroboros.Identity.Contracts;
 public static class IdentityPolicies
 {
     public const string AdminsInvite = "identity:admins.invite";
+    public const string ParametersRead = "settings:parameters.read";
 }

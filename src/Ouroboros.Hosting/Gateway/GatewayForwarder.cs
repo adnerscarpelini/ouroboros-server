@@ -84,7 +84,9 @@ internal sealed partial class GatewayForwarder(
 
         var value = path.Value!;
         return value.Equals(prefix, StringComparison.OrdinalIgnoreCase)
-            || value.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
+            || value.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)
+            || (_audience == GatewayAudience.Admin && (value.Equals("/api/v1/admin/settings/parameters", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("/api/v1/admin/settings/parameters/", StringComparison.OrdinalIgnoreCase)));
     }
 
     public async Task ForwardAsync(HttpContext context)

@@ -16,6 +16,7 @@ using Ouroboros.Identity.Application.Sessions;
 using Ouroboros.Identity.Application.Users;
 using Ouroboros.Identity.Contracts;
 using Ouroboros.Identity.Contracts.Administrators;
+using Ouroboros.Identity.Contracts.Parameters;
 using Ouroboros.Identity.Contracts.PasswordResets;
 using Ouroboros.Identity.Contracts.Registrations;
 using Ouroboros.Identity.Contracts.Sessions;
@@ -87,6 +88,8 @@ public static class DependencyInjection
         services.AddScoped<IParameterReader, ParameterReader>();
         services.AddScoped<IParameterPersistence, ParameterPersistence>();
         services.AddScoped<ParameterWriter>();
+        services.AddScoped<IListParameters, ListParameters>();
+        services.AddScoped<IParameterListReader, ParameterListReader>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();
@@ -146,9 +149,11 @@ public static class DependencyInjection
         ConfigureBearer(services, IdentityAuthenticationSchemes.Admin, jwt => jwt.AdminAudience is { Length: > 0 } adminAudience ? adminAudience : jwt.Audience);
 
         // Mapeamento de papel para política: só aqui, no módulo dono das capacidades.
-        services.AddAuthorization(options => options.AddPolicy(
-            IdentityPolicies.AdminsInvite,
-            policy => policy.RequireRole(nameof(UserRole.Admin))));
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy(IdentityPolicies.AdminsInvite, policy => policy.RequireRole(nameof(UserRole.Admin)));
+            options.AddPolicy(IdentityPolicies.ParametersRead, policy => policy.RequireRole(nameof(UserRole.Admin)));
+        });
     }
 
     private static void ConfigureBearer(IServiceCollection services, string scheme, Func<JwtOptions, string> audience) =>

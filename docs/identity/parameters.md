@@ -8,7 +8,19 @@ O contrato [`Identity.Contracts.ISystemParameters`](../../src/Services/Identity/
 
 `ParameterWriter` usa `IParameterPersistence`; `ParameterPersistence` aplica as [regras de tipo, padrão e sensibilidade](../architecture/system-parameters.md), grava parâmetro e histórico num único `SaveChangesAsync` e preserva autor, instante e revisão. Os tipos de domínio e os adaptadores estão no próprio Identity; registros são scoped em `AddIdentityModule`. EF, SQL e tradução de concorrência/unicidade permanecem em Infrastructure. Revisão é token de concorrência; a combinação chave/revisão do histórico é única, e conflito desfaz a operação inteira.
 
-O contexto é o mesmo que poderá gravar a intenção de aviso da #34; esta entrega não implementa endpoints administrativos nem outbox. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
+O contexto é o mesmo que poderá gravar a intenção de aviso da #34; a listagem administrativa está disponível desde a #30; edição, consulta HTTP de histórico e aviso da alteração continuam pendentes nas #34/#35. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
+
+## Listagem administrativa
+
+`GET /api/v1/admin/settings/parameters?limit=50&after=<cursor>` lista os parâmetros de Identity. Na primeira chamada, omita `after`. O segmento histórico `settings` preserva o contrato v1; não representa outro serviço nem leitura do schema legado. O endpoint existe somente no listener administrativo, acessível diretamente ou pelo gateway administrativo; o gateway externo recusa essa rota com `404`.
+
+A política nomeada `settings:parameters.read` exige papel `Admin`. Além da audiência administrativa do token, cada chamada consulta o usuário atual no banco e exige que exista, esteja ativo e continue `Admin`; token antigo não preserva autorização após desativação ou mudança de papel. Ausência de autenticação ou audiência inválida retorna `401`; papel do token incompatível é recusado pela autorização (`403`), e usuário ausente/inativo ou sem papel administrativo atual retorna `401`.
+
+A resposta `200` é `CursorPage<ParameterView>`, com `data`, `hasMore` e `nextCursor`. Cada item contém `id` (ExternalId), `key`, `value`, `description`, `dataType`, `validationPattern`, `isSensitive`, `revision`, `updatedBy` e `updatedAt`. O valor é devolvido como texto; `isSensitive` informa a classificação do parâmetro. O contrato de [paginação por cursor](../architecture/cursor-pagination.md) define ordenação por ExternalId crescente, limite padrão 50/máximo 100, continuação, erros `400` e limites de consistência.
+
+[`ParametersController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/ParametersController.cs) usa `IListParameters` e `IGetCurrentUser`. `ControllerRouteTests` mantém uma exceção nominal para a rota compatível deste controller de Identity. A #30 entrega somente a listagem atual; endpoints de histórico (#35) e edição (#34) não fazem parte dela.
+
+Origem: [#30](https://github.com/adnerscarpelini/ouroboros-server/issues/30). Comando e cobertura de verificação em [Paginação por cursor](../architecture/cursor-pagination.md#camadas-e-verificação).
 
 ## Migração e preservação
 

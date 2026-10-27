@@ -7,6 +7,7 @@
 - [Pipeline de diagnósticos sanitizados](architecture/diagnostics-pipeline.md): sanitização antes de qualquer destino, coletor e destino dedicado com retenção limitada, independentes dos bancos de negócio; [como subir e consultar](development.md#diagnósticos-no-coletor-local).
 - [Estrutura dos serviços](architecture/module-structure.md).
 - [Assinatura RS256, JWKS e rotação](architecture/authentication.md): principal, audiências e transição HS256; [geração e operação das chaves](development.md#chave-de-assinatura-dos-tokens).
+- [Paginação por cursor](architecture/cursor-pagination.md): contrato keyset, limites e primeira aplicação na listagem administrativa de parâmetros.
 - [Estado de implementação](implementation-status.md).
 - [Executar o checkout atual](development.md): build, testes, banco local, provisionamento de bancos e roles, [transferência do banco de Identity](development.md#transferir-o-banco-de-identity) e [validação de atualização independente, rollback e recuperação dos serviços](development.md#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços).
 - [Catálogo de erros](errors/README.md).

@@ -69,6 +69,11 @@ public sealed class ControllerRouteTests(OuroborosApiFactory factory) : IClassFi
 
         var template = action.AttributeRouteInfo?.Template?.TrimStart('~', '/');
         var expectedPrefix = $"{VersionSegment}{routePrefix}{service.ToLowerInvariant()}/";
+        // Compatibilidade v1 da listagem/edição de parâmetros (#30/#35/#34), agora sob Identity.
+        if (controllerType == typeof(identityapi::Ouroboros.Identity.Api.Controllers.Admin.ParametersController))
+        {
+            expectedPrefix = $"{VersionSegment}admin/settings/parameters";
+        }
         if (template is null || !template.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
         {
             return $"{actionName} usa a rota '{template}', fora de {expectedPrefix}.";
