@@ -162,6 +162,52 @@ public sealed class GatewayArchitectureTests
         }
     }
 
+    [Theory]
+    [InlineData(false, "/api/v1/identity/keys")]
+    [InlineData(true, "/api/v1/admin/identity/me")]
+    public async Task Gateways_remove_connection_nominated_headers_in_both_directions(bool admin, string path)
+    {
+        var downstreamCalls = 0;
+        using var stub = new StubDownstreamClientFactory(request =>
+        {
+            downstreamCalls++;
+            Assert.False(request.Headers.Contains("Connection"));
+            Assert.False(request.Headers.Contains("X-Hop-Request"));
+            Assert.False(request.Content!.Headers.Contains("Content-Language"));
+            Assert.Equal("application/json", request.Content.Headers.ContentType!.MediaType);
+            Assert.Equal("kept", Assert.Single(request.Headers.GetValues("X-End-To-End")));
+            Assert.Equal("http", Assert.Single(request.Headers.GetValues("X-Forwarded-Proto")));
+            Assert.False(request.Headers.TryGetValues("X-Forwarded-For", out var forwarded) && forwarded.Contains("203.0.113.99"));
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("response-body") };
+            response.Headers.TryAddWithoutValidation("Connection", [" X-Hop-Response , content-LANGUAGE ", "keep-alive"]);
+            response.Headers.TryAddWithoutValidation("X-Hop-Response", "remove");
+            response.Headers.TryAddWithoutValidation("X-End-To-End", "kept");
+            response.Content.Headers.ContentLanguage.Add("pt-BR");
+            return Task.FromResult(response);
+        });
+        await using var externalGateway = CreateGatewayFactory<ExternalGatewayEntryPoint>(stub);
+        await using var adminGateway = CreateGatewayFactory<AdminGatewayEntryPoint>(stub);
+        using var client = admin ? adminGateway.CreateClient() : externalGateway.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json") };
+        request.Headers.TryAddWithoutValidation("Connection", [" x-HOP-request, Content-Language ", "X-Forwarded-For, X-Forwarded-Proto"]);
+        request.Headers.TryAddWithoutValidation("X-Hop-Request", "remove");
+        request.Headers.TryAddWithoutValidation("X-End-To-End", "kept");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-For", "203.0.113.99");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "forged");
+        request.Content.Headers.ContentLanguage.Add("pt-BR");
+
+        using var response = await client.SendAsync(request, Cancellation);
+
+        Assert.Equal(1, downstreamCalls);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.False(response.Headers.Contains("Connection"));
+        Assert.False(response.Headers.Contains("X-Hop-Response"));
+        Assert.Empty(response.Content.Headers.ContentLanguage);
+        Assert.Equal("kept", Assert.Single(response.Headers.GetValues("X-End-To-End")));
+        Assert.Equal("text/plain", response.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("response-body", await response.Content.ReadAsStringAsync(Cancellation));
+    }
+
     private static WebApplicationFactory<TEntryPoint> CreateGatewayFactory<TEntryPoint>(
         IGatewayDownstreamClientFactory downstreamFactory,
         Dictionary<string, string?>? extraConfig = null)

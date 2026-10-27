@@ -123,8 +123,20 @@ URLs HTTPS de escuta ativam TLS no Kestrel; configure um certificado válido pel
 
 ### Preservação da autenticação e autorização no proprietário (`Identity`)
 
-- Os endpoints de proxy nos gateways usam `.AllowAnonymous()` e `.DisableRateLimiting()` apenas para não duplicar autenticação na borda e encaminhar o cabeçalho `Authorization` intacto ao destino.
+- Os endpoints de proxy nos gateways usam `.AllowAnonymous()` e `.DisableRateLimiting()` apenas para não duplicar autenticação na borda e encaminhar o cabeçalho `Authorization` ao destino, sujeito à remoção de cabeçalhos hop-by-hop descrita abaixo.
 - O serviço `Identity` continua validando assinatura JWT, audiência por listener (`ouroboros-api` no público, `ouroboros-backoffice` no administrativo), papel exigido (`Customer` ou `Admin`) e políticas de autorização em todas as chamadas — tanto quando acessado através dos gateways quanto em chamadas diretas fora deles. Token de audiência externa em rota administrativa continua recusado com `401 Unauthorized`, e token com audiência administrativa mas papel `Customer` continua recusado com `403 Forbidden`.
+
+### Cabeçalhos de conexão nos dois sentidos
+
+Desde a [#112](https://github.com/adnerscarpelini/ouroboros-server/issues/112), os dois gateways removem `Connection` e todos os cabeçalhos que ele nomeia, tanto da requisição enviada ao downstream quanto da resposta devolvida ao cliente. A lista é reunida de todos os valores/linhas de `Connection`, separada por vírgulas, com espaços externos e entradas vazias descartados; os nomes são comparados sem diferenciar maiúsculas e minúsculas. A remoção alcança também cabeçalhos de conteúdo, como `Content-Language`, quando nomeados.
+
+Por exemplo, `Connection: X-Hop, content-language` impede o encaminhamento de `X-Hop` e `Content-Language`. Cabeçalhos end-to-end que não sejam excluídos nem nomeados continuam sendo copiados; `Content-Type` não nomeado e o corpo são preservados. Nomear `X-Forwarded-For` ou `X-Forwarded-Proto` não permite preservar valores forjados: os valores enviados ao downstream são reconstruídos a partir da conexão confiável, conforme a política de proxies abaixo.
+
+A cobertura está em `Gateways_remove_connection_nominated_headers_in_both_directions`, em [`GatewayArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/GatewayArchitectureTests.cs), para os públicos externo e administrativo. Usa HTTP em TestServer com downstream stub, sem Identity ou PostgreSQL reais nesta verificação. O QA independente aprovou a suíte de arquitetura com 293/293 casos no Linux, SDK 10.0.402, e build da solução sem avisos/erros; esse resultado não representa validação de integração completa. Para reproduzir no ambiente de desenvolvimento:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayArchitectureTests"
+```
 
 ### Cabeçalhos encaminhados (`X-Forwarded-For` / `X-Forwarded-Proto`) e limite do rate limiter em memória
 

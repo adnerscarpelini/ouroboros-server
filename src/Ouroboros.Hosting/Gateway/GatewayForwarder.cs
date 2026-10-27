@@ -149,9 +149,10 @@ internal sealed partial class GatewayForwarder(
             outgoing.Content = new StreamContent(request.Body);
         }
 
+        var connectionHeaders = ConnectionHeaders(request.Headers.Connection.Select(value => value ?? string.Empty));
         foreach (var header in request.Headers)
         {
-            if (HopByHopAndSpoofableHeaders.Contains(header.Key))
+            if (HopByHopAndSpoofableHeaders.Contains(header.Key) || connectionHeaders.Contains(header.Key))
             {
                 continue;
             }
@@ -207,10 +208,11 @@ internal sealed partial class GatewayForwarder(
     private static async Task CopyDownstreamResponseAsync(HttpContext context, HttpResponseMessage downstream, CancellationToken cancellationToken)
     {
         context.Response.StatusCode = (int)downstream.StatusCode;
+        var connectionHeaders = ConnectionHeaders(downstream.Headers.Connection);
 
         foreach (var header in downstream.Headers)
         {
-            if (!ExcludedResponseHeaders.Contains(header.Key))
+            if (!ExcludedResponseHeaders.Contains(header.Key) && !connectionHeaders.Contains(header.Key))
             {
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
@@ -218,7 +220,7 @@ internal sealed partial class GatewayForwarder(
 
         foreach (var header in downstream.Content.Headers)
         {
-            if (!ExcludedResponseHeaders.Contains(header.Key))
+            if (!ExcludedResponseHeaders.Contains(header.Key) && !connectionHeaders.Contains(header.Key))
             {
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
@@ -231,6 +233,10 @@ internal sealed partial class GatewayForwarder(
             await downstream.Content.CopyToAsync(context.Response.Body, cancellationToken);
         }
     }
+
+    private static HashSet<string> ConnectionHeaders(IEnumerable<string> values) => values
+        .SelectMany(value => value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     private async Task WriteGatewayProblemAsync(HttpContext context, int statusCode, string type, string title)
     {
