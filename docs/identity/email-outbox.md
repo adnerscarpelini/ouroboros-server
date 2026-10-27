@@ -6,6 +6,14 @@ Na solicitação de cadastro ou redefinição de senha, Identity grava token e i
 
 A intenção confirmada é recuperável após queda do processo. `EmailOutboxPublisher`, serviço hospedado isolado dentro de Identity, publica no RabbitMQ quando explicitamente habilitado; vem desabilitado por padrão. O worker com a #87 persiste aceitação/deduplicação antes do ACK e controla tentativas em banco próprio. O provedor local continua restrito a Development, e aceitação não significa entrega única ([processamento](../notifications/durable-processing.md)). `202` não comprova persistência nem entrega e mantém o mesmo corpo contra enumeração.
 
+## Avisos de parâmetros sensíveis
+
+A [edição administrativa de parâmetros](parameters.md#edição-administrativa) (#34) acrescenta a finalidade `parameter-change` ao payload protegido, mantendo o envelope `notification.email.requested` v1. `ProtectedEmailPayloadReader` de Notifications aceita essa finalidade além das existentes. Atualize Notifications antes de usar a edição na nova versão de Identity: versões anteriores recusam finalidade desconhecida.
+
+A alteração, histórico e intenções para os administradores ativos são confirmados na mesma transação local de Identity. O prazo é de 24 horas a partir da alteração. O conteúdo inclui chave, ExternalId do autor e data UTC, sem senha, valores ou descrição. A proteção reutiliza `IEmailIntentFactory`, RSA/AES e o contexto existente; o transporte é posterior ao commit.
+
+Diferentemente da substituição de solicitações de cadastro/reset, cada aviso recebe alias HMAC independente, com componente UUID novo na entrada do HMAC. Alterações sucessivas não cancelam avisos anteriores. O índice de unicidade de Pending permanece válido, mas não agrupa avisos distintos para o mesmo destinatário. Publicação confirmada, deduplicação, retries e descarte no prazo seguem #86/#87; indisponibilidade posterior não desfaz o parâmetro já confirmado. Os contratos de tokens e links de cadastro/reset permanecem iguais.
+
 ## Atomicidade e substituição
 
 A aplicação normaliza e valida o e-mail, gera o token/link e prepara o envelope protegido antes de consultar existência/elegibilidade. A proteção é trabalho local, sem rede. Falha de proteção também não se torna um oráculo sobre a existência de conta. Parâmetros continuam sendo lidos primeiro, com a mesma falha genérica por configuração ausente/inválida.

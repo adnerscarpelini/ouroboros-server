@@ -2,12 +2,25 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Ouroboros.Identity.Application.Parameters;
 using Ouroboros.Identity.Contracts;
+using Ouroboros.Identity.Domain.Notifications;
 using Ouroboros.Identity.Domain.Parameters;
 
 namespace Ouroboros.Identity.Infrastructure.Persistence;
 
 internal sealed class ParameterPersistence(IdentityDbContext context) : IParameterPersistence
 {
+    public async Task ChangeWithIntentsAsync(string key, string? value, string? description, Guid changedBy, int revision,
+        DateTimeOffset changedAt, IReadOnlyList<EmailIntent> intents, CancellationToken cancellationToken)
+    {
+        if (context.Database.CurrentTransaction is null) { throw new InvalidOperationException("A alteração administrativa exige a transação local de Identity."); }
+        var parameter = await context.Parameters.SingleOrDefaultAsync(candidate => candidate.Key == key, cancellationToken)
+            ?? throw new ParameterNotFoundException(key);
+        if (parameter.Revision != revision) { throw new ParameterConflictException(key); }
+        context.ParameterHistory.Add(parameter.Change(value, description, changedBy, changedAt));
+        context.EmailIntents.AddRange(intents);
+        await SaveAsync(key, cancellationToken);
+    }
+
     public async Task CreateAsync(Parameter parameter, ParameterHistory history, CancellationToken cancellationToken)
     {
         context.Parameters.Add(parameter);

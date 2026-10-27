@@ -92,6 +92,8 @@ public static class DependencyInjection
         services.AddScoped<IParameterListReader, ParameterListReader>();
         services.AddScoped<IGetParameterHistory, GetParameterHistory>();
         services.AddScoped<IParameterHistoryReader, ParameterHistoryReader>();
+        services.AddScoped<IChangeParameter, ChangeParameter>();
+        services.AddScoped<IParameterAdministrationReader, ParameterAdministrationReader>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<AuditTimestampsInterceptor>();
@@ -155,6 +157,7 @@ public static class DependencyInjection
         {
             options.AddPolicy(IdentityPolicies.AdminsInvite, policy => policy.RequireRole(nameof(UserRole.Admin)));
             options.AddPolicy(IdentityPolicies.ParametersRead, policy => policy.RequireRole(nameof(UserRole.Admin)));
+            options.AddPolicy(IdentityPolicies.ParametersWrite, policy => policy.RequireRole(nameof(UserRole.Admin)));
         });
     }
 

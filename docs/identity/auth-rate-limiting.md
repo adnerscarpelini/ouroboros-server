@@ -53,7 +53,8 @@ Cada política fica em `Identity:RateLimiting:Policies:<nome>`, no [`appsettings
       "identity-registration-completion": { "PermitLimit": 10, "Window": "00:01:00" },
       "identity-password-reset": { "PermitLimit": 5, "Window": "00:01:00" },
       "identity-password-reset-completion": { "PermitLimit": 10, "Window": "00:01:00" },
-      "identity-password-change": { "PermitLimit": 10, "Window": "00:01:00" }
+      "identity-password-change": { "PermitLimit": 10, "Window": "00:01:00" },
+      "identity-parameter-write": { "PermitLimit": 10, "Window": "00:01:00" }
     }
   }
 }
@@ -67,6 +68,8 @@ Cada política fica em `Identity:RateLimiting:Policies:<nome>`, no [`appsettings
 A política do logout aplica limite por IP, assim como os demais endpoints anônimos de autenticação, com o mesmo valor da renovação. A do cadastro (#20) é a mais restrita porque cada solicitação aceita pode gerar um token, uma gravação e um e-mail. A da conclusão do cadastro (#21) aceita 10 por minuto, o mesmo valor do login; como no login, cada conclusão com token válido e senha aceita pela política calcula um hash de senha. A da solicitação de redefinição de senha (#22) tem o mesmo valor da solicitação de cadastro, pelo mesmo motivo. A da conclusão da redefinição (#23) tem o mesmo valor da conclusão do cadastro: cada conclusão com token válido e senha aceita pela política verifica a senha atual e calcula um hash.
 
 A troca autenticada de senha (#24), somente no listener público, usa a política obrigatória `identity-password-change`, com `PermitLimit = 10` e `Window = 00:01:00`: verifica a senha atual e gera o hash da nova. Seu contador também é por IP, mesmo com token Bearer; a 11ª requisição na janela recebe `429` antes de verificar as credenciais.
+
+A [edição administrativa de parâmetros](parameters.md#edição-administrativa) (#34) usa `identity-parameter-write`, obrigatória na subida, com `PermitLimit = 10` e `Window = 00:01:00`, somente no público administrativo. Conta requisições por IP mesmo autenticadas, limitando a reautenticação por senha; a 11ª recebe `429` com `Retry-After` antes de verificar credenciais. `ParameterChangeTests` cobre essa recusa.
 
 Como qualquer configuração do ASP.NET Core, os valores podem ser sobrescritos por outras fontes, como variáveis de ambiente. Alterar um valor exige reiniciar a API: as políticas são montadas uma vez, na subida.
 

@@ -61,4 +61,6 @@ Publisher confirms, `mandatory` e mensagens persistentes são usados pelo public
 
 [`RabbitMqTopologyTests`](../../tests/Ouroboros.IntegrationTests/RabbitMqTopologyTests.cs), com [`RabbitMqFixture`](../../tests/Ouroboros.IntegrationTests/RabbitMqFixture.cs), usa broker real, volume exclusivo de teste, credenciais efêmeras e o provisionador PowerShell real. Cobre permissões e recusas, ausência de `guest` no bootstrap, persistência após reinício, reprovisionamento e leitura de `-EnvFile` sem imprimir senhas. A fixture remove somente os recursos que criou. Esses cenários foram executados em Linux limpo com SDK 10.0.402 e PowerShell 7.6.7; não dependem do Compose nem do `.env` local. Comandos de execução e provisionamento em [desenvolvimento](../development.md#rabbitmq-local).
 
+A #34 acrescenta `parameter-change` às finalidades aceitas no conteúdo protegido de e-mail, sem mudar o envelope v1. Para os avisos de parâmetros sensíveis, atualize Notifications antes de usar o endpoint na nova versão de Identity; o consumidor antigo recusa finalidade desconhecida. Prazo de 24 horas, aliases independentes e atomicidade em [Outbox de Identity](../identity/email-outbox.md#avisos-de-parâmetros-sensíveis).
+
 [Voltar à arquitetura](README.md)

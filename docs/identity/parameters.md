@@ -8,7 +8,7 @@ O contrato [`Identity.Contracts.ISystemParameters`](../../src/Services/Identity/
 
 `ParameterWriter` usa `IParameterPersistence`; `ParameterPersistence` aplica as [regras de tipo, padrão e sensibilidade](../architecture/system-parameters.md), grava parâmetro e histórico num único `SaveChangesAsync` e preserva autor, instante e revisão. Os tipos de domínio e os adaptadores estão no próprio Identity; registros são scoped em `AddIdentityModule`. EF, SQL e tradução de concorrência/unicidade permanecem em Infrastructure. Revisão é token de concorrência; a combinação chave/revisão do histórico é única, e conflito desfaz a operação inteira.
 
-O contexto é o mesmo que poderá gravar a intenção de aviso da #34; a listagem administrativa está disponível desde a #30; a consulta HTTP de histórico está disponível desde a #35. Edição e aviso da alteração continuam pendentes na #34. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
+A listagem administrativa está disponível desde a #30, a consulta HTTP de histórico desde a #35 e a edição com aviso transacional desde a #34, descritas abaixo. As [portas introduzidas na #73](parameter-ports.md) mantêm sua unidade de trabalho, agora no proprietário.
 
 ## Listagem administrativa
 
@@ -18,7 +18,7 @@ A política nomeada `settings:parameters.read` exige papel `Admin`. Além da aud
 
 A resposta `200` é `CursorPage<ParameterView>`, com `data`, `hasMore` e `nextCursor`. Cada item contém `id` (ExternalId), `key`, `value`, `description`, `dataType`, `validationPattern`, `isSensitive`, `revision`, `updatedBy` e `updatedAt`. O valor é devolvido como texto; `isSensitive` informa a classificação do parâmetro. O contrato de [paginação por cursor](../architecture/cursor-pagination.md) define ordenação por ExternalId crescente, limite padrão 50/máximo 100, continuação, erros `400` e limites de consistência.
 
-[`ParametersController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/ParametersController.cs) usa `IListParameters` e `IGetCurrentUser`. `ControllerRouteTests` mantém uma exceção nominal para a rota compatível deste controller de Identity. A #30 entrega a listagem atual; a #35 acrescenta o histórico abaixo. A edição (#34) continua pendente.
+[`ParametersController`](../../src/Services/Identity/Ouroboros.Identity.Api/Controllers/Admin/ParametersController.cs) usa `IListParameters` e `IGetCurrentUser`. `ControllerRouteTests` mantém uma exceção nominal para a rota compatível deste controller de Identity. A #30 entrega a listagem atual; a #35 acrescenta o histórico abaixo. A edição é descrita na seção seguinte (#34).
 
 Origem: [#30](https://github.com/adnerscarpelini/ouroboros-server/issues/30). Comando e cobertura de verificação em [Paginação por cursor](../architecture/cursor-pagination.md#camadas-e-verificação).
 
@@ -43,6 +43,53 @@ dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*Param
 O QA independente aprovou 12/12 casos de [`ParameterHistoryTests`](../../tests/Ouroboros.IntegrationTests/ParameterHistoryTests.cs), além de 13/13 da paginação e 2/2 dos cenários selecionados de gateway. A validação inclui paginação de chave Unicode longa, sem crescimento do cursor proporcional ao tamanho da chave. A persistência usa PostgreSQL real; as chamadas HTTP usam TestServer, e o encaminhamento de gateway usa `InMemoryIdentityDownstreamFactory`. Essa evidência não representa execução completa da suíte de integração nem desses cenários em Kestrel real.
 
 Origem: [#35](https://github.com/adnerscarpelini/ouroboros-server/issues/35).
+
+## Edição administrativa
+
+`PUT /api/v1/admin/settings/parameters/{key}` altera valor, descrição ou ambos. Exige token da audiência administrativa, política `settings:parameters.write` com papel `Admin` e reautenticação pela senha atual. Consulte a revisão na listagem antes de alterar:
+
+```json
+{
+  "revision": 0,
+  "currentPassword": "uma frase administrativa longa e exclusiva",
+  "value": "6",
+  "description": "Limite de tentativas consecutivas"
+}
+```
+
+`revision` é obrigatório e não negativo; `currentPassword` é obrigatório, com no máximo 1024 caracteres. `value` e `description` são opcionais, separadamente ou juntos; é necessário produzir mudança real. O domínio aplica tipo, padrão e demais [regras de parâmetros](../architecture/system-parameters.md). O endpoint não altera chave, tipo, padrão ou sensibilidade.
+
+| Resposta | Comportamento |
+| --- | --- |
+| `204` | Alteração e nova revisão do histórico confirmadas, com intenções de aviso quando sensível; sem corpo. |
+| `400` | Corpo inválido, ausência de mudança real ou valor/descrição recusado pelo domínio; ProblemDetails com a regra pertinente. |
+| `401` | Senha inválida ou administrador inexistente, inativo, bloqueado ou sem papel atual; audiência inválida também é recusada. |
+| `403` | Papel do token incompatível com a política. |
+| `404` | Parâmetro inexistente. |
+| `409` | Revisão divergente ou conflito concorrente; consulte o estado atual antes de decidir nova alteração. |
+| `429` | Política `identity-parameter-write`: 10 requisições/minuto/IP, com `Retry-After`, antes de reautenticar. |
+
+[`ChangeParameter`](../../src/Services/Identity/Ouroboros.Identity/Application/Parameters/ChangeParameter.cs), exposto por [`IChangeParameter`](../../src/Services/Identity/Ouroboros.Identity/Contracts/Parameters/IChangeParameter.cs), relê o administrador e verifica senha, atividade e bloqueio. A verificação do hash ocorre antes da transação; depois de travar o usuário, relê hash, atividade, bloqueio e papel. Uma credencial ou autorização modificada nesse intervalo impede a gravação. Senha incorreta retorna `401` sem incrementar a contagem de falhas neste contrato.
+
+`ParameterPersistence.ChangeWithIntentsAsync` exige transação local ativa, confere a revisão e aplica a alteração pelo domínio. Parâmetro, histórico e intenções de e-mail são gravados no mesmo `SaveChangesAsync` e commit. Falha em qualquer gravação reverte o conjunto; duas alterações concorrentes da mesma revisão não confirmam ambas.
+
+### Avisos de alteração sensível
+
+Quando `isSensitive` é verdadeiro, inclusive na mudança somente de descrição, os destinatários são todos os administradores ativos resolvidos dentro da transação. O aviso contém somente a chave, o ExternalId do autor e a data UTC da alteração; não contém senha, valores anteriores/novos nem descrições. Parâmetros não sensíveis não geram aviso.
+
+Cada aviso usa a [outbox protegida](email-outbox.md#avisos-de-parâmetros-sensíveis) com finalidade `parameter-change`, prazo de 24 horas e alias HMAC independente, sem cancelar avisos anteriores. Não há HTTP, broker ou transporte dentro da transação. A publicação e o processamento assíncronos reutilizam #86/#87: falha posterior não desfaz a alteração e mantém recuperação até o prazo da intenção.
+
+**Ordem de atualização:** atualize Notifications para a versão que aceita `parameter-change` antes de utilizar o endpoint na nova versão de Identity. Consumidor antigo rejeita finalidade desconhecida. O envelope continua v1, e cadastro/reset mantêm seus contratos e links.
+
+Com os pré-requisitos de [desenvolvimento](../development.md), execute:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ParameterChangeTests"
+```
+
+O QA independente aprovou 21/21 casos de [`ParameterChangeTests`](../../tests/Ouroboros.IntegrationTests/ParameterChangeTests.cs), incluindo concorrência, rollback por triggers, revalidação de hash/papel após lock, contratos inválidos, autorização e 11ª requisição recusada. Também aprovou 2 casos selecionados de gateway e 3 de proteção de e-mail. PostgreSQL real, HTTP em TestServer e transporte de gateway em memória foram usados. A falha de publicação após commit preservou intenção Pending e payload protegido; esta etapa não comprovou entrega até arquivo `.eml` via broker nem execução da suíte completa de integração.
+
+Origem: [#34](https://github.com/adnerscarpelini/ouroboros-server/issues/34).
 
 ## Migração e preservação
 

@@ -150,6 +150,19 @@ public sealed class GatewayIntegrationTests(PostgresFixture postgres) : Integrat
         using var parametersOnExternal = await externalGatewayClient.GetAsync("/api/v1/admin/settings/parameters", Cancellation);
         Assert.Equal(HttpStatusCode.NotFound, parametersOnExternal.StatusCode);
 
+        using var updateParameter = new HttpRequestMessage(HttpMethod.Put, "/api/v1/admin/settings/parameters/Identity:Lockout:MaxFailedAttempts")
+        {
+            Content = JsonContent.Create(new { Revision = 0, CurrentPassword = adminPassword, Value = "6" }),
+        };
+        updateParameter.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
+        using var updateResponse = await adminGatewayClient.SendAsync(updateParameter, Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, updateResponse.StatusCode);
+        await using (var scope = Api.Services.CreateAsyncScope())
+        {
+            Assert.Equal("6", await scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Contracts.ISystemParameters>()
+                .GetAsync("Identity:Lockout:MaxFailedAttempts", Cancellation));
+        }
+
         // 6. Readiness do gateway reflete a prontidão do Identity sem expor segredos.
         using var gatewayReady = await externalGatewayClient.GetAsync(OuroborosHealthExtensions.ReadyPath, Cancellation);
         Assert.Equal(HttpStatusCode.OK, gatewayReady.StatusCode);

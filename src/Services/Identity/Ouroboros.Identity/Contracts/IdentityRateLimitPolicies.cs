@@ -21,4 +21,5 @@ public static class IdentityRateLimitPolicies
 
     public const string PasswordResetCompletion = "identity-password-reset-completion";
     public const string PasswordChange = "identity-password-change";
+    public const string ParameterWrite = "identity-parameter-write";
 }
