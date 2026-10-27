@@ -8,7 +8,7 @@
 - [Estrutura dos serviços](architecture/module-structure.md).
 - [Assinatura RS256, JWKS e rotação](architecture/authentication.md): principal, audiências e transição HS256; [geração e operação das chaves](development.md#chave-de-assinatura-dos-tokens).
 - [Estado de implementação](implementation-status.md).
-- [Executar o checkout atual](development.md): build, testes, banco local, provisionamento de bancos e roles e [transferência do banco de Identity](development.md#transferir-o-banco-de-identity).
+- [Executar o checkout atual](development.md): build, testes, banco local, provisionamento de bancos e roles, [transferência do banco de Identity](development.md#transferir-o-banco-de-identity) e [validação de atualização independente, rollback e recuperação dos serviços](development.md#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços).
 - [Catálogo de erros](errors/README.md).
 
 As funcionalidades ficam em `<service-name>/<feature-name>.md`, na pasta do serviço proprietário:

@@ -11,9 +11,9 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services` e `src/Services/Identity` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services`, `src/Services/Identity` e `src/Gateways` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; os gateways finos `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` ficam em `src/Gateways/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity (um processo, com os listeners público e administrativo). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity diretamente (um processo, com os listeners público e administrativo), ou inicie também `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` quando quiser exercitar o encaminhamento de borda ([Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo)). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -22,6 +22,8 @@ dotnet restore Ouroboros.slnx
 dotnet build Ouroboros.slnx --no-restore
 dotnet build src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj
 dotnet build src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj
+dotnet build src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj
+dotnet build src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj
 ```
 
 ## Testes
@@ -43,6 +45,13 @@ dotnet test --project tests/Ouroboros.IntegrationTests    # só integração (ex
 - Os testes do pipeline de diagnósticos (`DiagnosticsPipelineTests`) também exigem o Docker e baixam `otel/opentelemetry-collector-contrib:0.162.0` e `busybox:1.37.0`. Sobem coletor e destino reais com os arquivos de `config/observability`, em rede e volume próprios de teste; não usam os serviços nem o volume do Compose ([cenários](architecture/diagnostics-pipeline.md#como-verificar)).
 - `IdentityConnectionStringTests` verifica a precedência de `ConnectionStrings:Identity` sobre `ConnectionStrings:Ouroboros`, o uso da segunda quando a primeira não existe e a falha de subida, citando as duas chaves, quando nenhuma está configurada.
 - `CredentialIsolationTests`, nos testes de arquitetura e sem Docker, verifica que `POSTGRES_USER` e `POSTGRES_PASSWORD` não aparecem em arquivos de código ou configuração de `src`, que o `.env.example` traz só senhas de exemplo distintas (prefixo `troque-`) e que `*.env` está no `.gitignore`.
+- [`HealthAndContainerArchitectureTests`](../tests/Ouroboros.ArchitectureTests/HealthAndContainerArchitectureTests.cs), nos testes de arquitetura e sem Docker, verifica que `/health/live`, `/health/ready` e `/health` são anônimos e nunca expõem segredos, connection strings ou mensagens de exceção, que os Dockerfiles usam `APP_VERSION`, `SOURCE_REVISION`, usuário não-root (`$APP_UID`) e contextos isolados por serviço, que o `compose.yaml` mantém o listener administrativo (`5142`) não publicado no host e migrations no profile explícito `migrate`, que a CI constrói as duas imagens versionadas e que nenhum comando documentado em `docs/`, `scripts/` ou `compose.yaml` remove volumes do Docker.
+- [`ServiceReadinessAndContainerTests`](../tests/Ouroboros.IntegrationTests/ServiceReadinessAndContainerTests.cs), nos testes de integração com Docker, verifica que os serviços não aplicam migrations na subida e só ficam prontos após o comando explícito `migrate` com suas roles de migration e convergência de privilégios, que com o RabbitMQ parado Identity permanece pronto (`200`) e realiza login enquanto Notifications permanece vivo (`/health/live` `200`) e reporta não pronto (`/health/ready` `503`), que as imagens construídas executam como UID `1654` com o rótulo OCI `<version>-<commit>` sem assemblies do outro serviço ou `.env`, e que `scripts/messaging/new-compose-keys.ps1` gera diretórios externos isolados para Identity e Notifications sem imprimir segredos.
+- [`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs), nos testes de integração com Docker ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89)), valida a atualização e reversão (rollback) de `Ouroboros.Notifications.Worker` entre versões compatíveis do contrato v1 sem reimplantar ou reiniciar `Identity`, a continuidade do login e recuperação de intenções na parada de `Notifications` e do `RabbitMQ`, a reentrega idempotente/deduplicada após falha do publicador ou do consumidor, o impacto comum e recuperação automática (`ClearAllPools`) na parada da instância `PostgreSQL` compartilhada e a preservação de dados em migrations aditivas durante rollback de binário ([procedimento e comandos](#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)).
+- [`GatewayArchitectureTests`](../tests/Ouroboros.ArchitectureTests/GatewayArchitectureTests.cs), nos testes de arquitetura e sem Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica que `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` são executáveis fora de `src/Services` sem `DbContext`, `ControllerBase` ou referência a `Identity`, `Notifications` e `BuildingBlocks`, que o gateway administrativo recusa hosts fora de loopback quando `Gateway:AllowNonLoopback=false`, que os dois gateways isolam os prefixos `/api/v1/identity/*` e `/api/v1/admin/identity/*` com `404` na borda e que indisponibilidade ou lentidão do `Identity` produzem ProblemDetails `502 Bad Gateway` e `504 Gateway Timeout` sanitizados dentro do timeout configurado.
+- [`GatewayIntegrationTests`](../tests/Ouroboros.IntegrationTests/GatewayIntegrationTests.cs), nos testes de integração com Docker ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)), verifica o encaminhamento das rotas públicas e administrativas de `Identity` pelos dois gateways finos, a preservação da autenticação, audiência e papel (`Admin` vs. `Customer`) no `Identity` tanto via gateway quanto em acesso direto, a prontidão (`/health/ready`) do gateway refletindo o `Identity` e o rate limiting por IP real do cliente (`X-Forwarded-For` aceito apenas das réplicas de gateway listadas em `Identity:ForwardedHeaders:KnownProxies`, bloqueando falsificação de cabeçalho em chamadas via gateway ou diretas).
+- [`OriginalDatabaseArchitectureTests`](../tests/Ouroboros.ArchitectureTests/OriginalDatabaseArchitectureTests.cs), nos testes de arquitetura e sem Docker ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)), verifica que `scripts/database/decommission-original-db.sh` existe com finais de linha LF, exige `CONFIRM_ORIGINAL_DB_DEACTIVATION`, `RETENTION_DAYS`, `final-backup-verified` e `session-safety.sql`, aplica bloqueio não destrutivo (`ALLOW_CONNECTIONS false CONNECTION LIMIT 0`) sem nunca executar `DROP DATABASE` sobre o banco original (apenas sobre o banco temporário de verificação `$CHECK_DATABASE`) e que o `compose.yaml` expõe `decommission-original-db` exclusivamente no profile `decommission`.
+- [`OriginalDatabaseDecommissioningTests`](../tests/Ouroboros.IntegrationTests/OriginalDatabaseDecommissioningTests.cs), nos testes de integração com Docker ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)), valida em PostgreSQL real o inventário (`inventory`) dos schemas remanescentes (`identity` transferido, `settings` e `public` retidos apenas na origem), o `final-backup` com restore e comparação de digest/SHA-256, a recusa de `deactivate` sem confirmação explícita, sem `RETENTION_DAYS`, com sessão ativa ou com role de serviço tendo `CONNECT`, o bloqueio de conexões sem exclusão, a continuidade do login em `ouroboros_identity`, a reativação em somente leitura (`reactivate`) e a rotação/revogação da credencial antiga ampla (`rotate-admin-credential`) sem afetar `Identity` e `Notifications` e sem vazar senhas nos logs.
 
 Como funcionam e como escrever um teste: [Testes de integração com PostgreSQL](architecture/integration-tests.md).
 
@@ -52,10 +61,10 @@ O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pul
 
 | Check (nome do job) | O que executa | Equivale localmente a |
 | --- | --- | --- |
-| Build e testes de arquitetura | Restore e build da solution em Release, mais os testes de arquitetura | `dotnet build Ouroboros.slnx -c Release` e `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` |
+| Build e testes de arquitetura | Restore e build da solution em Release, testes de arquitetura e construção das imagens Linux versionadas (`<version>-<commit>`) de Identity, Notifications e dos dois gateways (`ExternalGateway` e `AdminGateway`) | `dotnet build Ouroboros.slnx -c Release`, `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` e `docker build` dos quatro Dockerfiles com `--build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=<commit>` |
 | Testes de integração | Testes de integração com PostgreSQL e RabbitMQ em containers (Testcontainers); confere a disponibilidade de PowerShell para o provisionador | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
 
-Falha de build, de teste ou de job reprova o check. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
+Falha de build, de imagem, de teste ou de job reprova o check; publicação em registro e deploy ficam fora da CI. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
 
 ### Fixtures e adaptadores de teste
 
@@ -64,6 +73,217 @@ O checkout usa [PostgresFixture](../tests/Ouroboros.IntegrationTests/PostgresFix
 [IntegrationApiFactory](../tests/Ouroboros.IntegrationTests/IntegrationApiFactory.cs) inicia a API de Identity (`Ouroboros.Identity.Api`) em Testing, com configuração em memória que sobrepõe connection string e chave fictícia. `CreateClient()` fala com o listener público e `CreateAdminClient()`, com o administrativo; `BackofficeIntegrationApiFactory`, declarada no mesmo arquivo, faz todas as requisições do cliente chegarem ao listener administrativo. Como o `TestServer` não tem sockets, o listener é escolhido pelo cabeçalho de teste `X-Test-Listener` (`admin`), lido só por um resolvedor registrado no projeto de testes; a produção ignora o cabeçalho. A separação por portas é verificada em `KestrelListenerTests`, com Kestrel real. Limites elevados evitam interferência nos testes de negócio; RateLimitingTests usa limites próprios; `ForwardedHeadersTests` usa o cabeçalho de teste `X-Test-Client-IP` para definir o IP da conexão.
 
 A `PostgresFixture` aplica as migrations de Identity no banco modelo por meio dessa fábrica; os `DbContext` do serviço são descobertos por reflexão nos assemblies `Ouroboros.*` referenciados pela API ([ModuleDbContexts](../tests/Ouroboros.IntegrationTests/ModuleDbContexts.cs)), de modo que um serviço novo entra sem alterar os testes. O schema legado `settings` é reproduzido pelo SQL versionado [settings-legacy-schema.sql](../tests/Ouroboros.IntegrationTests/Resources/settings-legacy-schema.sql), aplicado por `IntegrationTest.ApplyLegacySettingsSchemaAsync` e pelos testes da migration `OwnIdentityParameters` ([IdentityParameterMigrationTests](../tests/Ouroboros.IntegrationTests/IdentityParameterMigrationTests.cs)), sem depender de um projeto Settings. Nos testes de arquitetura, `OuroborosApiFactory` e `BackofficeApiFactory` ([OuroborosApiFactory.cs](../tests/Ouroboros.ArchitectureTests/OuroborosApiFactory.cs)) sobem a API de Identity com banco fictício, no listener público e no administrativo. Casos que dependem de tempo ou corridas substituem TimeProvider/hasher por adaptadores controlados. [TestOutbox](../tests/Ouroboros.IntegrationTests/TestOutbox.cs) lê intenções e decifra conteúdo somente com chaves efêmeras de teste; NotificationsWorkerTests verifica o adaptador `.eml` no receptor. Isso não comprova entrega distribuída.
+
+## Executar os serviços com Docker Compose
+
+O arquivo [`compose.yaml`](../compose.yaml) e o modelo [`.env.example`](../.env.example) permitem subir localmente a instância PostgreSQL, o RabbitMQ, a API de Identity (`identity-api`), o worker de Notifications (`notifications-worker`) e o coletor de diagnósticos (`otel-collector`), cada um em seu próprio container. Uma única instância PostgreSQL abriga os bancos separados `ouroboros_identity` e `ouroboros_notifications`; nenhum serviço recebe credencial administrativa nem acessa banco ou chaves do outro.
+
+### 1. Gerar chaves externas e configurar o `.env`
+
+Gere os diretórios externos de chaves criptográficas fora de qualquer checkout Git com [`scripts/messaging/new-compose-keys.ps1`](../scripts/messaging/new-compose-keys.ps1), que cria as subpastas `identity` e `notifications` sem imprimir material secreto:
+
+```powershell
+$keysRoot = [IO.Path]::GetFullPath((Read-Host 'Diretório externo novo para as chaves do Compose (fora do repositório)'))
+pwsh -NoProfile -File scripts/messaging/new-compose-keys.ps1 -Directory $keysRoot
+```
+
+O script recusa diretório já existente ou dentro de repositório Git e grava os manifestos já apontando para os caminhos internos montados nos containers (`/run/ouroboros-keys/identity/...` e `/run/ouroboros-keys/notifications/...`):
+
+- `<caminho-fora-do-repo>/identity`: `ring.json` e PEM privado RSA-3072 de assinatura JWT, `public.json` (somente chave pública RSA-3072 de proteção de e-mail) e `supersession.key` (HMAC de 32 bytes de substituição).
+- `<caminho-fora-do-repo>/notifications`: `private.json` e PEM privado RSA-3072 de proteção de e-mail, `fingerprint.json` e chave HMAC de 32 bytes de deduplicação.
+
+Se ainda não existir `.env`, copie `.env.example` uma única vez (`cp .env.example .env`), aponte `IDENTITY_KEYS_DIR` e `NOTIFICATIONS_KEYS_DIR` para as duas subpastas criadas (ou defina uma variável base `OUROBOROS_KEYS_ROOT` para compor os dois caminhos no `.env`) e troque todas as senhas `troque-*` por valores aleatórios distintos (pelo menos 32 caracteres nas senhas do broker):
+
+| Variável no `.env` | Finalidade |
+| --- | --- |
+| `APP_VERSION`, `SOURCE_REVISION`, `IMAGE_TAG` | Versão e revisão imutáveis das imagens (`<APP_VERSION>-<SOURCE_REVISION>`, padrão `0.1.0-local`) |
+| `IDENTITY_PUBLIC_PORT` | Porta de loopback do host para o listener público de Identity (padrão `5141`) |
+| `NOTIFICATIONS_HEALTH_PORT` | Porta de loopback do host para o endpoint de saúde de Notifications (padrão `5143`) |
+| `EXTERNAL_GATEWAY_PORT`, `ADMIN_GATEWAY_PORT` | Portas de loopback do host para os containers opcionais `external-gateway` (padrão `5151`) e `admin-gateway` (padrão `5152`), no profile `gateways` |
+| EXTERNAL_GATEWAY_IP, GATEWAY_NETWORK_SUBNET | IP estático exato do proxy externo e subnet da rede Compose (padrões 172.30.230.10 e 172.30.230.0/24). O IP deve pertencer à subnet; ajuste ambos em caso de sobreposição. Identity confia no IP exato e em loopback, sem confiar em toda a rede |
+| `IDENTITY_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/identity`, montado somente em `identity-api` como `:ro` |
+| `NOTIFICATIONS_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/notifications`, montado somente em `notifications-worker` como `:ro` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credencial administrativa da instância PostgreSQL; usada apenas por `postgres`, `provision-databases`, `transfer-identity` e `decommission-original-db` |
+| `IDENTITY_RUNTIME_PASSWORD`, `IDENTITY_MIGRATION_PASSWORD` | Senhas distintas das roles `identity_runtime` e `identity_migrator` no banco `ouroboros_identity` |
+| `NOTIFICATIONS_RUNTIME_PASSWORD`, `NOTIFICATIONS_MIGRATION_PASSWORD` | Senhas distintas das roles `notifications_runtime` e `notifications_migrator` no banco `ouroboros_notifications` |
+| `RABBITMQ_ADMIN_USER`, `RABBITMQ_ADMIN_PASSWORD` | Credencial administrativa do RabbitMQ; usada apenas por `rabbitmq` e `provision-rabbitmq` |
+| `IDENTITY_BROKER_PASSWORD`, `NOTIFICATIONS_BROKER_PASSWORD`, `NOTIFICATIONS_FAILURES_BROKER_PASSWORD` | Senhas distintas de pelo menos 32 caracteres para `identity_publisher`, `notifications_consumer` e `notifications_failures` |
+
+### 2. Subir infraestrutura e provisionar bancos e broker
+
+Suba o PostgreSQL e o RabbitMQ e execute os jobs explícitos e idempotentes do profile `provision`:
+
+```powershell
+docker compose up -d --wait postgres rabbitmq
+docker compose --profile provision run --rm provision-databases
+docker compose --profile provision run --rm provision-rabbitmq
+```
+
+### 3. Aplicar migrations explicitamente por serviço
+
+As migrations nunca rodam na subida da API ou do worker. Aplique-as pelos jobs explícitos do profile `migrate`, que usam exclusivamente as roles `identity_migrator` e `notifications_migrator`, e reexecute `provision-databases` em seguida para convergir os privilégios das tabelas criadas para as roles de runtime e negar acesso ao `__EFMigrationsHistory`:
+
+```powershell
+docker compose --profile migrate run --rm migrate-identity
+docker compose --profile migrate run --rm migrate-notifications
+docker compose --profile provision run --rm provision-databases
+```
+
+Fora do container do Compose, o mesmo comando explícito `migrate` pode ser executado diretamente no CLI de cada serviço, passando a connection string da role de migration na variável de ambiente correspondente (roles de runtime são recusadas pelo comando):
+
+```powershell
+$env:ConnectionStrings__Identity = "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>"
+dotnet run --project src/Services/Identity/Ouroboros.Identity.Api -- migrate
+Remove-Item Env:ConnectionStrings__Identity
+
+$env:ConnectionStrings__Notifications = "Host=localhost;Port=5432;Database=ouroboros_notifications;Username=notifications_migrator;Password=<NOTIFICATIONS_MIGRATION_PASSWORD>"
+dotnet run --project src/Services/Notifications/Ouroboros.Notifications.Worker -- migrate
+Remove-Item Env:ConnectionStrings__Notifications
+```
+
+### 4. Subir os serviços e verificar health e readiness
+
+Com bancos provisionados, migrations aplicadas, privilégios convergidos e topologia do RabbitMQ pronta, construa e inicie os serviços:
+
+```powershell
+docker compose up -d --build identity-api notifications-worker
+# Opcionalmente, suba também os gateways externo (5151) e administrativo (5152) pelo profile `gateways`:
+docker compose --profile gateways up -d --build external-gateway admin-gateway
+docker compose ps
+```
+
+- **Imagens versionadas e usuário não-root:** [`src/Services/Identity/Ouroboros.Identity.Api/Dockerfile`](../src/Services/Identity/Ouroboros.Identity.Api/Dockerfile), [`src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile`](../src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile), [`src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile) e [`src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile`](../src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile) recebem `APP_VERSION` e `SOURCE_REVISION`, gravam `/p:Version`, `/p:SourceRevisionId` e os rótulos OCI (`org.opencontainers.image.version="${APP_VERSION}-${SOURCE_REVISION}"`), copiam somente o próprio executável e bibliotecas técnicas (com `.dockerignore` excluindo `.env`, `*.pem`, `*.key`, `.local` e `backups`) e executam sob `USER $APP_UID` (UID `1654`).
+- **Isolamento administrativo:** o listener 5142 de Identity continua em loopback interno, sem publicação. O gateway administrativo compartilha o namespace de rede de identity-api para acessá-lo e escuta em 0.0.0.0:5152 (AllowNonLoopback=true); a publicação dessa porta fica no serviço identity-api, restrita a 127.0.0.1 no host. O gateway externo publica sua própria porta de loopback. Veja [Execução dos gateways](#executar-os-gateways-externo-e-administrativo).
+- **Health e readiness sanitizados ([`OuroborosHealthExtensions`](../src/Ouroboros.Hosting/OuroborosHealthExtensions.cs)):**
+  - `GET /health/live` (liveness, anônimo e sem rate limit) verifica apenas se o processo está ativo (`Predicate = _ => false`) e responde `200 OK` com `{"status":"Healthy"}`.
+  - `GET /health/ready` e `GET /health` (readiness, anônimos e sem rate limit) executam as verificações marcadas com a tag `ready` e respondem `200 OK` com `{"status":"Healthy"}` ou `503 Service Unavailable` com `{"status":"Unhealthy"}` (`Cache-Control: no-store, no-cache`). O writer fixo nunca serializa descrições, mensagens de exceção, nomes de roles, senhas ou connection strings.
+  - Em **Identity** ([`IdentityReadinessHealthCheck`](../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityReadinessHealthCheck.cs)), a prontidão depende exclusivamente do banco próprio (`ouroboros_identity`, validando conexão e as tabelas migradas `identity.parameters` e `identity.email_intents`) e **não** depende do RabbitMQ: se o broker parar (`docker compose stop rabbitmq`), `http://127.0.0.1:5141/health/ready` continua respondendo `200 OK` e o login funciona normalmente, enquanto a outbox retém as intenções de e-mail para publicação posterior.
+  - Em **Notifications** ([`NotificationsReadinessHealthCheck`](../src/Services/Notifications/Ouroboros.Notifications/Infrastructure/NotificationsReadinessHealthCheck.cs)), os endpoints são expostos pelo listener técnico configurado em `Notifications:Health:Urls` (padrão `http://127.0.0.1:5143` no `appsettings.json`, publicado no host em `127.0.0.1:${NOTIFICATIONS_HEALTH_PORT:-5143}:5143`). A prontidão exige o banco próprio (`ouroboros_notifications`, tabela `notifications.inbox`), os manifestos de chaves quando `Consumer:Enabled=true` e a conectividade com o RabbitMQ (`notifications_consumer` e declaração passiva da fila `notifications.email.v1`). Com o broker parado, `http://127.0.0.1:5143/health/live` continua `200 OK`, mas `http://127.0.0.1:5143/health/ready` responde `503 Service Unavailable` com `{"status":"Unhealthy"}` até o broker voltar.
+
+Consulte os endpoints de saúde a partir do host:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:5141/health/live
+Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+Invoke-RestMethod -Uri http://127.0.0.1:5143/health/live
+Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+```
+
+### 5. Parada segura do ambiente
+
+Para interromper os containers sem perder estado, use `docker compose stop` ou `docker compose down` sem opções de exclusão de volumes:
+
+```powershell
+docker compose stop
+# ou, para encerrar e remover apenas os containers:
+docker compose down
+```
+
+Preserve sempre os volumes `postgres-data`, `rabbitmq-data`, `diagnostics-data` e `collector-queue`, bem como o diretório externo de chaves e a pasta `backups/`. Nenhum comando documentado ou script do repositório remove volumes do Docker.
+
+## Validação de atualização independente, rollback e recuperação dos serviços
+
+A entrega [#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89) valida a implantação independente, o rollback de versão compatível e a recuperação de falhas com acesso direto às APIs e serviços reais, sem exigir gateways ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83)) e sem excluir volumes.
+
+### Verificação automatizada reproduzível
+
+Na raiz do repositório, com Docker e `pwsh` disponíveis, execute a suíte dedicada ([`ServiceUpdateAndRecoveryTests`](../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs)), que sobe containers isolados de PostgreSQL (`ProvisionedInstance`) e RabbitMQ (`RabbitMqFixture`) sem depender nem alterar o `.env` ou os volumes do Compose local:
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ServiceUpdateAndRecoveryTests"
+```
+
+### Cenários validados e reprodução com Docker Compose
+
+Com o ambiente do [Docker Compose](#executar-os-serviços-com-docker-compose) em execução, todos os cenários abaixo podem ser reproduzidos preservando integralmente os volumes (`postgres-data`, `rabbitmq-data`, `diagnostics-data` e `collector-queue`):
+
+#### 1. Atualização e reversão (rollback) de Notifications sem implantar Identity
+
+- **Garantia validada:** `Ouroboros.Notifications.Worker` é atualizado entre versões compatíveis do contrato v1 (por exemplo, `1.0.0-rev100` → `1.1.0-rev110`) e revertido (`1.1.0-rev110` → `1.0.0-rev100`) com `identity-api` em execução contínua, sem reimplantar nem reiniciar `Identity`. Envelopes v1 padrão e envelopes contendo campos JSON opcionais aditivos são aceitos nas duas versões (`EnvelopeCodec` preserva os campos obrigatórios e ignora extensões opcionais desconhecidas), `serviceVersion` reflete a versão em execução nos logs JSON estruturados e mensagens já entregues antes do rollback permanecem deduplicadas em `notifications.inbox` (`State = Delivered`, `Attempts = 1`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  # Construir duas imagens compatíveis do worker (ex.: 1.0.0-rev100 e 1.1.0-rev110)
+  docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile --build-arg APP_VERSION=1.0.0 --build-arg SOURCE_REVISION=rev100 -t ouroboros-notifications-worker:1.0.0-rev100 .
+  docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile --build-arg APP_VERSION=1.1.0 --build-arg SOURCE_REVISION=rev110 -t ouroboros-notifications-worker:1.1.0-rev110 .
+
+  # Atualizar somente notifications-worker para 1.1.0-rev110 sem reiniciar identity-api
+  $env:IMAGE_TAG = '1.1.0-rev110'
+  docker compose up -d --no-deps notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+
+  # Reverter (rollback) somente notifications-worker para 1.0.0-rev100 sem reiniciar identity-api
+  $env:IMAGE_TAG = '1.0.0-rev100'
+  docker compose up -d --no-deps notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  Remove-Item Env:IMAGE_TAG
+  ```
+
+#### 2. Parada e reinício de Notifications
+
+- **Garantia validada:** Quando `notifications-worker` para, `identity-api` permanece pronto (`GET /health/ready` retorna `200 OK` com `{"status":"Healthy"}`), o login funciona normalmente e novas solicitações de cadastro/redefinição gravam intenções de e-mail que aguardam recuperação. Quando `notifications-worker` volta a iniciar e reporta prontidão (`200 OK` em `http://127.0.0.1:5143/health/ready`), as mensagens pendentes são consumidas e entregues (`State = Delivered`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5141/api/v1/identity/registrations -ContentType 'application/json' -Body '{"email":"recuperacao-worker@example.com"}'
+
+  docker compose start notifications-worker
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 3. Parada e reinício do RabbitMQ
+
+- **Garantia validada:** Com o container `rabbitmq` parado:
+  - `identity-api` permanece pronto (`GET /health/ready` `200 OK`) e o login funciona normalmente.
+  - Novas solicitações de e-mail permanecem retidas na outbox (`identity.email_intents`) com `State = Pending`, `ProtectedEnvelope` preservado e `NextAttemptAt` agendado para retentativa.
+  - Mensagens persistentes (`Persistent = true`) publicadas na fila durável `notifications.email.v1` antes da parada sobrevivem no volume `rabbitmq-data` do broker.
+  - `notifications-worker` permanece vivo (`GET /health/live` `200 OK`), mas reporta não pronto (`GET /health/ready` `503 Service Unavailable` com `{"status":"Unhealthy"}`).
+  - Após `docker compose start rabbitmq`, `notifications-worker` volta a `200 OK` em `/health/ready`, a mensagem que já estava enfileirada no broker e a intenção pendente na outbox são publicadas (`State = Published`, `ProtectedEnvelope = null`) e entregues (`State = Delivered`).
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop rabbitmq
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  # /health/live do worker segue 200 OK; /health/ready responde 503 Unhealthy enquanto o broker está parado
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/live
+
+  docker compose start rabbitmq
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 4. Parada e reinício da instância PostgreSQL compartilhada
+
+- **Impacto comum e recuperação:** Como `ouroboros_identity` e `ouroboros_notifications` compartilham a mesma instância PostgreSQL no ambiente local ([decisão educacional](architecture/microservices.md#um-banco-por-móduloserviço-uma-instância-local)), parar o container `postgres` afeta ambos os serviços simultaneamente:
+  - Tanto `identity-api` (`:5141`) quanto `notifications-worker` (`:5143`) continuam respondendo `200 OK` em `GET /health/live`, mas passam a responder `503 Service Unavailable` com corpo fixo `{"status":"Unhealthy"}` em `GET /health/ready` e `GET /health`.
+  - Tentativas de login durante a indisponibilidade falham sem expor senhas, nomes de roles, hosts ou connection strings no corpo da resposta.
+  - Os health checks de prontidão ([`IdentityReadinessHealthCheck`](../src/Services/Identity/Ouroboros.Identity/Infrastructure/Persistence/IdentityReadinessHealthCheck.cs) e [`NotificationsReadinessHealthCheck`](../src/Services/Notifications/Ouroboros.Notifications/Infrastructure/NotificationsReadinessHealthCheck.cs)) abrem conexões com `Pooling = false` e timeouts curtos (3 s) e executam `NpgsqlConnection.ClearAllPools()` ao capturar falha de conectividade, descartando conexões quebradas do pool da aplicação.
+  - Assim que `postgres` retorna (`docker compose start postgres`), ambos os serviços recuperam automaticamente a prontidão (`200 OK` em `/health/ready`) e o login volta a funcionar sem necessidade de reiniciar os containers de aplicação.
+- **Comandos equivalentes no Compose:**
+
+  ```powershell
+  docker compose stop postgres
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/live
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/live
+
+  docker compose start postgres
+  Invoke-RestMethod -Uri http://127.0.0.1:5141/health/ready
+  Invoke-RestMethod -Uri http://127.0.0.1:5143/health/ready
+  ```
+
+#### 5. Reentrega após falha do publicador ou do consumidor
+
+- **Falha do publicador após publicar no broker e antes de `ConfirmAsync`:** Se o publicador de Identity publicar a mensagem com confirmação do broker (`BasicPublishAsync` em modo confirm/mandatory) e parar antes de gravar `ConfirmAsync` no banco local, a intenção permanece `Pending` até a expiração da lease (`lease_until`) e é republicada no ciclo seguinte com o **mesmo `MessageId` (`ExternalId`)**. `Notifications` recebe as duas entregas na fila, mas `InboxAcceptance` deduplica a segunda entrega pela chave primária/tombstone em `notifications.inbox`, executando o transporte de e-mail uma única vez (`State = Delivered`, `Attempts = 1`).
+- **Falha do consumidor após enviar ao provedor e antes de `DeliverAsync`:** Se o executor de Notifications reclamar a mensagem (`ClaimAsync`), registrar a tentativa (`BeginAttemptAsync`, gravando `State = Sending` e `Attempts = 1`) e concluir a chamada ao transporte externo (`IEmailTransport.SendAsync`), mas parar antes do commit local em `DeliverAsync`, a linha permanece em `State = Sending` com o `ProtectedEnvelope` retido. Quando a lease (`lease_until`) e `next_attempt_at` vencem, o `InboxExecutor` retoma a mesma mensagem preservando o **`MessageId`** original e o cabeçalho RFC 5322 **`Message-ID: <{messageId:N}@ouroboros.local>`**, concluindo a confirmação local na segunda tentativa (`State = Delivered`, `Attempts = 2`, `ProtectedEnvelope = null`).
+- **Tratamento e janela explícita de duplicação no transporte:** No adaptador local `PickupEmailTransport`, a escrita em disco é idempotente por nome de arquivo (`{messageId:N}.eml` gravado via arquivo temporário `.tmp` e `File.Move(..., overwrite: true)`), resultando em um único arquivo final com o mesmo `Message-ID`. Conforme a [política de entrega confiável](architecture/reliable-delivery.md), como o transporte externo não participa da transação do banco, um provedor SMTP/HTTP real que não deduplique por `Message-ID` pode enviar o e-mail duas vezes nessa janela entre o retorno de `SendAsync` e o commit de `DeliverAsync` (entrega *at-least-once*, sem promessa de *exactly-once* no provedor externo).
+
+#### 6. Limites de rollback com migrations e novas escritas
+
+- **Migrations aditivas e preservação de dados:** Quando uma versão nova aplica uma migration aditiva (por exemplo, nova coluna opcional ou tabela nova adicionada pela role `*_migrator`) e grava novos dados, reverter o container do serviço para o binário da versão anterior preserva integralmente os dados gravados pela versão nova, desde que **não** seja executado downgrade destrutivo de schema (`DROP COLUMN` / `DROP TABLE`) nem remoção de volumes. O binário anterior continua lendo e gravando as colunas conhecidas pelo seu modelo EF Core e mantendo `/health/ready` em `200 OK` (`{"status":"Healthy"}`), sem expor segredos.
+- **Limites explícitos de rollback:**
+  - Não execute downgrade destrutivo de banco como parte de rollback de container/binário: alterações incompatíveis exigem padrão *expand-and-contract* em entregas separadas.
+  - Para a transferência inicial do banco de Identity ([#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82)), permanecem os limites documentados em [Voltar ao banco original](#voltar-ao-banco-original) (`rollback` e `reconcile` preservam novas escritas em CSV e recusam históricos de migrations divergentes ou linhas copiadas excluídas).
 
 ## RabbitMQ local
 
@@ -89,9 +309,11 @@ O broker é infraestrutura separada da API e do PostgreSQL. O Compose usa `rabbi
 
    AMQP usa `127.0.0.1:5672` e gestão `http://127.0.0.1:15672`, alteráveis por `RABBITMQ_PORT`/`RABBITMQ_MANAGEMENT_PORT`. Nenhuma porta de gestão é exposta fora da máquina. HTTP/AMQP sem TLS se restringem ao desenvolvimento local; outros ambientes exigem TLS e certificados, sem desabilitar validação.
 
-3. Provisione explicitamente o vhost, usuários, exchanges, filas e bindings:
+3. Provisione explicitamente o vhost, usuários, exchanges, filas e bindings (pelo profile `provision` do Compose ou pelo script no host):
 
    ```powershell
+   docker compose --profile provision run --rm provision-rabbitmq
+   # ou diretamente no host:
    pwsh -NoProfile -File scripts/messaging/provision-rabbitmq.ps1 -EnvFile .env -LocalDevelopment
    ```
 
@@ -143,9 +365,15 @@ A API de Identity lê a connection string de `ConnectionStrings:Identity`, o ban
    dotnet ef database update --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
    ```
 
-   No **banco próprio**, as migrations só rodam por comando explícito com a role de migration, passada em `--connection`; com a role de runtime o comando é recusado pelo PostgreSQL (`42501`). O projeto de inicialização ainda precisa de uma connection string válida na configuração (`ConnectionStrings:Identity` ou `ConnectionStrings:Ouroboros`) para carregar a API:
+   No **banco próprio**, as migrations só rodam por comando explícito com a role de migration (`identity_migrator`); com a role de runtime o comando é recusado. Você pode aplicá-las pelo job `migrate-identity` do Compose, pelo comando CLI `migrate` da API ou por `dotnet ef database update` com `--connection`:
 
    ```powershell
+   docker compose --profile migrate run --rm migrate-identity
+   # ou via CLI da API:
+   $env:ConnectionStrings__Identity = "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>"
+   dotnet run --project src/Services/Identity/Ouroboros.Identity.Api -- migrate
+   Remove-Item Env:ConnectionStrings__Identity
+   # ou via dotnet-ef:
    dotnet ef database update --connection "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_migrator;Password=<IDENTITY_MIGRATION_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity --startup-project src/Services/Identity/Ouroboros.Identity.Api --context IdentityDbContext
    ```
 
@@ -155,7 +383,7 @@ A API de Identity lê a connection string de `ConnectionStrings:Identity`, o ban
 
    No primeiro `database update` em um banco vazio, o log mostra `Failed executing DbCommand` sobre `__EFMigrationsHistory` antes de criar a tabela. É um comportamento conhecido do EF Core: o comando termina com `Done.`. Repetir o comando não altera nada.
 
-5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua retido, sem novas escritas e sem projeto que o acesse (seu destino é a #97); não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
+5. Opcionalmente, confira os schemas: `identity` contém `users`, `sessions`, `refresh_tokens`, `email_tokens`, `parameters` e `parameter_history`. Em banco migrado, `settings` continua retido, sem novas escritas e sem projeto que o acesse ([inventário, backup final e desativação controlada](#desativar-o-banco-original-e-rotacionar-a-credencial-antiga)); não é necessário criá-lo em instalação limpa. Ajuste usuário e banco se mudou o `.env`:
 
    ```powershell
    docker compose exec postgres psql -U ouroboros -d ouroboros -c "\dn"
@@ -286,7 +514,7 @@ A troca é ação do operador e só é liberada pelo `cutover`. Com as APIs de I
 dotnet user-secrets set "ConnectionStrings:Identity" "Host=localhost;Port=5432;Database=ouroboros_identity;Username=identity_runtime;Password=<IDENTITY_RUNTIME_PASSWORD>" --project src/Services/Identity/Ouroboros.Identity.Api
 ```
 
-Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação da credencial antiga não fazem parte deste procedimento (#97).
+Fora de desenvolvimento, use a variável `ConnectionStrings__Identity`. Senha com `;` ou aspas exige aspas no valor da connection string. Depois da troca, sessões, refresh tokens, senhas, tokens de e-mail pendentes e parâmetros com histórico continuam válidos. Migrations do banco próprio: comando explícito com a role de migration, descrito no passo 4 de [Banco de dados local](#banco-de-dados-local). O desligamento do banco original e a revogação/rotação da credencial antiga seguem procedimento separado ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)): [Desativar o banco original e rotacionar a credencial antiga](#desativar-o-banco-original-e-rotacionar-a-credencial-antiga).
 
 ### Voltar ao banco original
 
@@ -310,7 +538,101 @@ Limites: linhas excluídas no destino não são reconciliadas (o `rollback` abor
 
 O `rollback` exige que não haja sessões ativas no destino, e o `reconcile`, na origem (`FORCE_TERMINATE=1` as encerra, como no `freeze`). Os testes do procedimento estão descritos em [Testes](#testes).
 
+## Desativar o banco original e rotacionar a credencial antiga
+
+Após a validação do `cutover` de Identity ([#82](https://github.com/adnerscarpelini/ouroboros-server/issues/82)), a retirada dos hosts agregadores e do projeto `Ouroboros.Settings` ([#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96)) e o encerramento da janela operacional de rollback, o operador inventaria o banco original (`POSTGRES_DB`, padrão `ouroboros`), verifica sessões e privilégios na origem, com confirmação manual das configurações de runtime, gera um backup final completo e verificável, rotaciona/revoga a credencial ampla antiga e desativa conexões ao banco original sem excluir dados, schemas, bancos ou volumes ([#97](https://github.com/adnerscarpelini/ouroboros-server/issues/97)). O procedimento versionado é [`scripts/database/decommission-original-db.sh`](../scripts/database/decommission-original-db.sh), exposto no [`compose.yaml`](../compose.yaml) pelo serviço `decommission-original-db` sob o profile explícito `decommission`. Decisão, inventário e critérios de retenção em [Destino e desativação do banco original (#97)](architecture/persistence.md#destino-e-desativação-do-banco-original-97).
+
+**Comando geral** (executado na raiz do repositório; `<id>` é o identificador impresso por `final-backup`):
+
+```powershell
+docker compose --profile decommission run --rm decommission-original-db <comando> [id]
+```
+
+| Comando | O que faz |
+| --- | --- |
+| `inventory` | Lista os schemas remanescentes no banco original (`identity`, `settings`, `public`), a contagem de linhas de cada tabela e os históricos `__EFMigrationsHistory`, classificando o que foi transferido para `ouroboros_identity` (`transferred_to_target`, `migration_history_transferred`) e o que permanece retido apenas na origem (`retained_only_in_source`, `migration_history_retired_in_source`). |
+| `verify-unused` | Verifica que há zero sessões ativas no banco original (`pg_stat_activity`), que `PUBLIC` não possui `CONNECT` no banco original, que nenhuma role de serviço (`identity_runtime`, `identity_migrator`, `notifications_runtime`, `notifications_migrator`) possui `CONNECT` nele e que `ouroboros_identity` já contém o schema `identity`. |
+| `final-backup` | Exige `verify-unused`, congela o banco original em modo somente leitura (`default_transaction_read_only = on`), gera `./backups/original-<id>/final.dump` (formato custom com todos os schemas remanescentes), `final.dump.sha256` e `inventory.txt`, restaura em banco temporário `original_decommission_check_<id>`, compara os digests de schemas, colunas (nome/tipo/nulabilidade), sequências e linhas de tabelas comuns, remove apenas o banco temporário e grava `final-backup-verified`. Imprime `Pacote: <id>`. |
+| `rotate-admin-credential` | Rotaciona a senha da credencial administrativa ampla (`ADMIN_ROLE`, padrão `POSTGRES_USER`) para `NEW_ADMIN_PASSWORD` com `session-safety.sql` (sem registrar nos logs) e, se `LEGACY_ROLE` for informada, encerra suas sessões, revoga `CONNECT`/`TEMPORARY` em todos os bancos e aplica `NOLOGIN PASSWORD NULL`, validando em seguida a conectividade de `identity_runtime` e `notifications_runtime`. |
+| `deactivate <id>` | Desativa novas conexões ao banco original (`ALLOW_CONNECTIONS false CONNECTION LIMIT 0` e `default_transaction_read_only = on`) sem apagar o banco, schemas ou volumes; exige `CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:<banco>`, `RETENTION_DAYS` (`>= 1`), backup final verificado (`<id>`), `verify-unused` e digest inalterado desde o backup final, gravando `deactivated.manifest`. |
+| `reactivate <id>` | Reabilita conexões em modo somente leitura (`ALLOW_CONNECTIONS true CONNECTION LIMIT -1` e `default_transaction_read_only = on`) e grava `reactivated` no pacote, permitindo inspeção ou recuperação autorizada durante a janela de retenção. |
+| `help` | Mostra a ajuda do script. |
+
+### Passo a passo operacional
+
+**Retenção aprovada:** conservar o banco original e o backup final por 30 dias a partir do cutover validado. O operador deve registrar o instante do cutover e conferir o prazo antes de qualquer decisão posterior. RETENTION_DAYS=30 registra a política no manifesto; o script não acompanha o relógio nem exclui dados ao fim do prazo. As operações continuam manuais e exigem aprovação explícita; não foram executadas no ambiente existente nesta entrega.
+
+1. **Inventariar o banco original e confirmar ausência de uso por runtime:**
+
+   A inspeção de configurações é manual: verify-unused não lê variáveis nem user-secrets dos processos. Certifique-se de que `ConnectionStrings:Identity` (ou `ConnectionStrings__Identity`) está ativa em todos os processos de `Identity` e que `ConnectionStrings:Ouroboros` foi removida dos user-secrets e variáveis de ambiente das aplicações:
+
+   ```powershell
+   dotnet user-secrets remove "ConnectionStrings:Ouroboros" --project src/Services/Identity/Ouroboros.Identity.Api
+   docker compose --profile decommission run --rm decommission-original-db inventory
+   docker compose --profile decommission run --rm decommission-original-db verify-unused
+   ```
+
+2. **Gerar e validar o backup final completo (`final-backup`):**
+
+   ```powershell
+   docker compose --profile decommission run --rm decommission-original-db final-backup
+   ```
+
+   O pacote inclui source-database, que o vincula à origem, e um ID com timestamp e sufixo aleatório. Anote o <id> impresso em `Pacote: <id>`. Os artefatos (`final.dump`, `final.dump.sha256`, `inventory.txt`, `source-inventory.digest`, `restore-check.digest` e `final-backup-verified`) ficam em `./backups/original-<id>/` com permissões restritas (`0700`/`0600`). Proteja esse diretório fora do Git pela janela de retenção aprovada.
+
+3. **Revogar/rotacionar a credencial antiga ampla (`rotate-admin-credential`):**
+
+   Ao encerrar a janela de rollback, passe a nova senha administrativa via variável de ambiente da sessão (sem gravá-la em argumento ou histórico) e, se existir uma role legada ampla dedicada (`LEGACY_ROLE`), informe-a para revogação:
+
+   ```powershell
+   $env:NEW_ADMIN_PASSWORD = [Net.NetworkCredential]::new('', (Read-Host 'Nova senha para POSTGRES_USER' -AsSecureString)).Password
+   # Opcional: se havia uma role ampla legada distinta de POSTGRES_USER:
+   # $env:LEGACY_ROLE = 'nome_da_role_legada'
+   docker compose --profile decommission run --rm -e NEW_ADMIN_PASSWORD -e LEGACY_ROLE decommission-original-db rotate-admin-credential
+   Remove-Item Env:NEW_ADMIN_PASSWORD
+   Remove-Item Env:LEGACY_ROLE -ErrorAction SilentlyContinue
+   ```
+
+   Atualize `POSTGRES_PASSWORD` no `.env` (ou no cofre de segredos do ambiente) com a nova senha administrativa para os próximos comandos de manutenção. `identity-api` e `notifications-worker` continuam operando normalmente com `identity_runtime` e `notifications_runtime`, sem reinício.
+
+4. **Desativar o banco original sem exclusão (`deactivate <id>`):**
+
+   Com a decisão explícita do dono do projeto sobre a janela de retenção (`RETENTION_DAYS`, 30 dias a partir do cutover validado, conforme decisão aprovada) e a confirmação nominal `CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:<banco>` (por exemplo, `DEACTIVATE:ouroboros`):
+
+   ```powershell
+   docker compose --profile decommission run --rm `
+     -e RETENTION_DAYS=30 `
+     -e CONFIRM_ORIGINAL_DB_DEACTIVATION=DEACTIVATE:ouroboros `
+     decommission-original-db deactivate <id>
+   ```
+
+   O banco original permanece preservado no volume `postgres-data`, mas recusa novas conexões (`ALLOW_CONNECTIONS false`, SQLSTATE `55000`). O healthcheck do container `postgres` consulta `-d postgres` e permanece `healthy`.
+
+5. **Reativar em modo somente leitura para inspeção ou recuperação (`reactivate <id>`):**
+
+   Se for necessário inspecionar os dados retidos (`settings` ou `public`) ou executar um rollback tardio autorizado dentro da janela de retenção:
+
+   ```powershell
+   docker compose --profile decommission run --rm decommission-original-db reactivate <id>
+   ```
+
+   Se o retorno ao banco original ocorrer após novas escritas em `ouroboros_identity`, reative primeiro o banco original com `reactivate <id>` e, em seguida, execute `transfer-identity rollback <transfer_id>`, `transfer-identity reconcile <transfer_id>` e `transfer-identity unfreeze` conforme [Voltar ao banco original](#voltar-ao-banco-original) antes de voltar a connection string.
+
+### Verificar os testes da desativação do banco original
+
+Na raiz do repositório:
+
+```powershell
+# Testes de arquitetura (sem Docker): script LF, aprovação explícita, final-backup-verified, bloqueio sem DROP DATABASE da origem e sem remoção de volumes
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*OriginalDatabaseArchitectureTests"
+
+# Testes de integração (exige Docker): inventário, final-backup restaurado, recusas de deactivate, bloqueio, reactivate e rotação/revogação de credencial sem vazar senha nos logs
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*OriginalDatabaseDecommissioningTests"
+```
+
 ## Criar o primeiro administrador
+
+Os comandos operacionais da API de Identity escrevem em UTF-8, inclusive com saída redirecionada no Windows.
 
 Administradores não se cadastram sozinhos. Com o banco configurado e as migrations de Identity aplicadas, incluindo seus parâmetros locais, crie o primeiro `Admin` pelo comando `create-admin` da API de Identity, que roda e encerra sem subir o servidor HTTP nem abrir os listeners. A senha vai na variável de ambiente `OUROBOROS_ADMIN_PASSWORD`, nunca em argumento (argumentos ficam no histórico do shell e na lista de processos):
 
@@ -477,7 +799,82 @@ Os user-secrets (connection string e caminho do manifesto de assinatura) só sã
 
 ### Endpoints e limites
 
-Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+Todo endpoint exige um access token válido da audiência do listener (`Authorization: Bearer <token>`), salvo os marcados com `[AllowAnonymous]`; os endpoints administrativos exigem um token de `Admin`. Os endpoints técnicos de liveness (`GET /health/live`) e readiness (`GET /health/ready` e `GET /health`) são anônimos, sem rate limiting, nos dois listeners, respondem apenas `{"status":"Healthy"}` (`200`) ou `{"status":"Unhealthy"}` (`503`) sem expor segredos ou mensagens de exceção, e a prontidão de Identity depende exclusivamente do próprio banco, nunca do RabbitMQ ([Executar os serviços com Docker Compose](#4-subir-os-serviços-e-verificar-health-e-readiness)). O JWKS `GET /api/v1/identity/keys` é anônimo no listener público, com 60 requisições/minuto por IP e cache de cinco minutos. Os demais endpoints anônimos são os de login, `POST /api/v1/identity/sessions` no listener público e `POST /api/v1/admin/identity/sessions` no administrativo ([Fazer login com e-mail e senha](identity/login.md)), que devolvem o access token, e os de renovação, `POST /api/v1/identity/sessions/refresh` e `POST /api/v1/admin/identity/sessions/refresh` ([Renovar o access token com rotação do refresh token](identity/refresh-session.md)), que trocam o refresh token por um par novo, e os de logout, `POST /api/v1/identity/sessions/logout` e `POST /api/v1/admin/identity/sessions/logout` ([Encerrar a sessão atual](identity/logout.md)), que encerram a sessão do refresh token. Os de logout-all, `POST /api/v1/identity/sessions/logout-all` e `POST /api/v1/admin/identity/sessions/logout-all` ([Encerrar todas as sessões](identity/logout-all.md)), exigem access token e encerram todas as sessões do usuário do token. Os de consulta do próprio usuário, `GET /api/v1/identity/me` e `GET /api/v1/admin/identity/me` ([Consultar o próprio usuário](identity/me.md)), também exigem access token. Só no listener público, a solicitação e a conclusão do cadastro de cliente, `POST /api/v1/identity/registrations` e `POST /api/v1/identity/registrations/complete` ([Cadastrar cliente por e-mail](identity/registration.md)), e a solicitação e a conclusão da redefinição de senha, `POST /api/v1/identity/password-resets` e `POST /api/v1/identity/password-resets/complete` ([Redefinir a senha por e-mail](identity/password-reset.md)), também são anônimas. Em cada público, o login aceita 10 requisições por minuto de cada IP, a renovação e o logout, 30 cada, a solicitação de cadastro, 5, a conclusão do cadastro, 10, a solicitação de redefinição de senha, 5, e a conclusão da redefinição, 10; acima disso, respondem `429` com `Retry-After`. Os limites ficam em `Identity:RateLimiting:Policies` no `appsettings.json`, com contadores separados por público, e valores ausentes ou não positivos impedem a subida ([Limitar requisições de autenticação por IP](identity/auth-rate-limiting.md)). Fora deles, uma requisição sem token responde 401 em qualquer rota, inclusive inexistente: a resposta não revela quais rotas existem. Com um token válido, a rota inexistente responde 404. As duas respostas saem em ProblemDetails ([Respostas de erro com ProblemDetails](architecture/error-responses.md)), e o 401 não explica por que o token foi recusado. As rotas administrativas (`/api/v1/admin/...`) só existem no listener administrativo, e as demais, só no público; no deploy, o listener administrativo deve ficar só em loopback ou na rede interna ([APIs e workers](architecture/hosts.md)).
+
+## Executar os gateways externo e administrativo
+
+A entrega [#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83) adiciona dois gateways HTTP finos em `src/Gateways/`, separados por público e sem `DbContext`, regras de domínio ou orquestração síncrona ([arquitetura e garantias](architecture/hosts.md#gateways)):
+
+| Executável | Público | Escuta padrão (`Gateway:Urls`) | `Gateway:AllowNonLoopback` | Prefixo encaminhado | Destino padrão (`Gateway:Downstream:IdentityBaseUrl`) |
+| --- | --- | --- | --- | --- | --- |
+| `Ouroboros.ExternalGateway.Api` | Externo (`External`) | `http://localhost:5151` (`http://0.0.0.0:5151` no Compose) | `true` | `/api/v1/identity/*` | `http://localhost:5141` (`http://identity-api:5141` no Compose) |
+| `Ouroboros.AdminGateway.Api` | Administrativo (`Admin`) | `http://127.0.0.1:5152` | `false` | `/api/v1/admin/identity/*` | `http://127.0.0.1:5142` |
+
+### Executar localmente com `dotnet run`
+
+1. Inicie a API de Identity ([Executar a API de Identity](#executar-a-api-de-identity)). Para que o `Identity` aceite o `X-Forwarded-For` e o `X-Forwarded-Proto` repassados pelos gateways locais em loopback e contabilize o rate limit pelo IP real do cliente, defina `Identity:ForwardedHeaders:KnownProxies:0=127.0.0.1` (e `::1` quando usar IPv6 loopback) ao subir o `Identity`:
+
+   ```powershell
+   $env:Identity__ForwardedHeaders__KnownProxies__0 = '127.0.0.1'
+   $env:Identity__ForwardedHeaders__KnownProxies__1 = '::1'
+   dotnet run --project src/Services/Identity/Ouroboros.Identity.Api
+   ```
+
+2. Em outros terminais, na raiz do repositório, inicie os gateways finos:
+
+   ```powershell
+   # Gateway externo (escuta em http://localhost:5151 e encaminha /api/v1/identity/* para http://localhost:5141)
+   dotnet run --project src/Gateways/Ouroboros.ExternalGateway.Api
+
+   # Gateway administrativo (escuta apenas em loopback http://127.0.0.1:5152 e encaminha /api/v1/admin/identity/* para http://127.0.0.1:5142)
+   dotnet run --project src/Gateways/Ouroboros.AdminGateway.Api
+   ```
+
+3. Consulte a prontidão e exercite as rotas através de cada gateway:
+
+   ```powershell
+   # Saúde e rotas públicas pelo ExternalGateway (:5151)
+   Invoke-RestMethod -Uri http://localhost:5151/health/live
+   Invoke-RestMethod -Uri http://localhost:5151/health/ready
+   Invoke-RestMethod -Uri http://localhost:5151/api/v1/identity/keys
+
+   # Saúde e login administrativo pelo AdminGateway (:5152, restrito a loopback)
+   Invoke-RestMethod -Uri http://127.0.0.1:5152/health/live
+   Invoke-RestMethod -Uri http://127.0.0.1:5152/health/ready
+   ```
+
+- Rotas do outro público (`/api/v1/admin/identity/*` em `:5151` ou `/api/v1/identity/*` em `:5152`) são recusadas na borda com `404 Not Found` sem chamar o `Identity`.
+- Se o `Identity` estiver parado ou exceder `Gateway:Downstream:Timeout` (padrão `00:00:05`, máximo `00:00:30`), o gateway responde com ProblemDetails sanitizado `502 Bad Gateway` ou `504 Gateway Timeout`, sem expor URLs internas nem mensagens de socket.
+- Tentar configurar um endereço fora de loopback em `Ouroboros.AdminGateway.Api` com `Gateway:AllowNonLoopback=false` impede a subida com `OptionsValidationException`.
+
+### Executar com Docker Compose (`--profile gateways`)
+
+No [`compose.yaml`](../compose.yaml), os gateways ficam no profile opcional `gateways` para não bloquear o acesso direto a `identity-api`:
+
+```powershell
+docker compose --profile gateways up -d --build external-gateway admin-gateway
+Invoke-RestMethod -Uri http://127.0.0.1:5151/health/ready
+Invoke-RestMethod -Uri http://127.0.0.1:5151/api/v1/identity/keys
+Invoke-RestMethod -Uri http://127.0.0.1:5152/health/live
+```
+
+No Compose, Identity aceita cabeçalhos encaminhados somente de loopback e do IP estático EXTERNAL_GATEWAY_IP. A antiga variável IDENTITY_KNOWN_PROXY_NETWORK não é usada. O gateway administrativo usa network_mode: service:identity-api, acessa 127.0.0.1:5142 e tem sua porta 5152 publicada em loopback pelo serviço Identity. Compartilhar rede não compartilha processo, volumes ou segredos. Ao recriar Identity, recrie também o gateway administrativo.
+
+Para aplicar a subnet a uma rede Compose já existente, pare e remova os containers e a rede com docker compose --profile gateways down, preservando os volumes; depois execute novamente a sequência de subida. Não use opções de remoção de volumes. Se houver sobreposição de rede, ajuste GATEWAY_NETWORK_SUBNET e EXTERNAL_GATEWAY_IP no .env antes de subir.
+
+URLs HTTPS em Gateway:Urls ativam TLS e exigem certificado configurado no Kestrel. [GatewayTlsTests](../tests/Ouroboros.IntegrationTests/GatewayTlsTests.cs) verifica o handshake dos dois públicos.
+
+### Verificar os testes dos gateways
+
+Na raiz do repositório:
+
+```powershell
+# Testes de arquitetura dos gateways (sem Docker): isolamento, opções, sem DbContext/serviços e respostas 502/504 sanitizadas
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayArchitectureTests"
+
+# Testes de integração dos gateways (exige Docker): rotas públicas e administrativas, autorização no Identity e rate limit com X-Forwarded-For entre réplicas
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*GatewayIntegrationTests"
+```
 
 ## Logs dos executáveis
 
@@ -603,10 +1000,14 @@ dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*Colle
 
 ### Banco e migrations de Notifications
 
-Provisione `ouroboros_notifications`, `notifications_runtime` e `notifications_migrator` pelo [procedimento da #92](#provisionar-bancos-e-roles-por-serviço). Não use connection string de Identity nem fallback legado. O design-time lê **somente a variável** `ConnectionStrings__Notifications`; user-secrets não substituem essa variável para gerar/aplicar migrations. Na sessão de operação, forneça a conexão da role **`notifications_migrator`**, sem expô-la em argumento/histórico:
+Provisione `ouroboros_notifications`, `notifications_runtime` e `notifications_migrator` pelo [procedimento da #92](#provisionar-bancos-e-roles-por-serviço). Não use connection string de Identity nem fallback legado. Aplique as migrations pelo job explícito `migrate-notifications` do Compose, pelo comando CLI `migrate` do worker ou por `dotnet ef database update` com a variável `ConnectionStrings__Notifications` usando a role **`notifications_migrator`**, sem expô-la em argumento/histórico:
 
 ```powershell
+docker compose --profile migrate run --rm migrate-notifications
+# ou via CLI do worker no host:
 $env:ConnectionStrings__Notifications = [Net.NetworkCredential]::new('', (Read-Host 'Conexão própria de migration de Notifications' -AsSecureString)).Password
+dotnet run --project src/Services/Notifications/Ouroboros.Notifications.Worker -- migrate
+# ou via dotnet-ef:
 dotnet tool restore
 dotnet ef database update --project src/Services/Notifications/Ouroboros.Notifications --startup-project src/Services/Notifications/Ouroboros.Notifications.Worker --context NotificationsDbContext
 Remove-Item Env:ConnectionStrings__Notifications
@@ -644,6 +1045,7 @@ O worker tem `UserSecretsId` próprio, `ouroboros-notifications-development`. N�
 
 | Opção em `Notifications` | Padrão e efeito |
 | --- | --- |
+| `Health:Urls` | `["http://127.0.0.1:5143"]`; listener técnico dos endpoints `/health/live`, `/health/ready` e `/health` (`http://0.0.0.0:5143` no container do Compose, publicado apenas em `127.0.0.1:5143` no host) |
 | `Consumer:Enabled` | `false`; habilitar exige provedor, banco, proteção/fingerprint e brokers válidos |
 | `Email:Provider` | `None`; `PickupDirectory` é aceito somente em Development; valor desconhecido é recusado |
 | `Email:From` | `nao-responda@ouroboros.local`; endereço único, sem CR/LF |
@@ -704,17 +1106,18 @@ Restaure com `Notifications:Consumer:Enabled=false`, credencial própria e desti
 
 ### Imagem Linux de Notifications
 
-Na raiz do repositório, com Docker disponível:
+Na raiz do repositório, com Docker disponível, construa as imagens versionadas de Notifications e de Identity passando `APP_VERSION` e `SOURCE_REVISION` (`<version>-<commit>`):
 
 ```powershell
-docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile -t ouroboros-notifications-local:dev .
-docker run --rm --entrypoint sh ouroboros-notifications-local:dev -c 'id; test -w /app/.local/notifications-emails'
-docker run --rm --name ouroboros-notifications-local ouroboros-notifications-local:dev
+docker build -f src/Services/Identity/Ouroboros.Identity.Api/Dockerfile --build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=local -t ouroboros-identity-api:0.1.0-local .
+docker build -f src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile --build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=local -t ouroboros-notifications-worker:0.1.0-local .
+docker run --rm --entrypoint sh ouroboros-identity-api:0.1.0-local -c 'id -u'
+docker run --rm --entrypoint sh ouroboros-notifications-worker:0.1.0-local -c 'id -u; test -w /app/.local/notifications-emails'
 ```
 
-O último comando inicia o host com consumo desabilitado; encerre com Ctrl+C. O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; o processo executa como UID 1654, com pickup padrão gravável. O Dockerfile tem ignore próprio para excluir `.env`, PEM, chaves, `.local`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
+O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; ambos os processos executam como UID `1654` (`USER $APP_UID`), com pickup padrão gravável no worker e rótulos OCI `org.opencontainers.image.version` iguais a `<APP_VERSION>-<SOURCE_REVISION>`. Cada Dockerfile copia somente o próprio serviço e bibliotecas técnicas, sem assemblies do outro serviço, e tem `.dockerignore` próprio para excluir `.env`, `*.pem`, `*.key`, `.local`, `backups`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
 
-Para habilitar o consumo da imagem em Development, forneça configuração de broker acessível pelo container e monte chaves externas somente de leitura. **`private.json` gerado no host contém caminhos absolutos do host**: se montar em `/keys`, prepare uma cópia operacional do manifesto com `privateKeyPath=/keys/<keyId>.pem`, um caminho absoluto válido dentro do container. O gerador não reescreve isso automaticamente. Conceda leitura dos arquivos e travessia do diretório ao UID 1654, preservando escrita exclusiva da operação; somente Notifications recebe essa montagem. Aplique o mesmo ajuste de caminhos/leitura ao manifesto HMAC `fingerprint.json`; não monte segredos de Identity. Configure banco próprio e os dois hosts de broker para os endereços alcançáveis no container. Pickup externo também precisa de permissão de escrita desse UID e acesso restrito. Não há Compose de serviços ou probes nesta entrega, nem publicação automática da imagem.
+Para executar os dois serviços em containers com chaves externas, migrations explícitas e probes de readiness, use o fluxo completo em [Executar os serviços com Docker Compose](#executar-os-serviços-com-docker-compose), que utiliza `scripts/messaging/new-compose-keys.ps1` para gerar os manifestos com os caminhos internos `/run/ouroboros-keys/identity/...` e `/run/ouroboros-keys/notifications/...`. Se montar manualmente sem esse script, ajuste `privateKeyPath` e `keyPath` nos manifestos para o caminho absoluto interno do container e conceda leitura dos arquivos e travessia do diretório ao UID `1654`, preservando escrita exclusiva da operação. A CI constrói ambas as imagens a cada PR/push; publicação em registro e deploy ficam fora do escopo.
 
 Teste reproduzível do worker com broker real e processo filho, sem alterar o `.env` ou broker local:
 
@@ -789,7 +1192,7 @@ psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=message_id=$messageId --file script
 
 O script retorna somente id, estado, tentativas e prazo. Só retoma `Pending` suspensa, ainda válida, com conteúdo protegido e sem lease; mantém id, tentativas e expiração. Se nenhuma linha for atualizada, não force estado nem recrie prazo: ela pode estar em processamento ou terminal. Expiradas/canceladas não são ressuscitadas. Envelope inválido/divergente termina em `Failed`, com descarte do conteúdo, e exige nova intenção de negócio após corrigir a causa. Nunca selecione o payload para investigar a retomada.
 
-O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas, retries e estados terminais. Falhas/retries têm somente o código de conjunto fechado, e estados terminais têm `state`; gauges refletem o último snapshot do ciclo e só emitem após o primeiro. Com `Observability:Otlp:Endpoint`, as métricas seguem ao [coletor local](#diagnósticos-no-coletor-local), junto dos sinais de Notifications ([instrumentos](architecture/diagnostics-pipeline.md#métricas-do-fluxo)). O host habilitado e o login foram verificados com broker parado; não há endpoint readiness nesta base para alegar validação operacional da #98.
+O `Meter` `Ouroboros.Identity.Outbox` disponibiliza backlog, idade pendente em segundos, falhas, retries e estados terminais. Falhas/retries têm somente o código de conjunto fechado, e estados terminais têm `state`; gauges refletem o último snapshot do ciclo e só emitem após o primeiro. Com `Observability:Otlp:Endpoint`, as métricas seguem ao [coletor local](#diagnósticos-no-coletor-local), junto dos sinais de Notifications ([instrumentos](architecture/diagnostics-pipeline.md#métricas-do-fluxo)). Com o broker parado, `GET /health/ready` de Identity permanece `200 OK` (`{"status":"Healthy"}`) e o login continua funcionando, enquanto `GET /health/ready` de Notifications responde `503 Service Unavailable` (`{"status":"Unhealthy"}`).
 
 ```powershell
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class '*EmailOutboxPublisherTests'

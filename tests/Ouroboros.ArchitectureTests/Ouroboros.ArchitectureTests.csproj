@@ -13,15 +13,17 @@
   <ItemGroup>
     <!-- Alias porque o .NET 10 gera um Program público em cada executável web; sem ele, Program seria ambíguo. -->
     <ProjectReference Include="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" Aliases="identityapi" OutputItemType="ArchitectureAssembly" />
+    <ProjectReference Include="../../src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj" Aliases="externalgateway" OutputItemType="ArchitectureAssembly" />
+    <ProjectReference Include="../../src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj" Aliases="admingateway" OutputItemType="ArchitectureAssembly" />
   </ItemGroup>
   <!--
     As regras de dependência analisam todo projeto de src, inclusive serviços e executáveis novos. O curinga
     garante que cada um seja compilado antes dos testes, sem referenciá-lo (ReferenceOutputAssembly=false).
-    A API de Identity acima já é referenciada e fica fora do curinga.
+    A API de Identity e os Gateways acima já são referenciados e ficam fora do curinga.
   -->
   <ItemGroup>
     <ProjectReference Include="../../src/**/*.csproj"
-                      Exclude="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj"
+                      Exclude="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj;../../src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj;../../src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj"
                       ReferenceOutputAssembly="false"
                       OutputItemType="ArchitectureAssembly" />
   </ItemGroup>

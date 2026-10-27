@@ -19,5 +19,7 @@
     <ProjectReference Include="../../src/Services/Notifications/Ouroboros.Notifications.Worker/Ouroboros.Notifications.Worker.csproj" ReferenceOutputAssembly="false" />
     <!-- Alias porque o .NET 10 gera um Program público em cada executável web. -->
     <ProjectReference Include="../../src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj" Aliases="identityapi" />
+    <ProjectReference Include="../../src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj" Aliases="externalgateway" />
+    <ProjectReference Include="../../src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj" Aliases="admingateway" />
   </ItemGroup>
 </Project>

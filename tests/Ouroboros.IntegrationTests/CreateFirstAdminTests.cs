@@ -2,6 +2,7 @@ extern alias identityapi;
 
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 using identityapi::Ouroboros.Identity.Api.CommandLine;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
@@ -319,6 +320,8 @@ public sealed class CreateFirstAdminTests(PostgresFixture postgres) : Integratio
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = RepositoryRoot.Resolve("src", "Services", "Identity", "Ouroboros.Identity.Api"),
         };
         start.ArgumentList.Add(typeof(CreateAdminCommand).Assembly.Location);

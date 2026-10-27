@@ -39,6 +39,7 @@ public static class ObservabilityHostExtensions
         // catch responsável pelo trabalho registra o único diagnóstico técnico, sem SQL nem parâmetros.
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
         builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Update", LogLevel.None);
+        builder.Logging.AddFilter("Microsoft.Extensions.Diagnostics.HealthChecks", LogLevel.None);
         builder.Logging.Configure(options => options.ActivityTrackingOptions = ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
         var instance = Guid.NewGuid().ToString("D");
         var environment = builder.Environment.EnvironmentName;

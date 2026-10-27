@@ -17,7 +17,7 @@ Não separar saldo e lançamentos por conveniência de pastas. Ledger e suas reg
 
 Serviços ficam em src/Services. Cada serviço HTTP possui sua API; Notifications pode ser worker sem API de negócio. Bibliotecas técnicas não compartilham entidades ou regras nem obrigam implantação conjunta. O [plano de entregas](migration-plan.md) define dependências, segurança, locks e critérios de transferência.
 
-APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa. Gateways são posteriores, sem bloquear as primeiras entregas. Não conterão DbContexts ou regras de negócio; cada serviço continuará autorizando chamadas.
+APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa no próprio serviço. Os pontos de entrada opcionais de borda são separados por público em `src/Gateways`: [`Ouroboros.ExternalGateway.Api`](../../src/Gateways/Ouroboros.ExternalGateway.Api) encaminha `/api/v1/identity/*` ao listener público de Identity e [`Ouroboros.AdminGateway.Api`](../../src/Gateways/Ouroboros.AdminGateway.Api) encaminha `/api/v1/admin/identity/*` ao listener administrativo, restrito a loopback por padrão ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83); [detalhes](hosts.md#gateways)). Os gateways são finos: não contêm `DbContext`, regras de domínio nem orquestração síncrona entre serviços, repassam `X-Forwarded-For`/`X-Forwarded-Proto` a partir da conexão real, respondem `502`/`504` sanitizados dentro do timeout configurado e nunca substituem a autenticação, a validação de audiência ou a autorização no serviço proprietário.
 
 ## Um banco por módulo/serviço, uma instância local
 
@@ -39,7 +39,7 @@ Identity emite tokens com assinatura assimétrica e rotação; consumidores vali
 
 CI Linux, PostgreSQL real, contratos e testes de falha acompanham cada serviço. HTTP e mensagens são correlacionados pelo [W3C Trace Context](trace-correlation.md), com logs JSON no console de cada executável; OpenTelemetry exporta essa correlação. Diagnóstico sanitizado usa pipeline independente dos bancos de negócio, com coletor e destino dedicado, e não substitui auditoria ([pipeline de diagnósticos](diagnostics-pipeline.md)).
 
-Validar atualização de Notifications sem implantar Identity, recuperação de mensagens, isolamento de bancos e acesso administrativo direto. Kubernetes não é requisito.
+A atualização e reversão (rollback) de Notifications entre versões compatíveis do contrato v1 sem reimplantar Identity, a recuperação de mensagens após parada de Notifications ou do RabbitMQ, a deduplicação e preservação de `MessageId` em reentregas do publicador e do consumidor, o impacto comum e recuperação na parada da instância PostgreSQL compartilhada, o isolamento de bancos e o acesso administrativo direto são verificados por [`ServiceUpdateAndRecoveryTests`](../../tests/Ouroboros.IntegrationTests/ServiceUpdateAndRecoveryTests.cs) ([#89](https://github.com/adnerscarpelini/ouroboros-server/issues/89); [procedimento e comandos](../development.md#validação-de-atualização-independente-rollback-e-recuperação-dos-serviços)). Kubernetes não é requisito.
 
 Backup, validação e preservação de dados são obrigatórios na transferência de persistência. Não apagar origem ou volumes incidentalmente. Rollback depois de novas escritas precisa preservá-las/reconciliá-las.
 
