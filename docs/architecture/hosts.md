@@ -123,8 +123,20 @@ URLs HTTPS de escuta ativam TLS no Kestrel; configure um certificado válido pel
 
 ### Preservação da autenticação e autorização no proprietário (`Identity`)
 
-- Os endpoints de proxy nos gateways usam `.AllowAnonymous()` e `.DisableRateLimiting()` apenas para não duplicar autenticação na borda e encaminhar o cabeçalho `Authorization` intacto ao destino.
+- Os endpoints de proxy nos gateways usam `.AllowAnonymous()` e `.DisableRateLimiting()` apenas para não duplicar autenticação na borda e encaminhar o cabeçalho `Authorization` ao destino, sujeito à remoção de cabeçalhos hop-by-hop descrita abaixo.
 - O serviço `Identity` continua validando assinatura JWT, audiência por listener (`ouroboros-api` no público, `ouroboros-backoffice` no administrativo), papel exigido (`Customer` ou `Admin`) e políticas de autorização em todas as chamadas — tanto quando acessado através dos gateways quanto em chamadas diretas fora deles. Token de audiência externa em rota administrativa continua recusado com `401 Unauthorized`, e token com audiência administrativa mas papel `Customer` continua recusado com `403 Forbidden`.
+
+### Cabeçalhos de conexão nos dois sentidos
+
+Desde a [#112](https://github.com/adnerscarpelini/ouroboros-server/issues/112), os dois gateways removem `Connection` e todos os cabeçalhos que ele nomeia, tanto da requisição enviada ao downstream quanto da resposta devolvida ao cliente. A lista é reunida de todos os valores/linhas de `Connection`, separada por vírgulas, com espaços externos e entradas vazias descartados; os nomes são comparados sem diferenciar maiúsculas e minúsculas. A remoção alcança também cabeçalhos de conteúdo, como `Content-Language`, quando nomeados.
+
+Por exemplo, `Connection: X-Hop, content-language` impede o encaminhamento de `X-Hop` e `Content-Language`. Cabeçalhos end-to-end que não sejam excluídos nem nomeados continuam sendo copiados; `Content-Type` não nomeado e o corpo são preservados. Nomear `X-Forwarded-For` ou `X-Forwarded-Proto` não permite preservar valores forjados: os valores enviados ao downstream são reconstruídos a partir da conexão confiável, conforme a política de proxies abaixo.
+
+A cobertura está em `Gateways_remove_connection_nominated_headers_in_both_directions`, em [`GatewayArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/GatewayArchitectureTests.cs), para os públicos externo e administrativo. Usa HTTP em TestServer com downstream stub, sem Identity ou PostgreSQL reais nesta verificação. O QA independente aprovou a suíte de arquitetura com 293/293 casos no Linux, SDK 10.0.402, e build da solução sem avisos/erros; esse resultado não representa validação de integração completa. Para reproduzir no ambiente de desenvolvimento:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayArchitectureTests"
+```
 
 ### Cabeçalhos encaminhados (`X-Forwarded-For` / `X-Forwarded-Proto`) e limite do rate limiter em memória
 
@@ -137,9 +149,17 @@ No Compose, Identity confia apenas no loopback e no IP estático exato EXTERNAL_
 ### Timeout e respostas sanitizadas de indisponibilidade (`502` e `504`)
 
 - `Gateway:Downstream:IdentityBaseUrl` exige URL HTTP/HTTPS absoluta sem credenciais, caminho, query ou fragmento; `Gateway:Downstream:Timeout` (padrão `00:00:05`) deve ser maior que zero e de no máximo 30 segundos, validados na subida (`ValidateOnStart`).
-- Se o `Identity` não responder dentro de `Gateway:Downstream:Timeout`, o gateway cancela a chamada downstream e retorna `504 Gateway Timeout` em `application/problem+json` (`title`: `"Tempo limite excedido ao contatar o serviço."`, com `traceId` W3C).
-- Se a conexão ao `Identity` falhar (`HttpRequestException` ou `IOException`, como conexão recusada ou DNS indisponível), o gateway retorna `502 Bad Gateway` em `application/problem+json` (`title`: `"Serviço temporariamente indisponível."`, com `traceId` W3C).
-- As respostas `502` e `504` são sempre sanitizadas: nunca expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces.
+- Desde a [#113](https://github.com/adnerscarpelini/ouroboros-server/issues/113), um único prazo de `Gateway:Downstream:Timeout` abrange o envio da requisição (`SendAsync`) e a transferência do corpo da resposta. O mesmo token de cancelamento é ligado ao `RequestAborted` do cliente. O corpo é transferido em streaming, sem aguardar buffering integral e sem retry automático.
+- **Antes do início da resposta** (`Response.HasStarted == false`), timeout retorna `504 Gateway Timeout` em `application/problem+json` (`title`: `"Tempo limite excedido ao contatar o serviço."`). Falha de transporte (`HttpRequestException` ou `IOException`), inclusive durante a leitura do corpo, retorna `502 Bad Gateway` (`title`: `"Serviço temporariamente indisponível."`). Os headers previamente copiados do downstream são limpos antes do ProblemDetails, que contém `traceId` W3C.
+- **Depois do início da resposta**, timeout ou falha de transporte gera diagnóstico sanitizado e `HttpContext.Abort()`. O gateway não reescreve o status já enviado nem acrescenta ProblemDetails ao corpo parcial. O cliente deve tratar a interrupção como falha de transferência, mesmo que tenha recebido inicialmente status de sucesso.
+- **Cancelamento pelo cliente** é tratado separadamente quando `RequestAborted` está sinalizado e ocorre `OperationCanceledException`, `HttpRequestException` ou `IOException`: o gateway aborta a resposta, sem classificar o caso como exceção inesperada nem gerar `502`/`504`.
+- As respostas de erro e os diagnósticos seguem a sanitização do projeto: não expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces ao cliente.
+
+[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Usa HTTP em TestServer com downstream stub; essa cobertura não comprova comportamento em sockets/Kestrel real. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayResponseTransferTests"
+```
 
 ## Alternativa avaliada e risco aceito
 

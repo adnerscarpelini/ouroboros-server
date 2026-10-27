@@ -181,7 +181,7 @@ public sealed class DependencyRuleScenarioTests
 
     // Os cenários vivem no assembly de testes; cada namespace sob Scenarios é um serviço com as camadas habituais,
     // exceto Host (executável) e Shared (código técnico compartilhado).
-    private sealed class ScenarioLocator : ICodeLocator
+    internal sealed class ScenarioLocator : ICodeLocator
     {
         public CodeLocation Locate(TypeId type)
         {

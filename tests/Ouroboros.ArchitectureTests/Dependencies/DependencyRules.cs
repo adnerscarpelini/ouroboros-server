@@ -131,6 +131,23 @@ internal static class DependencyRules
         return Distinct(violations);
     }
 
+    public static IReadOnlyList<Violation> CheckControllers(
+        IEnumerable<TypeDependency> dependencies, IReadOnlySet<TypeId> controllers, ICodeLocator locator)
+    {
+        var violations = new List<Violation>();
+        foreach (var (owner, target) in dependencies.Where(dependency => controllers.Contains(dependency.Owner)))
+        {
+            var location = locator.Locate(target);
+            if (location.Layer is Layer.Domain or Layer.Application or Layer.Infrastructure
+                || (location.Kind == CodeKind.External && new[] { "Microsoft.EntityFrameworkCore", "Npgsql", "System.Data" }
+                    .Any(assembly => IsAssembly(location.Assembly, assembly))))
+            {
+                violations.Add(new Violation("type.controller-dependency", owner.FullName, Describe(target, location)));
+            }
+        }
+        return Distinct(violations);
+    }
+
     private static IEnumerable<Violation> CheckTypeUse(TypeId owner, CodeLocation from, TypeId target, CodeLocation to)
     {
         var dependency = Describe(target, to);

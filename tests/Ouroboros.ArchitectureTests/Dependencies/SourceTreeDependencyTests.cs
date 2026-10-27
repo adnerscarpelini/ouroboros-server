@@ -69,6 +69,15 @@ public sealed partial class SourceTreeDependencyTests
     }
 
     [Fact]
+    public void Controllers_use_contracts_without_domain_application_or_persistence()
+    {
+        var controllers = ControllerTypes.Discover(Tree.Scans.Select(scan => Tree.Load(scan.Name)));
+        Assert.NotEmpty(controllers);
+        AssertMatchesKnown(DependencyRules.CheckControllers(Tree.Scans.SelectMany(scan => scan.Dependencies), controllers, Tree),
+            "type.controller-dependency");
+    }
+
+    [Fact]
     public void Known_violations_name_a_removal_issue_once()
     {
         Assert.All(KnownViolations.All, entry => Assert.Matches(IssuePattern(), entry.Issue));

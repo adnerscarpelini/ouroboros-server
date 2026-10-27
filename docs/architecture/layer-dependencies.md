@@ -53,6 +53,20 @@ O scanner lê metadados e IL com `System.Reflection.Metadata`. Para cada tipo de
 - `layer.application`: Application não usa tipos de Infrastructure, próprios ou da persistência compartilhada, nem EF Core, Npgsql, `System.Data`, `System.Net.Http` ou ASP.NET Core Http/Mvc.
 - `type.cross-service`, `type.depends-on-executable`, `type.shared-depends-on-service` e `type.service-cycle`: nenhum tipo de serviço usa tipos de outro serviço (inclusive seus Contracts) ou de um executável, e código compartilhado não usa tipos de serviço nem de executável. Contratos de integração só podem ser compartilhados em projeto compartilhado, sujeito à regra `layer.contracts`.
 
+### Dependências dos controllers MVC
+
+A [#114](https://github.com/adnerscarpelini/ouroboros-server/issues/114) acrescenta `type.controller-dependency`: controllers não podem depender de tipos de Domain, Application ou Infrastructure, nem de EF Core, Npgsql ou `System.Data`. Contratos próprios e tipos HTTP permanecem permitidos, sujeitos às outras regras da matriz. O composition root fora dos controllers continua podendo registrar Application e Infrastructure do proprietário.
+
+[`ControllerTypes`](../../tests/Ouroboros.ArchitectureTests/Dependencies/ControllerTypes.cs) descobre controllers pelo `ControllerFeatureProvider` do ASP.NET Core MVC em todos os assemblies compilados de `src` e inclui suas bases próprias, inclusive abstratas. A regra não depende do namespace ou do sufixo do arquivo para identificar a fronteira HTTP.
+
+O scanner existente aplica a análise de assinaturas e corpos IL também a esses tipos: campos, construtores, métodos, variáveis locais, closures e state machines de métodos async entram na verificação. Dependências herdadas das bases próprias são analisadas; a regra não percorre transitivamente todos os serviços chamados por um controller. Assim, chamar um contrato permitido não comprova a implementação interna do serviço chamado.
+
+[`SourceTreeDependencyTests`](../../tests/Ouroboros.ArchitectureTests/Dependencies/SourceTreeDependencyTests.cs) aplica a regra à árvore real, e [`ControllerDependencyScenarioTests`](../../tests/Ouroboros.ArchitectureTests/Dependencies/ControllerDependencyScenarioTests.cs) cobre fixtures permitidas/proibidas. A lista de transição permanece vazia, sem nova exceção. O QA independente aprovou 318/318 casos de arquitetura em Linux e build de todos os projetos de `src` sem avisos/erros. Para executar a cobertura de cenários com os pré-requisitos de desenvolvimento:
+
+```powershell
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*ControllerDependencyScenarioTests"
+```
+
 ### Visibilidade
 
 `ModuleVisibilityTests` descobre os serviços pela árvore de `src`. A fronteira pública de cada serviço é `Contracts` e `DependencyInjection`, com a exceção das migrations geradas pelo EF, e nenhum serviço concede `InternalsVisibleTo` a outro projeto de `src`.
@@ -72,6 +86,6 @@ O [inventário do checkout](../implementation-status.md#inventário-de-dependên
 - Para uma biblioteca externa, a exceção é por assembly: o uso de outro tipo do mesmo assembly já nomeado, em um tipo listado, não é detectado até a exceção sair.
 - `typeof(...)` em argumento de atributo não é resolvido. `nameof`, constantes incorporadas pelo compilador e `default(T)` não geram referência no IL.
 - Top-level statements (`<Program>$`) são tipo gerado; os executáveis são cobertos pelas regras de projeto, não pelas de tipo.
-- A suíte de dependências não verifica mensageria confiável, implantação independente nem regras de API ou worker em nível de tipo (por exemplo, controllers sem acesso a persistência). O isolamento por banco e por credencial tem testes próprios: `CredentialIsolationTests` (a credencial administrativa não aparece em `src`) e `DatabaseProvisioningTests`, com PostgreSQL real ([Persistência](persistence.md#roles-e-privilégios-por-serviço)).
+- A suíte de dependências não verifica mensageria confiável, implantação independente nem dependências de handlers de minimal APIs ou consumidores/workers em nível de tipo. A regra específica da #114 cobre controllers MVC e suas bases próprias; não amplia a análise para essas outras fronteiras. O isolamento por banco e por credencial tem testes próprios: `CredentialIsolationTests` (a credencial administrativa não aparece em `src`) e `DatabaseProvisioningTests`, com PostgreSQL real ([Persistência](persistence.md#roles-e-privilégios-por-serviço)).
 
 [Voltar à arquitetura](README.md)

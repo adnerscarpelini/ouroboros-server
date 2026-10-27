@@ -99,13 +99,15 @@ internal sealed partial class GatewayForwarder(
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
         timeoutCts.CancelAfter(settings.Downstream.Timeout);
 
-        HttpResponseMessage downstreamResponse;
         try
         {
-            downstreamResponse = await clientFactory.CreateInvoker().SendAsync(outgoing, timeoutCts.Token);
+            using var downstreamResponse = await clientFactory.CreateInvoker().SendAsync(outgoing, timeoutCts.Token);
+            await CopyDownstreamResponseAsync(context, downstreamResponse, timeoutCts.Token);
         }
-        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        catch (Exception exception) when (context.RequestAborted.IsCancellationRequested
+            && exception is OperationCanceledException or HttpRequestException or IOException)
         {
+            context.Abort();
             return;
         }
         catch (OperationCanceledException exception)
@@ -128,11 +130,6 @@ internal sealed partial class GatewayForwarder(
                 "Serviço temporariamente indisponível.");
             return;
         }
-
-        using (downstreamResponse)
-        {
-            await CopyDownstreamResponseAsync(context, downstreamResponse, timeoutCts.Token);
-        }
     }
 
     private static HttpRequestMessage BuildOutgoingRequest(HttpContext context, Uri targetUri)
@@ -149,9 +146,10 @@ internal sealed partial class GatewayForwarder(
             outgoing.Content = new StreamContent(request.Body);
         }
 
+        var connectionHeaders = ConnectionHeaders(request.Headers.Connection.Select(value => value ?? string.Empty));
         foreach (var header in request.Headers)
         {
-            if (HopByHopAndSpoofableHeaders.Contains(header.Key))
+            if (HopByHopAndSpoofableHeaders.Contains(header.Key) || connectionHeaders.Contains(header.Key))
             {
                 continue;
             }
@@ -207,10 +205,11 @@ internal sealed partial class GatewayForwarder(
     private static async Task CopyDownstreamResponseAsync(HttpContext context, HttpResponseMessage downstream, CancellationToken cancellationToken)
     {
         context.Response.StatusCode = (int)downstream.StatusCode;
+        var connectionHeaders = ConnectionHeaders(downstream.Headers.Connection);
 
         foreach (var header in downstream.Headers)
         {
-            if (!ExcludedResponseHeaders.Contains(header.Key))
+            if (!ExcludedResponseHeaders.Contains(header.Key) && !connectionHeaders.Contains(header.Key))
             {
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
@@ -218,7 +217,7 @@ internal sealed partial class GatewayForwarder(
 
         foreach (var header in downstream.Content.Headers)
         {
-            if (!ExcludedResponseHeaders.Contains(header.Key))
+            if (!ExcludedResponseHeaders.Contains(header.Key) && !connectionHeaders.Contains(header.Key))
             {
                 context.Response.Headers[header.Key] = header.Value.ToArray();
             }
@@ -232,10 +231,16 @@ internal sealed partial class GatewayForwarder(
         }
     }
 
+    private static HashSet<string> ConnectionHeaders(IEnumerable<string> values) => values
+        .SelectMany(value => value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     private async Task WriteGatewayProblemAsync(HttpContext context, int statusCode, string type, string title)
     {
         if (context.Response.HasStarted)
         {
+            // Status e corpo já enviados não podem ser substituídos por ProblemDetails.
+            context.Abort();
             return;
         }
 
