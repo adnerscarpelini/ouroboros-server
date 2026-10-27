@@ -8,6 +8,7 @@ O Ouroboros adota microsserviços com propriedade de dados e implantação indep
 - [Plano de entregas e preservação das garantias](migration-plan.md).
 - [APIs e workers, listeners e camadas de proteção](hosts.md).
 - [Controllers HTTP](http-controllers.md).
+- [Paginação por cursor](cursor-pagination.md): keyset, envelope, limites e cursores por consulta.
 - [Persistência e instância PostgreSQL local](persistence.md): roles por serviço, connection strings de Identity e transferência do banco com rollback e reconciliação.
 - [Parâmetros por serviço](system-parameters.md).
 - [Código técnico compartilhado](building-blocks.md).

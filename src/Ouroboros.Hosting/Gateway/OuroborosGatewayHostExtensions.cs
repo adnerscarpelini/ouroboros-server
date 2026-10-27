@@ -96,14 +96,16 @@ public static class OuroborosGatewayHostExtensions
         app.UseOuroborosHost();
 
         var audience = app.Services.GetRequiredService<GatewayAudienceDescriptor>().Audience;
-        var prefix = audience == GatewayAudience.Admin ? "/api/v1/admin/identity" : "/api/v1/identity";
-
-        app.Map(prefix, (HttpContext context, GatewayForwarder forwarder) => forwarder.ForwardAsync(context))
-            .AllowAnonymous()
-            .DisableRateLimiting();
-        app.Map($"{prefix}/{{**remainder}}", (HttpContext context, GatewayForwarder forwarder) => forwarder.ForwardAsync(context))
-            .AllowAnonymous()
-            .DisableRateLimiting();
+        string[] prefixes = audience == GatewayAudience.Admin
+            ? ["/api/v1/admin/identity", "/api/v1/admin/settings/parameters"]
+            : ["/api/v1/identity"];
+        foreach (var prefix in prefixes)
+        {
+            app.Map(prefix, (HttpContext context, GatewayForwarder forwarder) => forwarder.ForwardAsync(context))
+                .AllowAnonymous().DisableRateLimiting();
+            app.Map($"{prefix}/{{**remainder}}", (HttpContext context, GatewayForwarder forwarder) => forwarder.ForwardAsync(context))
+                .AllowAnonymous().DisableRateLimiting();
+        }
 
         return app;
     }

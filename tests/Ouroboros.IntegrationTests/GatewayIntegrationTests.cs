@@ -132,6 +132,37 @@ public sealed class GatewayIntegrationTests(PostgresFixture postgres) : Integrat
         using var meJson = JsonDocument.Parse(await adminMeRes.Content.ReadAsStringAsync(Cancellation));
         Assert.Equal(adminEmail, meJson.RootElement.GetProperty("email").GetString());
 
+        foreach (var client in new[] { adminGatewayClient, directAdminClient })
+        {
+            using var parameters = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/settings/parameters?limit=1");
+            parameters.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
+            using var parametersResponse = await client.SendAsync(parameters, Cancellation);
+            Assert.Equal(HttpStatusCode.OK, parametersResponse.StatusCode);
+            using var historyRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/settings/parameters/Identity:Lockout:MaxFailedAttempts/history?limit=1");
+            historyRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
+            using var historyResponse = await client.SendAsync(historyRequest, Cancellation);
+            Assert.Equal(HttpStatusCode.OK, historyResponse.StatusCode);
+            using var wrongRole = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/settings/parameters");
+            wrongRole.Headers.Authorization = new AuthenticationHeaderValue("Bearer", wrongRoleAdminAudienceToken);
+            using var refused = await client.SendAsync(wrongRole, Cancellation);
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        }
+        using var parametersOnExternal = await externalGatewayClient.GetAsync("/api/v1/admin/settings/parameters", Cancellation);
+        Assert.Equal(HttpStatusCode.NotFound, parametersOnExternal.StatusCode);
+
+        using var updateParameter = new HttpRequestMessage(HttpMethod.Put, "/api/v1/admin/settings/parameters/Identity:Lockout:MaxFailedAttempts")
+        {
+            Content = JsonContent.Create(new { Revision = 0, CurrentPassword = adminPassword, Value = "6" }),
+        };
+        updateParameter.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAccessToken);
+        using var updateResponse = await adminGatewayClient.SendAsync(updateParameter, Cancellation);
+        Assert.Equal(HttpStatusCode.NoContent, updateResponse.StatusCode);
+        await using (var scope = Api.Services.CreateAsyncScope())
+        {
+            Assert.Equal("6", await scope.ServiceProvider.GetRequiredService<Ouroboros.Identity.Contracts.ISystemParameters>()
+                .GetAsync("Identity:Lockout:MaxFailedAttempts", Cancellation));
+        }
+
         // 6. Readiness do gateway reflete a prontidão do Identity sem expor segredos.
         using var gatewayReady = await externalGatewayClient.GetAsync(OuroborosHealthExtensions.ReadyPath, Cancellation);
         Assert.Equal(HttpStatusCode.OK, gatewayReady.StatusCode);

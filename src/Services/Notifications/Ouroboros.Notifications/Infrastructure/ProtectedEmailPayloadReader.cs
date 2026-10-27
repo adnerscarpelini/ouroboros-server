@@ -73,7 +73,7 @@ internal sealed class ProtectedEmailPayloadReader(IOptions<NotificationOptions> 
         && content.Recipient.AsSpan().IndexOfAny('\r', '\n') < 0
         && MailAddress.TryCreate(content.Recipient, out var address) && address.Address == content.Recipient
         && content.Subject is { Length: > 0 and <= 256 } && content.Subject.AsSpan().IndexOfAny('\r', '\n') < 0
-        && content.Text is { Length: > 0 } && content.Purpose is "registration" or "password-reset";
+        && content.Text is { Length: > 0 } && content.Purpose is "registration" or "password-reset" or "parameter-change";
 
     private sealed record PrivateKeyRing(PrivateKeyEntry[] Keys);
     private sealed record PrivateKeyEntry(string KeyId, string PrivateKeyPath);

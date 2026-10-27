@@ -49,7 +49,9 @@ internal sealed class ProtectedEmailIntentFactory(IOptions<EmailIntentOptions> o
             if (rsa.KeySize is < 2048 or > 8192) { throw new CryptographicException(); }
             substitutionSecret = File.ReadAllBytes(settings.SupersessionKeyPath);
             if (substitutionSecret.Length != 32) { throw new InvalidOperationException(); }
-            var substitution = Convert.ToHexString(HMACSHA256.HashData(substitutionSecret, Encoding.UTF8.GetBytes(purpose + ":" + content.To)));
+            // Cada aviso de auditoria é independente: uma alteração não cancela o aviso da anterior.
+            var aliasInput = purpose + ":" + content.To + (purpose == "parameter-change" ? ":" + Guid.CreateVersion7().ToString("N") : "");
+            var substitution = Convert.ToHexString(HMACSHA256.HashData(substitutionSecret, Encoding.UTF8.GetBytes(aliasInput)));
             var activity = Activity.Current is { IdFormat: ActivityIdFormat.W3C, Id: not null } current ? current : null;
             var traceId = activity?.TraceId ?? ActivityTraceId.CreateRandom();
             var traceparent = activity?.Id ?? $"00-{traceId}-{ActivitySpanId.CreateRandom()}-01";
