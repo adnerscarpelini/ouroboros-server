@@ -79,7 +79,9 @@ Este inventário descreve as entregas de isolamento ainda pendentes, sem concede
 
 Os testes de arquitetura verificam, para todo projeto de `src`, as dependências de camada (Domain, Contracts e Application), inclusive em corpos de métodos, ciclos entre projetos e serviços, `ProjectReference` (incluindo BuildingBlocks sem referência a projetos de `src`, entre serviços e a executáveis) e visibilidade (Contracts e DependencyInjection como fronteira pública). Também cobrem descoberta, rotas e schemas por DbContext. Nova violação ou exceção obsoleta na lista de transição, hoje vazia, falha a suíte ([regras e limitações](architecture/layer-dependencies.md#verificação)).
 
-Esses testes não verificam mensageria confiável, implantação independente, regras de API e worker em nível de tipo nem `typeof(...)` em argumentos de atributo; essas garantias pertencem às entregas indicadas. O isolamento entre bancos e a ausência da credencial administrativa em `src` têm testes próprios, descritos em [Persistência](architecture/persistence.md#roles-e-privilégios-por-serviço).
+Desde a [#114](https://github.com/adnerscarpelini/ouroboros-server/issues/114), `type.controller-dependency` verifica também controllers MVC descobertos em todos os assemblies e suas bases próprias: recusa Domain/Application/Infrastructure e EF Core/Npgsql/System.Data em assinaturas e corpos IL, incluindo closures/async, sem novas exceções ([cobertura e limites](architecture/layer-dependencies.md#dependências-dos-controllers-mvc)). A análise não percorre transitivamente todos os serviços chamados.
+
+Esses testes não verificam mensageria confiável, implantação independente, dependências específicas de minimal APIs e consumidores/workers em nível de tipo nem `typeof(...)` em argumentos de atributo ou usos eliminados pelo compilador; essas garantias pertencem às entregas indicadas. O isolamento entre bancos e a ausência da credencial administrativa em `src` têm testes próprios, descritos em [Persistência](architecture/persistence.md#roles-e-privilégios-por-serviço).
 
 ## Preservação e próximos passos
 
