@@ -157,11 +157,25 @@ No Compose, Identity confia apenas no loopback e no IP estático exato EXTERNAL_
 - **Cancelamento pelo cliente** é tratado separadamente quando `RequestAborted` está sinalizado e ocorre `OperationCanceledException`, `HttpRequestException` ou `IOException`: o gateway aborta a resposta, sem classificar o caso como exceção inesperada nem gerar `502`/`504`.
 - As respostas de erro e os diagnósticos seguem a sanitização do projeto: não expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces ao cliente.
 
-[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Usa HTTP em TestServer com downstream stub; essa cobertura não comprova comportamento em sockets/Kestrel real. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
+[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Esses 12 casos usam HTTP em TestServer com downstream stub; a cobertura complementar de sockets reais foi acrescentada na #117, descrita abaixo. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayResponseTransferTests"
 ```
+
+### Verificação dos gateways por sockets reais
+
+A [#117](https://github.com/adnerscarpelini/ouroboros-server/issues/117) acrescenta [`GatewaySocketTests`](../../tests/Ouroboros.IntegrationTests/GatewaySocketTests.cs), com 12 casos para os dois públicos. Os hosts e pipelines reais dos gateways usam o invoker HTTP padrão contra um downstream Kestrel controlado. Ambos escutam em loopback com portas atribuídas pelo sistema (`127.0.0.1:0`); o cliente exige HTTP/1.1. Essa cobertura complementa os cenários TestServer das #112/#113.
+
+Os testes verificam remoção bidirecional de cabeçalhos nomeados por `Connection`, inclusive de conteúdo, preservação do corpo e reconstrução dos forwarded headers pelo IP real. A transferência por streaming é coordenada para o cliente receber o primeiro trecho antes de liberar o restante. Também exercitam `502`/`504` após os headers do downstream chegarem, mas antes do início do corpo no gateway, e interrupção após o cliente já ler cinco bytes de uma resposta `200` com `Content-Length: 1000`, sem ProblemDetails anexado ao corpo parcial. Clientes e hosts são encerrados e descartados, inclusive nos caminhos de falha da inicialização.
+
+O downstream desses 12 casos é controlado; ele não é a API de Identity. HTTP/2 e novos cenários TLS não fazem parte dessa cobertura. Os testes existentes de integração com Identity e de handshake TLS foram executados separadamente na seleção de QA. Com os pré-requisitos do [guia de desenvolvimento](../development.md#testes):
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*GatewaySocketTests"
+```
+
+O QA independente aprovou no Windows, SDK 10.0.402, uma seleção de 25/25 casos (12 de sockets, 2 de integração de gateway com Identity, 2 de TLS e 9 de isolamento de pools de readiness). Um cenário existente de parada/retomada do PostgreSQL compartilhado também passou, verificando readiness HTTP e recuperação do login como complemento à #116. Essa seleção não equivale à suíte completa de integração nem à validação de todos os fluxos ponta a ponta.
 
 ## Alternativa avaliada e risco aceito
 
