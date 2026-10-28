@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Identity.Application.Administrators;
+using Ouroboros.Identity.Application.ApiClients;
 using Ouroboros.Identity.Application.Notifications;
 using Ouroboros.Identity.Application.Parameters;
 using Ouroboros.Identity.Application.PasswordResets;
@@ -16,6 +17,7 @@ using Ouroboros.Identity.Application.Sessions;
 using Ouroboros.Identity.Application.Users;
 using Ouroboros.Identity.Contracts;
 using Ouroboros.Identity.Contracts.Administrators;
+using Ouroboros.Identity.Contracts.ApiClients;
 using Ouroboros.Identity.Contracts.Parameters;
 using Ouroboros.Identity.Contracts.PasswordResets;
 using Ouroboros.Identity.Contracts.Registrations;
@@ -77,6 +79,9 @@ public static class DependencyInjection
         services.AddScoped<IAdminInvitationStore, AdminInvitationStore>();
         services.AddScoped<IInviteAdmin, InviteAdmin>();
         services.AddScoped<ICompleteAdminInvitation, CompleteAdminInvitation>();
+        services.AddScoped<IRegisterApiClient, RegisterApiClient>();
+        services.AddScoped<IGetApiClient, GetApiClient>();
+        services.AddScoped<IApiClientStore, ApiClientStore>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<ILogout, Logout>();
@@ -164,6 +169,7 @@ public static class DependencyInjection
         services.AddAuthorization(options =>
         {
             options.AddPolicy(IdentityPolicies.AdminsInvite, policy => policy.RequireRole(nameof(UserRole.Admin)));
+            options.AddPolicy(IdentityPolicies.ApiClientsManage, policy => policy.RequireRole(nameof(UserRole.Admin)));
             options.AddPolicy(IdentityPolicies.ParametersRead, policy => policy.RequireRole(nameof(UserRole.Admin)));
             options.AddPolicy(IdentityPolicies.ParametersWrite, policy => policy.RequireRole(nameof(UserRole.Admin)));
         });

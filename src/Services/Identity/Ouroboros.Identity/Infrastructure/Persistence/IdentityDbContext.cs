@@ -25,6 +25,7 @@ internal sealed class IdentityDbContext(DbContextOptions<IdentityDbContext> opti
     public DbSet<EmailToken> EmailTokens => Set<EmailToken>();
     public DbSet<EmailIntent> EmailIntents => Set<EmailIntent>();
     public DbSet<Ouroboros.Identity.Domain.Administrators.AdminInvitation> AdminInvitations => Set<Ouroboros.Identity.Domain.Administrators.AdminInvitation>();
+    public DbSet<Ouroboros.Identity.Domain.ApiClients.ApiClient> ApiClients => Set<Ouroboros.Identity.Domain.ApiClients.ApiClient>();
 
     // Trava a linha da sessão até o fim da transação atual. Toda escrita em refresh_tokens de uma sessão
     // (renovação, revogação por reuso, logout) trava a sessão antes: sem o lock, em READ COMMITTED, uma
