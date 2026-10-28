@@ -69,6 +69,12 @@ public static class DependencyInjection
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
         services.AddScoped<IFirstAdminStore, FirstAdminStore>();
+        services.AddScoped<IAdminDirectory, AdminDirectory>();
+        services.AddScoped<AdminAuthorization>();
+        services.AddScoped<InvitationEmails>();
+        services.AddScoped<IAdminInvitationStore, AdminInvitationStore>();
+        services.AddScoped<IInviteAdmin, InviteAdmin>();
+        services.AddScoped<ICompleteAdminInvitation, CompleteAdminInvitation>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<ILogout, Logout>();

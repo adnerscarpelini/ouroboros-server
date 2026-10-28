@@ -23,6 +23,15 @@ internal sealed class User : Entity
     public UserRole Role { get; private set; }
 
     public bool IsActive { get; private set; }
+    public Guid? InvitedBy { get; private set; }
+
+    public static User CreateInvitedAdmin(string email, string passwordHash, Guid invitedBy)
+    {
+        if (invitedBy == Guid.Empty) { throw new ArgumentException("Autor do convite inválido.", nameof(invitedBy)); }
+        var user = Create(email, passwordHash, UserRole.Admin);
+        user.InvitedBy = invitedBy;
+        return user;
+    }
 
     // Falhas de senha seguidas desde o último login bem-sucedido ou o último bloqueio. O incremento é
     // feito no banco, de forma atômica (veja AccountLockout), e não por este objeto.

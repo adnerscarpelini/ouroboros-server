@@ -50,7 +50,7 @@ internal sealed class ProtectedEmailIntentFactory(IOptions<EmailIntentOptions> o
             substitutionSecret = File.ReadAllBytes(settings.SupersessionKeyPath);
             if (substitutionSecret.Length != 32) { throw new InvalidOperationException(); }
             // Cada aviso de auditoria é independente: uma alteração não cancela o aviso da anterior.
-            var aliasInput = purpose + ":" + content.To + (purpose == "parameter-change" ? ":" + Guid.CreateVersion7().ToString("N") : "");
+            var aliasInput = purpose + ":" + content.To + (purpose is not ("registration" or "password-reset") ? ":" + Guid.CreateVersion7().ToString("N") : "");
             var substitution = Convert.ToHexString(HMACSHA256.HashData(substitutionSecret, Encoding.UTF8.GetBytes(aliasInput)));
             var activity = Activity.Current is { IdFormat: ActivityIdFormat.W3C, Id: not null } current ? current : null;
             var traceId = activity?.TraceId ?? ActivityTraceId.CreateRandom();

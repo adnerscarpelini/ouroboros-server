@@ -19,6 +19,7 @@ As funcionalidades ficam em `<service-name>/<feature-name>.md`, na pasta do serv
   - [Worker de entrega de e-mail](notifications/worker.md): processo separado, conteúdo protegido, adaptador local e imagem Linux.
 
 - Identity
+  - [Convites de administrador](identity/admin-invitations.md): reautenticação, conclusão interna de uso único e avisos transacionais.
   - [Outbox e publicação confirmada de e-mail](identity/email-outbox.md): token/intenção no mesmo commit, confirmação recuperável, substituição, expiração, retenção e backups; aceitação/deduplicação persistentes em Notifications.
   - [Parâmetros locais e migração de propriedade](identity/parameters.md): leitura e escrita no IdentityDbContext, listagem e histórico paginados, edição com reautenticação e avisos sensíveis transacionais, preservação do histórico, procedimento com backup/restauração antes do corte e relação com a transferência do banco.
   - [Portas de leitura e escrita de parâmetros](identity/parameter-ports.md): contratos internos de Application e adaptadores locais, com leitura sem cache e valor, autor, revisão e histórico confirmados atomicamente.

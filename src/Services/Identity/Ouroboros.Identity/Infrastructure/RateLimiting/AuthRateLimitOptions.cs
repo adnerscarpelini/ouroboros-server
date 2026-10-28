@@ -23,6 +23,7 @@ internal sealed class AuthRateLimitOptions
         IdentityRateLimitPolicies.PasswordResetCompletion,
         IdentityRateLimitPolicies.PasswordChange,
         IdentityRateLimitPolicies.ParameterWrite,
+        IdentityRateLimitPolicies.AdminActions,
     ];
 
     public Dictionary<string, FixedWindowPolicy> Policies { get; set; } = [];
