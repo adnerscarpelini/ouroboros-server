@@ -68,7 +68,6 @@ internal sealed class NotificationsReadinessHealthCheck(
         }
         catch (Exception)
         {
-            NpgsqlConnection.ClearAllPools();
             return HealthCheckResult.Unhealthy();
         }
     }

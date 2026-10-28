@@ -41,7 +41,6 @@ internal sealed class IdentityReadinessHealthCheck(IOptions<IdentityDatabaseOpti
         }
         catch (Exception)
         {
-            NpgsqlConnection.ClearAllPools();
             return HealthCheckResult.Unhealthy();
         }
     }

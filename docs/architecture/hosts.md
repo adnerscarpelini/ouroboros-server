@@ -96,6 +96,8 @@ O rate limiting de autenticação ([`Identity:RateLimiting`](../identity/auth-ra
 - **Readiness de Notifications (`/health/ready` e `/health`):** [`NotificationsReadinessHealthCheck`](../../src/Services/Notifications/Ouroboros.Notifications/Infrastructure/NotificationsReadinessHealthCheck.cs), exposto no listener técnico `Notifications:Health:Urls` (padrão `http://127.0.0.1:5143`), verifica o banco próprio (`SELECT 1 FROM notifications.inbox LIMIT 1;`), os arquivos de chaves quando o consumidor está habilitado e a conectividade com o RabbitMQ usando `notifications_consumer` (`QueueDeclarePassiveAsync("notifications.email.v1")`). Com o broker parado, Notifications continua vivo em `/health/live` (`200`), mas reporta `503` em `/health/ready`.
 - **Readiness dos gateways (`/health/ready` e `/health`):** [`GatewayReadinessHealthCheck`](../../src/Ouroboros.Hosting/Gateway/GatewayReadinessHealthCheck.cs) consulta `GET /health/ready` em `Gateway:Downstream:IdentityBaseUrl` com timeout de 2 segundos e reporta `200 OK` (`{"status":"Healthy"}`) somente quando o `Identity` responde `200 OK`, ou `503 Service Unavailable` (`{"status":"Unhealthy"}`) caso contrário, sem expor URLs internas ou detalhes de falha.
 
+As probes de Identity e Notifications usam conexões PostgreSQL com `Pooling = false` e limites de 3 segundos. Desde a [#116](https://github.com/adnerscarpelini/ouroboros-server/issues/116), falhas e cancelamentos retornam Unhealthy sem limpar pools globais da aplicação: readiness observa disponibilidade e não executa reset de pool ou failover. Dependências verificadas e respostas sanitizadas permanecem as mesmas. A preservação de uma conexão saudável e a recuperação das probes estão cobertas por [`ReadinessPoolIsolationTests`](../../tests/Ouroboros.IntegrationTests/ReadinessPoolIsolationTests.cs), com PostgreSQL/RabbitMQ reais e invocação direta dos checks ([comando e cobertura](../development.md#testes)).
+
 ### Imagens Linux e Compose local
 
 [`src/Services/Identity/Ouroboros.Identity.Api/Dockerfile`](../../src/Services/Identity/Ouroboros.Identity.Api/Dockerfile), [`src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile`](../../src/Services/Notifications/Ouroboros.Notifications.Worker/Dockerfile), [`src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile`](../../src/Gateways/Ouroboros.ExternalGateway.Api/Dockerfile) e [`src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile`](../../src/Gateways/Ouroboros.AdminGateway.Api/Dockerfile) constroem imagens baseadas em `mcr.microsoft.com/dotnet/sdk:10.0.402` e `mcr.microsoft.com/dotnet/aspnet:10.0.13-alpine3.24`, recebendo `APP_VERSION` e `SOURCE_REVISION` para compor a versão `<APP_VERSION>-<SOURCE_REVISION>` no assembly e nos rótulos OCI (`org.opencontainers.image.version` e `org.opencontainers.image.revision`). Cada imagem copia apenas o executável correspondente e as bibliotecas técnicas necessárias, exclui segredos, `.env`, `*.pem`, `*.key`, `.local` e `backups` pelo `.dockerignore` próprio e executa como usuário não-root (`USER $APP_UID`, UID `1654`).
@@ -155,11 +157,25 @@ No Compose, Identity confia apenas no loopback e no IP estático exato EXTERNAL_
 - **Cancelamento pelo cliente** é tratado separadamente quando `RequestAborted` está sinalizado e ocorre `OperationCanceledException`, `HttpRequestException` ou `IOException`: o gateway aborta a resposta, sem classificar o caso como exceção inesperada nem gerar `502`/`504`.
 - As respostas de erro e os diagnósticos seguem a sanitização do projeto: não expõem `IdentityBaseUrl`, nomes de hosts internos, endereços IP de downstream, mensagens de socket ou stack traces ao cliente.
 
-[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Usa HTTP em TestServer com downstream stub; essa cobertura não comprova comportamento em sockets/Kestrel real. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
+[`GatewayResponseTransferTests`](../../tests/Ouroboros.ArchitectureTests/GatewayResponseTransferTests.cs) cobre os dois públicos com 12 casos: timeout e falha de corpo antes/depois do início, cancelamento pelo cliente e streaming bem-sucedido. Esses 12 casos usam HTTP em TestServer com downstream stub; a cobertura complementar de sockets reais foi acrescentada na #117, descrita abaixo. O QA independente da #113 aprovou 305/305 casos de arquitetura em Linux com SDK 10.0.402 e build da solução sem avisos/erros. Com os pré-requisitos de desenvolvimento:
 
 ```powershell
 dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*GatewayResponseTransferTests"
 ```
+
+### Verificação dos gateways por sockets reais
+
+A [#117](https://github.com/adnerscarpelini/ouroboros-server/issues/117) acrescenta [`GatewaySocketTests`](../../tests/Ouroboros.IntegrationTests/GatewaySocketTests.cs), com 12 casos para os dois públicos. Os hosts e pipelines reais dos gateways usam o invoker HTTP padrão contra um downstream Kestrel controlado. Ambos escutam em loopback com portas atribuídas pelo sistema (`127.0.0.1:0`); o cliente exige HTTP/1.1. Essa cobertura complementa os cenários TestServer das #112/#113.
+
+Os testes verificam remoção bidirecional de cabeçalhos nomeados por `Connection`, inclusive de conteúdo, preservação do corpo e reconstrução dos forwarded headers pelo IP real. A transferência por streaming é coordenada para o cliente receber o primeiro trecho antes de liberar o restante. Também exercitam `502`/`504` após os headers do downstream chegarem, mas antes do início do corpo no gateway, e interrupção após o cliente já ler cinco bytes de uma resposta `200` com `Content-Length: 1000`, sem ProblemDetails anexado ao corpo parcial. Clientes e hosts são encerrados e descartados, inclusive nos caminhos de falha da inicialização.
+
+O downstream desses 12 casos é controlado; ele não é a API de Identity. HTTP/2 e novos cenários TLS não fazem parte dessa cobertura. Os testes existentes de integração com Identity e de handshake TLS foram executados separadamente na seleção de QA. Com os pré-requisitos do [guia de desenvolvimento](../development.md#testes):
+
+```powershell
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*GatewaySocketTests"
+```
+
+O QA independente aprovou no Windows, SDK 10.0.402, uma seleção de 25/25 casos (12 de sockets, 2 de integração de gateway com Identity, 2 de TLS e 9 de isolamento de pools de readiness). Um cenário existente de parada/retomada do PostgreSQL compartilhado também passou, verificando readiness HTTP e recuperação do login como complemento à #116. Essa seleção não equivale à suíte completa de integração nem à validação de todos os fluxos ponta a ponta.
 
 ## Alternativa avaliada e risco aceito
 
