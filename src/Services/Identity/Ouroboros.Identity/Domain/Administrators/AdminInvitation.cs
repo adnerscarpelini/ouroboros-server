@@ -22,7 +22,7 @@ internal sealed class AdminInvitation : Entity
 
     public void Approve(byte[] hash, DateTimeOffset expiresAt, Guid? decidedBy, DateTimeOffset now)
     {
-        if (State != InvitationState.PendingApproval || ApprovalExpiresAt <= now || hash.Length != 32)
+        if (State != InvitationState.PendingApproval || ApprovalExpiresAt <= now || hash.Length != 32 || decidedBy == InvitedBy)
         { throw new InvalidOperationException("Convite não pode ser aprovado."); }
         State = InvitationState.Approved;
         TokenHash = hash;
@@ -42,7 +42,7 @@ internal sealed class AdminInvitation : Entity
 
     public void Reject(Guid decidedBy, DateTimeOffset now)
     {
-        if (State != InvitationState.PendingApproval || ApprovalExpiresAt <= now) { throw new InvalidOperationException("Convite inválido."); }
+        if (State != InvitationState.PendingApproval || ApprovalExpiresAt <= now || decidedBy == InvitedBy) { throw new InvalidOperationException("Convite inválido."); }
         State = InvitationState.Rejected; DecidedBy = decidedBy; DecidedAt = now;
     }
     public void Expire() { State = InvitationState.Expired; TokenHash = null; }

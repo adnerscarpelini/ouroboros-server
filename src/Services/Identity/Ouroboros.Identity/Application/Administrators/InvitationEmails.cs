@@ -30,5 +30,15 @@ internal sealed class InvitationEmails(ISystemParameters parameters, IEmailInten
 
     internal IEnumerable<EmailIntent> Notices(IReadOnlyList<AdminRecipient> admins, AdminInvitation invitation, string action, DateTimeOffset now) =>
         admins.Select(admin => emails.Create(new(admin.Email, "Convite de administrador",
-            $"Convite {invitation.ExternalId}: {action}; autor {invitation.InvitedBy}; data {now:O}."), "admin-notice", now, now.AddHours(24)));
+            $"Convite {invitation.ExternalId}: {action}; autor {invitation.InvitedBy}; decisor {invitation.DecidedBy}; data {now:O}."), "admin-notice", now, now.AddHours(24)));
+
+    internal async Task<IReadOnlyList<EmailIntent>> PendingAsync(IReadOnlyList<AdminRecipient> approvers, AdminInvitation invitation, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var url = await parameters.GetAsync(CompletionUrlParameter, cancellationToken);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") || uri.Query.Length > 0 || uri.Fragment.Length > 0 || uri.UserInfo.Length > 0)
+        { throw new InvalidOperationException("URL administrativa do convite inválida."); }
+        return approvers.Select(admin => emails.Create(new(admin.Email, "Convite aguardando aprovação",
+            $"O convite {invitation.ExternalId} aguarda decisão no backoffice: {url}?invitationId={invitation.ExternalId}\nO link não aprova o convite. Confirme a decisão com sua senha atual."),
+            "admin-notice", now, invitation.ApprovalExpiresAt)).ToArray();
+    }
 }

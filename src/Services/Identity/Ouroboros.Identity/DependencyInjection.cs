@@ -72,6 +72,8 @@ public static class DependencyInjection
         services.AddScoped<IAdminDirectory, AdminDirectory>();
         services.AddScoped<AdminAuthorization>();
         services.AddScoped<InvitationEmails>();
+        services.AddScoped<InvitationApprovers>();
+        services.AddScoped<IDecideAdminInvitation, DecideAdminInvitation>();
         services.AddScoped<IAdminInvitationStore, AdminInvitationStore>();
         services.AddScoped<IInviteAdmin, InviteAdmin>();
         services.AddScoped<ICompleteAdminInvitation, CompleteAdminInvitation>();

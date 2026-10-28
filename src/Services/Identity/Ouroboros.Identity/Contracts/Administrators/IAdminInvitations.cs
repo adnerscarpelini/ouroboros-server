@@ -10,5 +10,10 @@ public interface ICompleteAdminInvitation
 }
 public sealed record InviteAdminRequest(Guid ActorId, string Email, string CurrentPassword);
 public sealed record CompleteAdminInvitationRequest(string Token, string Password);
-public enum AdminInvitationOutcome { Accepted, Completed, InvalidCredentials, Forbidden, InvalidEmail, InvalidToken, PasswordRejected, Conflict, NoApprover, NotFound }
+public interface IDecideAdminInvitation
+{
+    Task<AdminInvitationResult> ExecuteAsync(DecideAdminInvitationRequest request, CancellationToken cancellationToken);
+}
+public sealed record DecideAdminInvitationRequest(Guid ActorId, Guid InvitationId, bool Approve, string CurrentPassword);
+public enum AdminInvitationOutcome { Accepted, Completed, InvalidCredentials, Forbidden, InvalidEmail, InvalidToken, PasswordRejected, Conflict, NoApprover, NotFound, Decided }
 public sealed record AdminInvitationResult(AdminInvitationOutcome Outcome, Guid? InvitationId = null, string? Rule = null);

@@ -7,7 +7,7 @@ using Ouroboros.Identity.Domain.Users;
 namespace Ouroboros.Identity.Application.Administrators;
 
 internal sealed class InviteAdmin(AdminAuthorization authorization, ISessionStore sessions, IAdminInvitationStore store,
-    IAdminDirectory directory, ISystemParameters parameters, InvitationEmails emails, TimeProvider clock) : IInviteAdmin
+    IAdminDirectory directory, ISystemParameters parameters, InvitationEmails emails, InvitationApprovers approvers, TimeProvider clock) : IInviteAdmin
 {
     public async Task<AdminInvitationResult> ExecuteAsync(InviteAdminRequest request, CancellationToken cancellationToken)
     {
@@ -28,6 +28,13 @@ internal sealed class InviteAdmin(AdminAuthorization authorization, ISessionStor
         var admins = await directory.ActiveAdminsAsync(cancellationToken);
         var invitation = AdminInvitation.Create(email, actor!.ExternalId, now);
         if (admins.Count == 1) { store.AddIntents([await emails.ApproveAsync(invitation, null, now, cancellationToken)]); }
+        else
+        {
+            var eligible = await approvers.ReadAsync(admins, actor.ExternalId, cancellationToken);
+            if (eligible.Count == 0)
+            { return new(AdminInvitationOutcome.NoApprover, Rule: "Não há outro aprovador ativo designado no domínio permitido."); }
+            store.AddIntents(await emails.PendingAsync(eligible, invitation, now, cancellationToken));
+        }
         store.Add(invitation);
         store.AddIntents(emails.Notices(admins, invitation, "criado", now));
         if (!await store.SaveAsync(cancellationToken)) { return new(AdminInvitationOutcome.Conflict); }
