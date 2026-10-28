@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Ouroboros.BuildingBlocks.Persistence;
 using Ouroboros.Identity.Application.Administrators;
+using Ouroboros.Identity.Application.ApiClients;
 using Ouroboros.Identity.Application.Notifications;
 using Ouroboros.Identity.Application.Parameters;
 using Ouroboros.Identity.Application.PasswordResets;
@@ -16,6 +17,7 @@ using Ouroboros.Identity.Application.Sessions;
 using Ouroboros.Identity.Application.Users;
 using Ouroboros.Identity.Contracts;
 using Ouroboros.Identity.Contracts.Administrators;
+using Ouroboros.Identity.Contracts.ApiClients;
 using Ouroboros.Identity.Contracts.Parameters;
 using Ouroboros.Identity.Contracts.PasswordResets;
 using Ouroboros.Identity.Contracts.Registrations;
@@ -69,6 +71,21 @@ public static class DependencyInjection
         services.AddSingleton<UserPasswordVerifier>();
         services.AddScoped<ICreateFirstAdmin, CreateFirstAdmin>();
         services.AddScoped<IFirstAdminStore, FirstAdminStore>();
+        services.AddScoped<IAdminDirectory, AdminDirectory>();
+        services.AddScoped<AdminAuthorization>();
+        services.AddScoped<InvitationEmails>();
+        services.AddScoped<InvitationApprovers>();
+        services.AddScoped<IDecideAdminInvitation, DecideAdminInvitation>();
+        services.AddScoped<IAdminInvitationStore, AdminInvitationStore>();
+        services.AddScoped<IInviteAdmin, InviteAdmin>();
+        services.AddScoped<ICompleteAdminInvitation, CompleteAdminInvitation>();
+        services.AddScoped<IRegisterApiClient, RegisterApiClient>();
+        services.AddScoped<IGetApiClient, GetApiClient>();
+        services.AddScoped<IDeactivateApiClient, DeactivateApiClient>();
+        services.AddScoped<IApiClientStore, ApiClientStore>();
+        services.AddScoped<IClientCredentials, ClientCredentials>();
+        services.AddScoped<IValidateApiClient, ValidateApiClient>();
+        services.AddScoped<IdentityBearerEvents>();
         services.AddScoped<ILogin, Login>();
         services.AddScoped<IRefreshSession, RefreshSession>();
         services.AddScoped<ILogout, Logout>();
@@ -156,6 +173,12 @@ public static class DependencyInjection
         services.AddAuthorization(options =>
         {
             options.AddPolicy(IdentityPolicies.AdminsInvite, policy => policy.RequireRole(nameof(UserRole.Admin)));
+            options.AddPolicy(IdentityPolicies.ApiClientsManage, policy => policy.RequireRole(nameof(UserRole.Admin)));
+            options.AddPolicy(IdentityPolicies.ApiClientAccess, policy => policy.RequireAuthenticatedUser().RequireClaim(IdentityClaims.PrincipalType, "client"));
+            var usersOnly = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser()
+                .RequireAssertion(context => context.User.FindFirst(IdentityClaims.PrincipalType)?.Value != "client").Build();
+            options.DefaultPolicy = usersOnly;
+            options.FallbackPolicy = usersOnly;
             options.AddPolicy(IdentityPolicies.ParametersRead, policy => policy.RequireRole(nameof(UserRole.Admin)));
             options.AddPolicy(IdentityPolicies.ParametersWrite, policy => policy.RequireRole(nameof(UserRole.Admin)));
         });
@@ -170,28 +193,7 @@ public static class DependencyInjection
 
                 // O 401 não explica por que o token foi recusado (assinatura, expiração etc.).
                 bearer.IncludeErrorDetails = false;
-                bearer.Events = new JwtBearerEvents
-                {
-                    OnTokenValidated = context =>
-                    {
-                        var principal = context.Principal!;
-                        var kind = principal.FindFirst(IdentityClaims.PrincipalType)?.Value;
-                        var algorithm = ((Microsoft.IdentityModel.JsonWebTokens.JsonWebToken)context.SecurityToken).Alg;
-                        // Somente tokens HS256 da janela legada podem omitir o discriminador novo.
-                        if (principal.FindAll(IdentityClaims.PrincipalType).Skip(1).Any()
-                            || principal.FindAll(IdentityClaims.Subject).Count() != 1
-                            || principal.FindAll(IdentityClaims.Session).Count() != 1
-                            || principal.FindAll(IdentityClaims.Role).Count() != 1
-                            || (kind != "user" && !(kind is null && algorithm == SecurityAlgorithms.HmacSha256))
-                            || !Guid.TryParse(principal.FindFirst(IdentityClaims.Subject)?.Value, out var subject) || subject == Guid.Empty
-                            || !Guid.TryParse(principal.FindFirst(IdentityClaims.Session)?.Value, out var session) || session == Guid.Empty
-                            || principal.FindFirst(IdentityClaims.Role)?.Value is not ("Customer" or "Admin"))
-                        {
-                            context.Fail("Principal inválido.");
-                        }
-                        return Task.CompletedTask;
-                    },
-                };
+                bearer.EventsType = typeof(IdentityBearerEvents);
                 bearer.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidIssuer = jwt.Issuer,

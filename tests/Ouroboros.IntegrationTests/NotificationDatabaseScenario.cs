@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
+using Npgsql;
 using Ouroboros.Messaging;
 using Ouroboros.Messaging.Contracts;
 using Ouroboros.Notifications;
@@ -39,9 +40,14 @@ internal sealed class NotificationDatabaseScenario : IAsyncDisposable
         await migration.Database.MigrateAsync(TestContext.Current.CancellationToken);
     }
 
-    internal static NotificationsDbContext Context(ProvisionedInstance database, string role = ProvisionedInstance.NotificationsRuntime) =>
-        new(new DbContextOptionsBuilder<NotificationsDbContext>().UseNpgsql(database.ConnectionStringFor(role, ProvisionedInstance.NotificationsDatabase),
+    internal static NotificationsDbContext Context(ProvisionedInstance database, string role = ProvisionedInstance.NotificationsRuntime)
+    {
+        var connection = new NpgsqlConnectionStringBuilder(database.ConnectionStringFor(role, ProvisionedInstance.NotificationsDatabase));
+        // A preparação de migrations também é usada depois de reiniciar a instância de teste.
+        if (role == ProvisionedInstance.NotificationsMigrator) { connection.Pooling = false; }
+        return new(new DbContextOptionsBuilder<NotificationsDbContext>().UseNpgsql(connection.ConnectionString,
             postgres => postgres.MigrationsHistoryTable("__EFMigrationsHistory", NotificationsDbContext.Schema)).Options);
+    }
 
     internal NotificationsDbContext Context() => Context(_database);
 

@@ -97,7 +97,7 @@ A migration [`20261025142848_OwnIdentityParameters`](../../src/Services/Identity
 
 Cópia e validação pertencem à transação da migration. Origem incompleta, histórico corrente inconsistente ou divergência da cópia abortam a migration, inclusive a criação das tabelas de destino; o histórico de migrations não registra essa aplicação. A origem não é alterada. A versão nova não deve ser ativada nesse caso: seu leitor não acessa o schema `settings` como alternativa.
 
-Sem nenhuma das duas tabelas de origem, a instalação limpa cria os oito parâmetros iniciais e seus históricos de revisão 0, usando `uuidv7()` do PostgreSQL 18. Esse caminho não exige o schema `settings`. Não use instalação limpa para contornar uma origem existente incompleta ou inválida.
+Sem nenhuma das duas tabelas de origem, a instalação limpa cria os oito parâmetros iniciais e seus históricos de revisão 0, usando `uuidv7()` do PostgreSQL 18. A migration posterior `AddAdminInvitations` acrescenta `Identity:AdminInvitations:TokenLifetimeHours` e `Identity:AdminInvitations:CompletionUrl`, com seus históricos, totalizando dez parâmetros iniciais no checkout atual; ver [convites](admin-invitations.md#parâmetros-e-segurança). Esse caminho não exige o schema `settings`. Não use instalação limpa para contornar uma origem existente incompleta ou inválida.
 
 O schema `settings` fica retido no banco original, sem novas escritas. Nenhum projeto o referencia nem registra leitores ou escritores dele em runtime: o projeto Settings foi retirado pela [#96](https://github.com/adnerscarpelini/ouroboros-server/issues/96), que não exclui dados, e o destino dos dados antigos será decidido na #97.
 

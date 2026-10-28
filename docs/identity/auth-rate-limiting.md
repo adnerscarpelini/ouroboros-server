@@ -8,6 +8,10 @@ Serviço responsável: Identity. O serviço registra o rate limiter e as políti
 
 O JWKS anônimo `GET /api/v1/identity/keys`, somente no listener público, também usa esse mecanismo: política obrigatória `identity-keys`, inicialmente 60 requisições/minuto por IP, com a mesma resposta `429`. O cache HTTP de cinco minutos reduz a necessidade de consulta ([chaves públicas](../architecture/authentication.md#chaves-públicas-e-cache)).
 
+A [emissão por client credentials](api-clients.md#emissão-por-client-credentials) usa `identity-login` em `POST /api/v1/identity/oauth/token`, somente no público externo. Compartilha o contador dessa política com login no mesmo público e IP, inicialmente 10 requisições/minuto, inclusive para credenciais recusadas.
+
+O contrato técnico `POST /api/v1/identity/oauth/validation` usa a política obrigatória `identity-client-validation`, inicialmente 120 requisições/minuto/IP no público externo. O excesso recebe `429` com `Retry-After` antes da consulta autoritativa; consumidores devem negar acesso também nessa resposta, sem fallback ou aceitação em cache. A desativação administrativa de integradores compartilha `identity-admin-actions` (10/minuto/IP) com cadastro de integradores e criação/decisão de convites.
+
 ## Comportamento
 
 - **Rate limiter nativo do ASP.NET Core** (`Microsoft.AspNetCore.RateLimiting`), com janela fixa (`FixedWindowRateLimiter`) por IP e sem fila (`QueueLimit = 0`): acima do limite, a requisição é recusada na hora, sem esperar a próxima janela.

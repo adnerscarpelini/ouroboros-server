@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Ouroboros.Identity.Application.Notifications;
@@ -13,10 +15,13 @@ public sealed partial class IdentityDatabaseTransferTests
     {
         await using var scenario = await ScenarioAsync();
         // Reproduz a origem anterior à #85 apenas nos bancos desta fixture.
-        await Instance.ExecuteAdminAsync(scenario.Source, """
-            DROP TABLE identity.email_intents;
-            DELETE FROM identity."__EFMigrationsHistory" WHERE "MigrationId" >= '20261026015350_AddEmailIntents';
-            """);
+        var sourceConnection = new NpgsqlConnectionStringBuilder(Instance.ConnectionStringFor("postgres", scenario.Source)) { Pooling = false };
+        await using (var source = new IntegrationApiFactory(sourceConnection.ConnectionString))
+        {
+            await using var scope = source.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IdentityDbContext>().GetService<IMigrator>()
+                .MigrateAsync("20261025142848_OwnIdentityParameters", Cancellation);
+        }
         var transfer = await scenario.CutOverAsync();
         await using (var target = new IntegrationApiFactory(Instance.ConnectionStringFor(
             ProvisionedInstance.IdentityMigrator, ProvisionedInstance.IdentityDatabase)))
