@@ -40,4 +40,26 @@ internal sealed class AccessTokenIssuer(IOptions<JwtOptions> options, TimeProvid
 
         return new AccessToken(token, expiresAt);
     }
+
+    public AccessToken IssueClient(Guid clientId)
+    {
+        var jwt = options.Value;
+        var now = timeProvider.GetUtcNow();
+        var expiresAt = now.Add(jwt.AccessTokenLifetime);
+        var token = _handler.CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = jwt.Issuer,
+            Audience = jwt.Audience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expiresAt.UtcDateTime,
+            Subject = new ClaimsIdentity([
+                new Claim(IdentityClaims.Subject, clientId.ToString()),
+                new Claim(IdentityClaims.PrincipalType, "client"),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.CreateVersion7().ToString()),
+            ]),
+            SigningCredentials = keys.SigningCredentials(),
+        });
+        return new(token, expiresAt);
+    }
 }

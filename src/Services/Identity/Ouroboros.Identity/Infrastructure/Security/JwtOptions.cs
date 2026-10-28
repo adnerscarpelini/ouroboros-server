@@ -24,6 +24,7 @@ internal sealed class JwtOptions
     public TimeSpan AccessTokenLifetime { get; set; } = TimeSpan.FromMinutes(15);
 
     public TimeSpan RefreshTokenLifetime { get; set; } = TimeSpan.FromDays(7);
+    public TimeSpan ClientValidationTimeout { get; set; } = TimeSpan.FromSeconds(2);
 
 }
 
@@ -32,6 +33,8 @@ internal sealed class JwtOptionsValidator : IValidateOptions<JwtOptions>
     public ValidateOptionsResult Validate(string? name, JwtOptions options)
     {
         var failures = new List<string>();
+        if (options.ClientValidationTimeout <= TimeSpan.Zero || options.ClientValidationTimeout > TimeSpan.FromSeconds(5))
+        { failures.Add("Authentication:Jwt:ClientValidationTimeout deve ser maior que zero e de no máximo cinco segundos."); }
         if (string.IsNullOrWhiteSpace(options.Issuer))
         {
             failures.Add($"'{JwtOptions.SectionName}:Issuer' não foi configurado.");
