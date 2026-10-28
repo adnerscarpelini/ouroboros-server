@@ -1,4 +1,8 @@
+using System.Diagnostics;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
@@ -10,6 +14,7 @@ namespace Ouroboros.Identity.Infrastructure.Security;
 
 internal sealed partial class IdentityBearerEvents(IValidateApiClient clients, IOptions<JwtOptions> options, ILogger<IdentityBearerEvents> logger) : JwtBearerEvents
 {
+    private static readonly object s_unavailableKey = new();
     public override async Task TokenValidated(TokenValidatedContext context)
     {
         var principal = context.Principal!;
@@ -30,7 +35,11 @@ internal sealed partial class IdentityBearerEvents(IValidateApiClient clients, I
             }
             catch (Exception exception)
             {
-                if (!context.HttpContext.RequestAborted.IsCancellationRequested) { LogUnavailable(logger, exception); }
+                if (!context.HttpContext.RequestAborted.IsCancellationRequested)
+                {
+                    context.HttpContext.Items[s_unavailableKey] = true;
+                    LogUnavailable(logger, exception);
+                }
                 context.Fail("Validação de integrador indisponível.");
             }
             return;
@@ -48,4 +57,20 @@ internal sealed partial class IdentityBearerEvents(IValidateApiClient clients, I
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Validação autoritativa de integrador indisponível; acesso recusado.")]
     private static partial void LogUnavailable(ILogger logger, Exception exception);
+
+    public override async Task Challenge(JwtBearerChallengeContext context)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        if (!context.HttpContext.Items.ContainsKey(s_unavailableKey)) { await base.Challenge(context); return; }
+        context.HandleResponse();
+        context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        var problem = new ProblemDetails { Status = 503, Title = "Validação de integrador temporariamente indisponível." };
+        problem.Extensions["traceId"] = Activity.Current?.Id ?? context.HttpContext.TraceIdentifier;
+        var writer = context.HttpContext.RequestServices.GetRequiredService<IProblemDetailsService>();
+        if (!await writer.TryWriteAsync(new ProblemDetailsContext { HttpContext = context.HttpContext, ProblemDetails = problem }))
+        {
+            await context.Response.WriteAsJsonAsync(problem, options: (System.Text.Json.JsonSerializerOptions?)null,
+                contentType: "application/problem+json", cancellationToken: context.HttpContext.RequestAborted);
+        }
+    }
 }

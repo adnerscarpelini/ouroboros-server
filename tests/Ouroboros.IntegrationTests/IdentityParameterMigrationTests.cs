@@ -33,6 +33,10 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await context.Database.MigrateAsync(Cancellation);
 
             Assert.Equal(before, await SnapshotAsync(source, "identity"));
+            Assert.Equal("24", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync("Identity:AdminInvitations:TokenLifetimeHours", Cancellation));
+            Assert.Equal("http://localhost:3001/administradores/convite", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync("Identity:AdminInvitations:CompletionUrl", Cancellation));
+            Assert.Equal(2, await context.ParameterHistory.CountAsync(history => history.ParameterKey == "Identity:AdminInvitations:TokenLifetimeHours"
+                || history.ParameterKey == "Identity:AdminInvitations:CompletionUrl", Cancellation));
             Assert.Equal(before, await SnapshotAsync(source, "settings"));
             Assert.False(context.Database.HasPendingModelChanges());
             Assert.Equal("migrated.example", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
@@ -91,8 +95,8 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
             await context.Database.MigrateAsync(Cancellation);
 
             Assert.Null(await ScalarAsync(database, "SELECT to_regclass('settings.parameters')::text"));
-            Assert.Equal(8, await context.Parameters.CountAsync(Cancellation));
-            Assert.Equal(8, await context.ParameterHistory.CountAsync(Cancellation));
+            Assert.Equal(10, await context.Parameters.CountAsync(Cancellation));
+            Assert.Equal(10, await context.ParameterHistory.CountAsync(Cancellation));
             Assert.Equal("adnerscarpelini.com", await scope.ServiceProvider.GetRequiredService<ISystemParameters>().GetAsync(Key, Cancellation));
             Assert.All(await context.Parameters.ToListAsync(Cancellation), parameter =>
                 Assert.Null(Ouroboros.Identity.Domain.Parameters.ParameterValueRules.Validate(parameter.DataType, parameter.ValidationPattern, parameter.Value)));
@@ -133,8 +137,10 @@ public sealed class IdentityParameterMigrationTests(PostgresFixture postgres)
 
     private Task<string?> SnapshotAsync(string database, string schema) => ScalarAsync(database, $"""
         SELECT jsonb_build_object(
-            'parameters', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.key) FROM {schema}.parameters p),
-            'history', (SELECT jsonb_agg(to_jsonb(h) ORDER BY h.parameter_key, h.revision) FROM {schema}.parameter_history h))::text
+            'parameters', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.key) FROM {schema}.parameters p
+                WHERE p.key IN (SELECT key FROM settings.parameters)),
+            'history', (SELECT jsonb_agg(to_jsonb(h) ORDER BY h.parameter_key, h.revision) FROM {schema}.parameter_history h
+                WHERE h.parameter_key IN (SELECT key FROM settings.parameters)))::text
         """);
 
     private async Task<string?> ScalarAsync(string database, string sql)

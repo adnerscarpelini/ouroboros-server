@@ -19,6 +19,9 @@ public sealed class IdentityModelStabilityTests(PostgresFixture postgres) : Inte
         "20261025142848_OwnIdentityParameters",
         "20261026015350_AddEmailIntents",
         "20261026025858_AddEmailPublicationLeases",
+        "20261028002017_AddAdminInvitations",
+        "20261028082611_AddApiClients",
+        "20261028091043_AddApiClientDeactivationAudit",
     ];
 
     [Fact]

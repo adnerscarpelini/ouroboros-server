@@ -15,6 +15,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Npgsql;
 using Ouroboros.Hosting;
 using Ouroboros.Identity.Application;
 using Ouroboros.Identity.Contracts.Administrators;
@@ -617,8 +618,14 @@ public sealed class ServiceUpdateAndRecoveryTests(RabbitMqFixture broker, Provis
 
     private async Task EnsureMigratedAndCleanAsync()
     {
-        var identityMigratorCs = database.ConnectionStringFor(ProvisionedInstance.IdentityMigrator, ProvisionedInstance.IdentityDatabase);
-        var notificationsMigratorCs = database.ConnectionStringFor(ProvisionedInstance.NotificationsMigrator, ProvisionedInstance.NotificationsDatabase);
+        // O cenário reinicia a instância: preparações posteriores usam conexões novas, sem reutilizar
+        // sockets ociosos das migrations anteriores. Os pools dos runtimes continuam sendo exercitados.
+        var identityMigratorCs = new NpgsqlConnectionStringBuilder(database.ConnectionStringFor(
+            ProvisionedInstance.IdentityMigrator, ProvisionedInstance.IdentityDatabase))
+        { Pooling = false }.ConnectionString;
+        var notificationsMigratorCs = new NpgsqlConnectionStringBuilder(database.ConnectionStringFor(
+            ProvisionedInstance.NotificationsMigrator, ProvisionedInstance.NotificationsDatabase))
+        { Pooling = false }.ConnectionString;
 
         using (var outWriter = new StringWriter())
         using (var errWriter = new StringWriter())
@@ -628,7 +635,7 @@ public sealed class ServiceUpdateAndRecoveryTests(RabbitMqFixture broker, Provis
                 outWriter,
                 errWriter,
                 Cancellation);
-            Assert.Equal(MigrateDatabaseCommand.Success, exitCode);
+            Assert.True(exitCode == MigrateDatabaseCommand.Success, errWriter.ToString());
         }
 
         await Ouroboros.Notifications.DependencyInjection.MigrateDatabaseAsync(notificationsMigratorCs, Cancellation);

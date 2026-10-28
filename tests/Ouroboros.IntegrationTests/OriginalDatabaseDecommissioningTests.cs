@@ -366,10 +366,12 @@ public sealed class OriginalDatabaseDecommissioningTests(ProvisionedInstance ins
             INSERT INTO settings."__EFMigrationsHistory" VALUES ('20260322014949_InitialSettings', '10.0.5');
 
             CREATE TABLE settings.parameters (LIKE identity.parameters INCLUDING ALL);
-            INSERT INTO settings.parameters OVERRIDING SYSTEM VALUE SELECT * FROM identity.parameters;
+            INSERT INTO settings.parameters OVERRIDING SYSTEM VALUE SELECT * FROM identity.parameters
+            WHERE key NOT IN ('Identity:AdminInvitations:TokenLifetimeHours', 'Identity:AdminInvitations:CompletionUrl');
 
             CREATE TABLE settings.parameter_history (LIKE identity.parameter_history INCLUDING ALL);
-            INSERT INTO settings.parameter_history OVERRIDING SYSTEM VALUE SELECT * FROM identity.parameter_history;
+            INSERT INTO settings.parameter_history OVERRIDING SYSTEM VALUE SELECT * FROM identity.parameter_history
+            WHERE parameter_key NOT IN ('Identity:AdminInvitations:TokenLifetimeHours', 'Identity:AdminInvitations:CompletionUrl');
             """);
 
         NpgsqlConnection.ClearAllPools();

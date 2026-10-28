@@ -32,6 +32,6 @@ internal sealed class RegisterApiClient(AdminAuthorization authorization, ISessi
     }
 
     internal static ApiClientModel Model(ApiClient client) => new(client.ExternalId, client.Name, client.Description,
-        client.IsActive, client.CreatedBy, client.CreatedAt);
+        client.IsActive, client.CreatedBy, client.CreatedAt, client.DeactivatedBy, client.DeactivatedAt);
     internal static ApiClientResult Denied(AdminAccess access) => new(access == AdminAccess.Forbidden ? ApiClientOutcome.Forbidden : ApiClientOutcome.InvalidCredentials);
 }

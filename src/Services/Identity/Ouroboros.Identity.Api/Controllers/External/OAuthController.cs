@@ -59,6 +59,12 @@ public sealed class OAuthController(IClientCredentials credentials) : Controller
         return Problem(statusCode: status, title: status == 401 ? IdentityErrors.InvalidCredentialsTitle : "Solicitação de token inválida.",
             extensions: new Dictionary<string, object?> { ["error"] = error });
     }
+
+    // Contrato técnico de consulta autoritativa; a autenticação já confere assinatura e estado atual.
+    [HttpPost("validation")]
+    [Authorize(Policy = IdentityPolicies.ApiClientAccess)]
+    [EnableRateLimiting(IdentityRateLimitPolicies.ClientValidation)]
+    public IActionResult ValidateClient() => NoContent();
 }
 public sealed class ClientTokenForm
 {

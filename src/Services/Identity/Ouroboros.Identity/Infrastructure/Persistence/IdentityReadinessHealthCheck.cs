@@ -30,7 +30,7 @@ internal sealed class IdentityReadinessHealthCheck(IOptions<IdentityDatabaseOpti
             await connection.OpenAsync(timeout.Token);
             await using var command = new NpgsqlCommand(
                 "SELECT 1 FROM identity.parameters LIMIT 1; SELECT 1 FROM identity.email_intents LIMIT 1; "
-                + "SELECT 1 FROM identity.admin_invitations LIMIT 1; SELECT 1 FROM identity.api_clients LIMIT 1;",
+                + "SELECT 1 FROM identity.admin_invitations LIMIT 1; SELECT 1 FROM identity.api_clients WHERE deactivated_at IS NULL LIMIT 1;",
                 connection);
             command.CommandTimeout = 3;
             await command.ExecuteNonQueryAsync(timeout.Token);

@@ -81,6 +81,7 @@ public static class DependencyInjection
         services.AddScoped<ICompleteAdminInvitation, CompleteAdminInvitation>();
         services.AddScoped<IRegisterApiClient, RegisterApiClient>();
         services.AddScoped<IGetApiClient, GetApiClient>();
+        services.AddScoped<IDeactivateApiClient, DeactivateApiClient>();
         services.AddScoped<IApiClientStore, ApiClientStore>();
         services.AddScoped<IClientCredentials, ClientCredentials>();
         services.AddScoped<IValidateApiClient, ValidateApiClient>();

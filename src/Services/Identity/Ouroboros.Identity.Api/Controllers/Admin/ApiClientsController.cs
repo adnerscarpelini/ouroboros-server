@@ -13,7 +13,7 @@ namespace Ouroboros.Identity.Api.Controllers.Admin;
 [Route("api/v{version:apiVersion}/admin/identity/api-clients")]
 [Authorize(Policy = IdentityPolicies.ApiClientsManage)]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-public sealed class ApiClientsController(IRegisterApiClient register, IGetApiClient query) : ControllerBase
+public sealed class ApiClientsController(IRegisterApiClient register, IGetApiClient query, IDeactivateApiClient deactivate) : ControllerBase
 {
     [HttpPost]
     [EnableRateLimiting(IdentityRateLimitPolicies.AdminActions)]
@@ -41,6 +41,16 @@ public sealed class ApiClientsController(IRegisterApiClient register, IGetApiCli
         ApiClientOutcome.NotFound => Problem(statusCode: 404, title: "Integrador não encontrado."),
         _ => Problem(statusCode: 400, title: "Dados do integrador inválidos."),
     };
+
+    [HttpPost("{clientId:guid}/deactivation")]
+    [EnableRateLimiting(IdentityRateLimitPolicies.AdminActions)]
+    public async Task<IActionResult> Deactivate(Guid clientId, DeactivateApiClientBody body, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirst(IdentityClaims.Subject)?.Value, out var actor)) { return Unauthorized(); }
+        var result = await deactivate.ExecuteAsync(new(actor, clientId, body.CurrentPassword), cancellationToken);
+        return result.Outcome == ApiClientOutcome.Deactivated ? NoContent() : Failure(result.Outcome);
+    }
 }
+public sealed record DeactivateApiClientBody([Required, MaxLength(1024)] string CurrentPassword);
 public sealed record RegisterApiClientBody([Required, MaxLength(100)] string Name,
     [MaxLength(1000)] string? Description, [Required, MaxLength(1024)] string CurrentPassword);

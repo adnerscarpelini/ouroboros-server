@@ -246,7 +246,7 @@ public sealed class ClientCredentialsTests(PostgresFixture postgres) : Integrati
         { await command.ExecuteNonQueryAsync(Cancellation); }
         var started = Stopwatch.GetTimestamp();
         using var timedOut = await Client.GetAsync(Probe, Cancellation);
-        Assert.Equal(HttpStatusCode.Unauthorized, timedOut.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, timedOut.StatusCode);
         Assert.True(Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(5));
         var text = await timedOut.Content.ReadAsStringAsync(Cancellation);
         Assert.DoesNotContain(secret, text);

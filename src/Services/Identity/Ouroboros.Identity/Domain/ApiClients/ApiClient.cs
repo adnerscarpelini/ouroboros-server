@@ -11,6 +11,16 @@ internal sealed class ApiClient : Entity
     public byte[] SecretHash { get; private set; }
     public Guid CreatedBy { get; private set; }
     public bool IsActive { get; private set; } = true;
+    public Guid? DeactivatedBy { get; private set; }
+    public DateTimeOffset? DeactivatedAt { get; private set; }
+
+    public bool Deactivate(Guid actor, DateTimeOffset now)
+    {
+        if (actor == Guid.Empty) { throw new ArgumentException("Autor inválido.", nameof(actor)); }
+        if (!IsActive) { return false; }
+        IsActive = false; DeactivatedBy = actor; DeactivatedAt = now;
+        return true;
+    }
 
     public static ApiClient Create(string name, string? description, byte[] hash, Guid actor)
     {

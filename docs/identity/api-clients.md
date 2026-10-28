@@ -1,6 +1,6 @@
-# Integradores e emissão de tokens
+# Integradores, tokens e desativação
 
-Identity cadastra credenciais de sistemas integradores pelo backoffice ([#37](https://github.com/adnerscarpelini/ouroboros-server/issues/37)) e emite seus access tokens no público externo ([#39](https://github.com/adnerscarpelini/ouroboros-server/issues/39)). O integrador é uma entidade própria, não uma conta de usuário. A desativação HTTP e o contrato técnico de validação são a entrega seguinte, #38; ainda não estão implementados nesta fatia.
+Identity cadastra credenciais de sistemas integradores pelo backoffice ([#37](https://github.com/adnerscarpelini/ouroboros-server/issues/37)), emite seus access tokens no público externo ([#39](https://github.com/adnerscarpelini/ouroboros-server/issues/39)) e controla desativação e validação autoritativa ([#38](https://github.com/adnerscarpelini/ouroboros-server/issues/38)). O integrador é uma entidade própria, não uma conta de usuário.
 
 ## Contrato HTTP
 
@@ -10,10 +10,11 @@ As rotas ficam no listener administrativo e são encaminhadas pelo gateway admin
 | --- | --- | --- |
 | `POST /api/v1/admin/identity/api-clients` | `name`, `description` opcional, `currentPassword` | `201` com `client_id` e `client_secret`, mais `Location` para consulta |
 | `GET /api/v1/admin/identity/api-clients/{clientId}` | Identificador público na rota | `200` com resumo, sem secret ou hash; `404` se inexistente |
+| `POST /api/v1/admin/identity/api-clients/{clientId}/deactivation` | `currentPassword` | `204` idempotente; exige reautenticação administrativa |
 
 O nome é aparado, deve ter de 1 a 100 caracteres e não aceita controles. A descrição pode ter até 1000 caracteres, não aceita NUL e, quando omitida, é armazenada como texto vazio. Dados inválidos retornam `400`. Senha atual incorreta ou bloqueada retorna `401`; administrador inativo ou com papel removido retorna `403`. A criação usa `identity-admin-actions`, com 10 requisições/minuto/IP compartilhadas com as demais ações administrativas dessa política.
 
-O resumo contém `client_id`, `name`, `description`, `isActive`, `createdBy` e `createdAt`. O cadastro nasce ativo e guarda o identificador público de quem o criou, com data UTC. Não há listagem nesta entrega.
+O resumo contém `client_id`, `name`, `description`, `isActive`, `createdBy`, `createdAt`, `deactivatedBy` e `deactivatedAt`. O cadastro nasce ativo e guarda o identificador público de quem o criou, com data UTC; os campos de desativação começam nulos. Não há listagem nesta entrega.
 
 ## Credenciais e transação
 
@@ -35,24 +36,41 @@ O caso de uso compara o hash em tempo constante, trava a linha do client e relê
 
 ## Validação e separação dos principais
 
-`IdentityBearerEvents` valida formatos distintos para usuários e integradores. Um client só é autenticado no esquema público, com RS256 e identificador público válido, sem papel ou sessão. A cada autenticação, Identity consulta o estado atual no próprio banco, sem cache; assinatura válida isoladamente não concede acesso. `Authentication:Jwt:ClientValidationTimeout` é positivo, tem padrão de dois segundos e máximo de cinco. Falha ou timeout nessa consulta fecha o acesso com `401` nesta fatia, sem fallback permissivo.
+`IdentityBearerEvents` valida formatos distintos para usuários e integradores. Um client só é autenticado no esquema público, com RS256 e identificador público válido, sem papel ou sessão. A cada autenticação, Identity consulta o estado atual no próprio banco, sem cache; assinatura válida isoladamente não concede acesso. `Authentication:Jwt:ClientValidationTimeout` é positivo, tem padrão de dois segundos e máximo de cinco. Integrador inativo ou token inválido recebe `401`; falha ou timeout na consulta autoritativa fecha o acesso com `503` sanitizado, `traceId` e `Cache-Control: no-store`, sem fallback permissivo. O ProblemDetails também é preservado quando o escritor padrão recusa um `Accept` como `text/plain`.
 
-As políticas padrão e de fallback recusam client em endpoints de usuário. Uma rota destinada a integradores precisa declarar a política explícita `identity:api-clients.access`. A sonda positiva usada no QA existe somente nos testes: nenhum endpoint de negócio para integradores foi criado. O contrato HTTP técnico para consumidores e seu erro de indisponibilidade serão entregues na #38.
+As políticas padrão e de fallback recusam client em endpoints de usuário. Uma rota destinada a integradores precisa declarar a política explícita `identity:api-clients.access`. Nenhum endpoint de negócio para integradores foi criado; a rota abaixo é exclusivamente técnica.
+
+### Contrato técnico para consumidores
+
+`POST /api/v1/identity/oauth/validation` recebe o token original em `Authorization: Bearer <token>`, sem corpo. Existe somente no listener público, também pelo gateway externo, e exige `identity:api-clients.access`. A autenticação verifica assinatura, audiência, principal e estado atual; a action não muda estado e retorna `204` somente quando tudo é válido. Token inválido ou de integrador inativo retorna `401`; principal autenticado sem a política apropriada recebe `403`; indisponibilidade da consulta recebe `503`. A validação bem-sucedida e os desafios de autenticação usam `no-store`; nenhum resultado deve ser usado como cache de autorização.
+
+A política obrigatória `identity-client-validation` permite inicialmente 120 requisições/minuto/IP, com recusa `429` e `Retry-After`. Futuros serviços consumidores devem chamar esse contrato por HTTP com timeout limitado, fora de suas transações e locks locais, e aceitar **somente `204`**. `401`, `403`, `429`, `503`, timeout, falha de rede ou qualquer outro resultado negam acesso. Não reutilizar uma aceitação em cache nem tratar falha de consulta como autorização. Esses consumidores ainda não existem no checkout; a #38 não cria outro serviço.
+
+## Desativação
+
+A operação administrativa exige a senha atual e a mesma capacidade de gerenciamento, usando `identity-admin-actions` (10/minuto/IP compartilhadas). Senha incorreta retorna `401`, administrador inativo ou demovido retorna `403`, e identificador inexistente retorna `404`.
+
+Identity trava primeiro o usuário e depois o client, confirma reautenticação e grava `IsActive=false`, `DeactivatedBy`, `DeactivatedAt` e intenções de aviso na mesma transação local. Administradores ativos recebem aviso sem credenciais pelo propósito `api-client-notice`. Nova chamada válida sobre client já desativado retorna `204` sem sobrescrever a autoria/data originais ou repetir avisos; decisões concorrentes preservam uma única alteração auditada. Falha ao persistir a intenção desfaz a desativação; falha posterior de publicação mantém o estado desativado e as intenções recuperáveis, sem reativar nem reaplicar o comando. Não há reativação nesta entrega.
+
+Depois do commit, as credenciais não emitem novos tokens e a próxima validação de um JWT já emitido recusa o integrador. Isso não cancela uma requisição cuja validação terminou antes do commit; a garantia é sobre a próxima validação autoritativa, sem janela de cache ou propagação por evento.
 
 ## Implantação e verificação
 
-Atualize **Notifications antes de Identity**, pois seu leitor passa a aceitar `api-client-notice` no envelope v1. Aplique explicitamente `AddApiClients` com a credencial migradora de Identity; não use a role de runtime para migrations.
+Atualize **Notifications antes de Identity**, pois os fluxos do lote usam os propósitos `admin-invitation`, `admin-notice` e `api-client-notice` no envelope v1. Aplique explicitamente as migrations `AddAdminInvitations`, `AddApiClients` e `AddApiClientDeactivationAudit` com a credencial migradora de Identity; não use a role de runtime para migrations. A migration de auditoria é `20261028091043_AddApiClientDeactivationAudit`.
 
-A readiness de Identity verifica conexão e existência das tabelas `identity.parameters`, `identity.email_intents`, `identity.admin_invitations` e `identity.api_clients` por consultas `SELECT 1`. A inclusão das tabelas das novas funcionalidades não transforma a probe em validação genérica de todas as colunas ou versões de schema. Permanecem conexões sem pooling, limites existentes e ausência de reset global de pools.
+A readiness de Identity verifica conexão e existência das tabelas `identity.parameters`, `identity.email_intents`, `identity.admin_invitations` e `identity.api_clients` por consultas `SELECT 1`; a consulta de clients referencia `deactivated_at` para exigir a coluna dessa migration. Isso não transforma a probe em validação genérica de todas as colunas ou versões de schema. Permanecem conexões sem pooling, limites existentes e ausência de reset global de pools.
 
 ```powershell
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ApiClientRegistrationTests"
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ClientCredentialsTests"
+dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*ApiClientDeactivationTests"
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-method "*Api_client*"
 ```
 
 O QA da #37 aprovou 16 casos de cadastro com PostgreSQL real e três cenários completos de mensageria: novo aviso de integrador, convite e regressão de cadastro/reset. Identity usa TestServer; os cenários de entrega usam RabbitMQ, processo Notifications, banco próprio e arquivos `.eml` reais, com API sob IdentityRuntime e migrations separadas. A arquitetura passou em 339 casos; build sem avisos/erros e formatação foram conferidos. Esses resultados não representam execução da suíte completa de integração.
 
 O QA da #39 aprovou uma seleção de 95 casos: 18 de emissão/separação de principais, mais regressões de login, refresh, reuso, logout, emissor, rotação e consulta do usuário; também passaram 346 casos de arquitetura. HTTP usa TestServer e PostgreSQL é real, incluindo corrida e timeout SQL. Build, formatação e diff foram conferidos. Essa seleção não incluiu injeção de falha do coletor de diagnósticos nem equivale à suíte completa.
+
+A validação final do lote aprovou **1030/1030 testes**, sendo **677 de integração e 353 de arquitetura**, sem falhas ou ignorados. Os 13 cenários de desativação cobrem auditoria, token anterior e nova emissão recusados, autorização, idempotência concorrente, rollback de intenção, falha de publicação, timeout SQL com `503` e recuperação, negociação `Accept`, logs e rate limit. HTTP de Identity usa TestServer; PostgreSQL, RabbitMQ, processo Notifications e `.eml` são reais nos cenários pertinentes. Build sem avisos/erros, formatação e diff foram conferidos. Essa evidência não implica outro serviço consumidor implementado nem entrega exatamente uma vez no provedor de e-mail.
 
 [Voltar à documentação](../README.md)
