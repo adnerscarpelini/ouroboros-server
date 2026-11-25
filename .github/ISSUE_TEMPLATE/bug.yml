@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Customers] Corrigir validação de CPF duplicado`.
+        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api`, `WebClient` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Customers] Corrigir validação de CPF duplicado`.
         O tipo não entra no título: ele já está na label.
   - type: dropdown
     id: module
@@ -19,6 +19,7 @@ body:
         - Accounts
         - Transactions
         - Api
+        - WebClient
         - Não identificado
     validations:
       required: true
