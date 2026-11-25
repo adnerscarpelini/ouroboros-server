@@ -11,9 +11,9 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Visual Studio e compilação
 
-Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services`, `src/Services/Identity` e `src/Gateways` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; os gateways finos `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` ficam em `src/Gateways/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
+Abra `Ouroboros.slnx` por **Arquivo → Abrir → Projeto/Solução**. Abrir somente a pasta do repositório usa a visualização de arquivos. `src`, `src/Services`, `src/Services/Identity`, `src/Gateways` e `src/Clients` são pastas organizadoras da solution. Identity é a biblioteca `Ouroboros.Identity` e a API `Ouroboros.Identity.Api`, em `src/Services/Identity/`; os gateways finos `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` ficam em `src/Gateways/`; o web client `Ouroboros.WebClient` fica em `src/Clients/`; `Ouroboros.BuildingBlocks`, `Ouroboros.Hosting`, `Ouroboros.Messaging` e `Ouroboros.Observability` ficam em `src/`. Cada projeto é independente e compilável pelo menu de contexto **Compilar**.
 
-Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity diretamente (um processo, com os listeners público e administrativo), ou inicie também `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` quando quiser exercitar o encaminhamento de borda ([Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo)). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
+Defina `Ouroboros.Identity.Api` como projeto de inicialização para executar Identity diretamente (um processo, com os listeners público e administrativo), ou inicie também `Ouroboros.ExternalGateway.Api` e `Ouroboros.AdminGateway.Api` quando quiser exercitar o encaminhamento de borda ([Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo)). A interface de apresentação é `Ouroboros.WebClient` ([Executar o web client](#executar-o-web-client)). Notifications possui o executável separado `Ouroboros.Notifications.Worker`; as bibliotecas não são executáveis independentes.
 
 Na raiz do repositório:
 
@@ -24,6 +24,7 @@ dotnet build src/Services/Identity/Ouroboros.Identity/Ouroboros.Identity.csproj
 dotnet build src/Services/Identity/Ouroboros.Identity.Api/Ouroboros.Identity.Api.csproj
 dotnet build src/Gateways/Ouroboros.ExternalGateway.Api/Ouroboros.ExternalGateway.Api.csproj
 dotnet build src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj
+dotnet build src/Clients/Ouroboros.WebClient/Ouroboros.WebClient.csproj
 ```
 
 ## Testes
@@ -71,7 +72,7 @@ O workflow [ci.yml](../.github/workflows/ci.yml) roda em runner Linux a cada pul
 
 | Check (nome do job) | O que executa | Equivale localmente a |
 | --- | --- | --- |
-| Build e testes de arquitetura | Restore e build da solution em Release, testes de arquitetura e construção das imagens Linux versionadas (`<version>-<commit>`) de Identity, Notifications e dos dois gateways (`ExternalGateway` e `AdminGateway`) | `dotnet build Ouroboros.slnx -c Release`, `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` e `docker build` dos quatro Dockerfiles com `--build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=<commit>` |
+| Build e testes de arquitetura | Restore e build da solution em Release, testes de arquitetura e construção das imagens Linux versionadas (`<version>-<commit>`) de Identity, Notifications, dos dois gateways (`ExternalGateway` e `AdminGateway`) e do web client | `dotnet build Ouroboros.slnx -c Release`, `dotnet test --project tests/Ouroboros.ArchitectureTests -c Release` e `docker build` dos cinco Dockerfiles com `--build-arg APP_VERSION=0.1.0 --build-arg SOURCE_REVISION=<commit>` |
 | Testes de integração | Testes de integração com PostgreSQL e RabbitMQ em containers (Testcontainers); confere a disponibilidade de PowerShell para o provisionador | `dotnet test --project tests/Ouroboros.IntegrationTests -c Release` |
 
 Falha de build, de imagem, de teste ou de job reprova o check; publicação em registro e deploy ficam fora da CI. Os resultados em formato TRX ficam como artefato do workflow por 7 dias. Um passo do primeiro job falha se existir um projeto de teste em `tests/` que não esteja listado no workflow, para que nenhuma suíte deixe de rodar sem aviso. Os nomes dos checks são os que o ruleset da `main` deve exigir.
@@ -110,6 +111,7 @@ Se ainda não existir `.env`, copie `.env.example` uma única vez (`cp .env.exam
 | `IDENTITY_PUBLIC_PORT` | Porta de loopback do host para o listener público de Identity (padrão `5141`) |
 | `NOTIFICATIONS_HEALTH_PORT` | Porta de loopback do host para o endpoint de saúde de Notifications (padrão `5143`) |
 | `EXTERNAL_GATEWAY_PORT`, `ADMIN_GATEWAY_PORT` | Portas de loopback do host para os containers opcionais `external-gateway` (padrão `5151`) e `admin-gateway` (padrão `5152`), no profile `gateways` |
+| `WEB_CLIENT_PORT` | Porta de loopback do host para o container opcional `web-client` (padrão `5161`), no profile `webclient` |
 | EXTERNAL_GATEWAY_IP, GATEWAY_NETWORK_SUBNET | IP estático exato do proxy externo e subnet da rede Compose (padrões 172.30.230.10 e 172.30.230.0/24). O IP deve pertencer à subnet; ajuste ambos em caso de sobreposição. Identity confia no IP exato e em loopback, sem confiar em toda a rede |
 | `IDENTITY_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/identity`, montado somente em `identity-api` como `:ro` |
 | `NOTIFICATIONS_KEYS_DIR` | Caminho absoluto externo de `<caminho-fora-do-repo>/notifications`, montado somente em `notifications-worker` como `:ro` |
@@ -884,6 +886,56 @@ dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*Gate
 
 # Testes de integração dos gateways (exige Docker): rotas públicas e administrativas, autorização no Identity e rate limit com X-Forwarded-For entre réplicas
 dotnet test --project tests/Ouroboros.IntegrationTests -- --filter-class "*GatewayIntegrationTests"
+```
+
+## Executar o web client
+
+A entrega [#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122) cria o web client `Ouroboros.WebClient` em `src/Clients/`: interface Blazor Interactive Server com MudBlazor, que fala HTTP somente com o gateway externo, sem banco, broker ou referência aos serviços ([decisão e fronteiras](architecture/web-client.md)). Ainda não há telas autenticadas; a página inicial, o layout, o tema e as páginas de erro são servidos pelo próprio web client.
+
+| Chave | Padrão | Finalidade |
+| --- | --- | --- |
+| `WebClient:Gateway:BaseUrl` | `http://127.0.0.1:5151` (`http://external-gateway:5151` no Compose) | Origem do gateway externo: HTTP ou HTTPS absoluta, sem credenciais, caminho, query ou fragmento |
+| `WebClient:Gateway:Timeout` | `00:00:05` | Prazo das chamadas ao gateway, maior que zero e de no máximo `00:00:30` |
+| `WebClient:DataProtection:KeysPath` | Sem valor (local padrão do ASP.NET Core) | Diretório persistente das chaves que protegem os cookies; no Compose, o volume `web-client-keys` |
+
+Configuração inválida impede a subida com `OptionsValidationException`, assim como qualquer valor em `ConnectionStrings`: o web client não acessa bancos.
+
+### Executar localmente com `dotnet run`
+
+Suba a API de Identity e o gateway externo ([Executar os gateways externo e administrativo](#executar-os-gateways-externo-e-administrativo)) e, em outro terminal, na raiz do repositório:
+
+```powershell
+dotnet run --project src/Clients/Ouroboros.WebClient
+```
+
+O perfil de desenvolvimento escuta em `http://localhost:5161`. A página inicial abre mesmo com o gateway parado; nesse caso só a prontidão fica `Unhealthy`:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:5161/health/live
+(Invoke-WebRequest -Uri http://localhost:5161/health/ready -SkipHttpErrorCheck).Content
+```
+
+`/health/live` não depende do gateway. `/health/ready` e `/health` consultam o `/health/ready` do gateway (que reflete Identity) com prazo de 2 segundos e respondem só `{"status":"Healthy"}` ou `{"status":"Unhealthy"}`, sem endereços nem mensagens de erro. Fora de `Development`, os assets estáticos dos pacotes (MudBlazor e `_framework`) só existem depois do `dotnet publish`; para `dotnet run`, mantenha o perfil de desenvolvimento.
+
+### Executar com Docker Compose (`--profile webclient`)
+
+O serviço `web-client` depende do `external-gateway`, então os dois profiles sobem juntos:
+
+```powershell
+docker compose --profile gateways --profile webclient up -d --build external-gateway web-client
+(Invoke-WebRequest -Uri http://127.0.0.1:5161/health/ready -SkipHttpErrorCheck).Content
+```
+
+O container roda como o usuário não-root `1654`, escuta em `5161`, publicado só em loopback no host (`WEB_CLIENT_PORT`), e guarda as chaves de Data Protection no volume `web-client-keys`, cujo dono é ajustado pelo serviço `web-client-volume-init`. Não recebe connection strings, chaves dos serviços nem acesso à rede administrativa.
+
+### Verificar os testes do web client
+
+```powershell
+# Fronteiras do projeto e das pastas, subida, health, Dockerfile, Compose e CI (sem Docker)
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*WebClientArchitectureTests"
+
+# Regras aplicadas a cenários controlados, inclusive as do web client
+dotnet test --project tests/Ouroboros.ArchitectureTests -- --filter-class "*DependencyRuleScenarioTests"
 ```
 
 ## Logs dos executáveis

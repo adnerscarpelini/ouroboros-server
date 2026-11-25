@@ -314,6 +314,50 @@ services:
       timeout: 5s
       retries: 10
 
+  # Web client (#122): interface Blazor que fala HTTP somente com o gateway externo, sem banco, broker ou referência
+  # aos serviços (docs/architecture/web-client.md). Opcional via profile `webclient`, junto do profile `gateways`:
+  #   docker compose --profile gateways --profile webclient up -d
+  web-client:
+    image: ouroboros-web-client:${IMAGE_TAG:-${APP_VERSION:-0.1.0}-${SOURCE_REVISION:-local}}
+    build:
+      context: .
+      dockerfile: src/Clients/Ouroboros.WebClient/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
+        SOURCE_REVISION: ${SOURCE_REVISION:-local}
+    profiles: ["webclient"]
+    restart: unless-stopped
+    depends_on:
+      external-gateway:
+        condition: service_healthy
+      web-client-volume-init:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_HTTP_PORTS: "5161"
+      WebClient__Gateway__BaseUrl: "http://external-gateway:5151"
+      WebClient__Gateway__Timeout: "00:00:05"
+      WebClient__DataProtection__KeysPath: "/var/lib/ouroboros-web-client/keys"
+      Observability__Otlp__Endpoint: "http://otel-collector:4318/"
+    volumes:
+      - web-client-keys:/var/lib/ouroboros-web-client/keys
+    ports:
+      - "127.0.0.1:${WEB_CLIENT_PORT:-5161}:5161"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5161/health/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # O web client roda como o usuário sem privilégios 1654; o volume novo nasce do root. Ajusta só o dono do volume.
+  web-client-volume-init:
+    image: busybox:1.37.0
+    profiles: ["webclient"]
+    restart: "no"
+    command: ["sh", "-c", "chown 1654:1654 /keys && chmod 0700 /keys"]
+    volumes:
+      - web-client-keys:/keys
+
   # Diagnósticos (OpenTelemetry). As APIs e os workers enviam OTLP/HTTP ao coletor em 127.0.0.1:4318 quando
   # Observability:Otlp:Endpoint está configurado; o coletor sanitiza de novo e encaminha ao destino dedicado,
   # que grava arquivos rotacionados no volume diagnostics-data. Nenhum deles acessa os bancos de negócio.
@@ -379,3 +423,4 @@ volumes:
   rabbitmq-data:
   diagnostics-data:
   collector-queue:
+  web-client-keys:

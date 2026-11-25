@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" />
+  </ItemGroup>
+  <!--
+    O web client é consumidor externo dos serviços (docs/architecture/web-client.md): só referencia a biblioteca
+    técnica de observabilidade e fala HTTP com os gateways. Os testes de arquitetura recusam qualquer outra referência.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="../../Ouroboros.Observability/Ouroboros.Observability.csproj" />
+  </ItemGroup>
+</Project>

@@ -38,6 +38,7 @@ O web client **nunca ultrapassa as fronteiras dos serviços**. Ele se comporta c
 - **Blazor Web App com render mode Interactive Server global.** A interface roda no servidor, sobre um circuito SignalR; nenhum código de aplicação nem token vai para o navegador.
 - **Login e logout em SSR estático**, por formulário e endpoint. O cookie de sessão só pode ser emitido numa resposta HTTP, e o circuito interativo não tem uma.
 - **MudBlazor** como biblioteca de componentes (linha 9.x, compatível com .NET 10), com versão centralizada em `Directory.Packages.props` ([pacotes](module-structure.md#pacotes-nuget)).
+- **Identidade visual.** A cor de acento é `#ff6200`, a `Primary` dos temas claro e escuro em [`OuroborosTheme`](../../src/Clients/Ouroboros.WebClient/Shell/OuroborosTheme.cs). Texto branco sobre esse laranja tem contraste de cerca de 3:1, abaixo dos 4,5:1 exigidos para texto normal; por isso a AppBar é escura e o laranja marca botões, links, ícones e destaques, não fundos de textos longos.
 
 ### Sessão (BFF)
 
@@ -53,9 +54,11 @@ Um único projeto, organizado por funcionalidade, com as pastas de `Features` no
 
 ```text
 src/Clients/Ouroboros.WebClient/
-  Program.cs              # composição: Add<Serviço>Feature()
-  Components/             # App.razor, Routes.razor e _Imports.razor, exigidos pelo Blazor
-  Shell/                  # layout, AppBar, menu, tema e páginas de erro
+  Program.cs              # ponto de entrada; a composição fica em WebClientHost.cs
+  WebClientHost.cs        # composição: infraestrutura, Add<Serviço>Feature(), MudBlazor e pipeline
+  _Imports.razor          # usings dos componentes, válidos em todas as pastas
+  Components/             # App.razor e Routes.razor, exigidos pelo Blazor
+  Shell/                  # layout, AppBar, menu, tema, página inicial, páginas de erro e reconexão
   Shared/                 # componentes genéricos, sem serviço dono
   Infrastructure/         # pipeline HTTP ao gateway, sessão BFF, tradução de ProblemDetails e opções
   Features/
@@ -69,17 +72,42 @@ src/Clients/Ouroboros.WebClient/
 
 | Origem | Pode usar | Não pode usar |
 | --- | --- | --- |
-| `Features/<Serviço>` | O próprio serviço, `Shared` e `Infrastructure` | Outro `Features/<Serviço>` |
-| `Shared` | `Infrastructure` | Qualquer `Features` |
-| `Infrastructure` | Bibliotecas HTTP e de autenticação, `Ouroboros.Observability` | `Features`, `Shared` e `Shell` |
-| `Shell` | `Shared` e rotas em texto para o menu | Tipos de `Features` |
-| `Program.cs` | `Add<Serviço>Feature()` | Lógica de tela |
+| `Features/<Serviço>` | O próprio serviço, `Shared`, `Infrastructure` e `Shell` (layout) | Outro `Features/<Serviço>`, `Components` e a raiz (a composição usa todas as áreas e viraria ponte entre `Features`) |
+| `Shared` | `Shared` e `Infrastructure` | `Features`, `Shell` e `Components` |
+| `Infrastructure` | A própria `Infrastructure`, bibliotecas HTTP e de autenticação, `Ouroboros.Observability` | `Features`, `Shared`, `Shell` e `Components` |
+| `Shell` | `Shared`, `Infrastructure`, `Components` e rotas em texto para o menu | Tipos de `Features` |
+| `Components` | Todas as áreas (`App` e `Routes` montam o roteador e o layout) | Nenhuma restrição de área |
+| `WebClientHost.cs` e `Program.cs` | `Add<Serviço>Feature()` e a infraestrutura | Lógica de tela |
+
+Não existem outras pastas de código: um namespace fora dessas áreas é recusado, para que uma pasta nova não sirva de ponte entre `Features`. A área vem do namespace, então o namespace de cada arquivo C# é o da sua pasta, e os componentes Razor não usam `@namespace`.
 
 - **`Features`, não `Domains`.** O web client não tem camada de domínio, e `Domain` já designa a camada de regras dentro de cada serviço (`Ouroboros.Identity.Domain`). Organizar por funcionalidade é o padrão de *feature folders*.
 - **Pasta só para serviço existente.** Uma pasta em `Features` existe quando o serviço expõe HTTP pelo gateway e tem telas. Hoje, apenas Identity; Notifications não tem API de negócio. Pastas de Customers ou da fronteira financeira só surgem quando esses serviços existirem, como na [criação de serviços](module-structure.md#criação-de-novos-serviços).
 - **Isolamento entre serviços.** Uma tela usa um único serviço, como `type.cross-service` nos serviços ([dependências](layer-dependencies.md#regras-de-tipo)). Telas que combinem dados de mais de um serviço não são permitidas até uma decisão própria (área de composição explícita ou agregação no gateway).
 - **Rotas com prefixo do serviço** (`/identity/...`), mostrando o dono da tela como as rotas da API (`/api/v1/identity/...`).
-- **Visibilidade.** Clientes HTTP, modelos e serviços do web client são `internal` por padrão. Componentes Razor são `public` porque o compilador os gera assim; é a exceção documentada.
+- **Visibilidade.** Clientes HTTP, modelos e serviços do web client são `internal` por padrão. Componentes Razor são `public` porque o compilador os gera assim; é a exceção documentada. O marcador `WebClientEntryPoint` também é público, só para os testes (`WebApplicationFactory`), como nos gateways.
+- **Pastas criadas sob demanda.** `Shared` e as subpastas de `Features/Identity` (`Pages`, `Client`, `Models`) surgem com o primeiro componente ou tela que as use; hoje `Features/Identity` tem apenas o ponto de composição `AddIdentityFeature()`.
+
+### Execução, configuração e saúde
+
+- Configuração na seção `WebClient`: `Gateway:BaseUrl` (origem do gateway, sem credenciais, caminho, query ou fragmento), `Gateway:Timeout` (até 30 segundos) e `DataProtection:KeysPath`. Valores inválidos, ou qualquer `ConnectionStrings`, impedem a subida com `OptionsValidationException` ([`WebClientOptionsValidator`](../../src/Clients/Ouroboros.WebClient/Infrastructure/WebClientOptionsValidator.cs)).
+- Um único `HttpClient` nomeado (`gateway`) aponta para essa origem; o `traceparent` da requisição segue nas chamadas.
+- `/health/live` responde sem consultar o gateway; `/health/ready` e `/health` consultam o `/health/ready` do gateway, com prazo de 2 segundos, e respondem apenas `{"status":"Healthy"}` ou `{"status":"Unhealthy"}`, como os serviços. O web client não referencia `Ouroboros.Hosting`, que reúne mecanismos das APIs dos serviços, e mantém a própria versão desses endpoints ([`WebClientHealthEndpoints`](../../src/Clients/Ouroboros.WebClient/Infrastructure/WebClientHealthEndpoints.cs)).
+- Porta `5161` no desenvolvimento e no container; no Compose, profile `webclient` com volume `web-client-keys` para as chaves de Data Protection ([operação](../development.md#executar-o-web-client)).
+
+### Verificação
+
+As regras desta decisão são verificadas pelos testes de arquitetura ([dependências](layer-dependencies.md#web-client)):
+
+| Garantia | Regra ou teste |
+| --- | --- |
+| Projeto em `src/Clients` referencia só `Ouroboros.Observability`, e nenhum projeto o referencia | `project.client-reference`, e `project.service-depends-on-executable`, `project.shared-depends-on-service` ou `project.executable-depends-on-executable` para quem o referenciar |
+| Sem pacotes de banco ou broker (EF Core, Npgsql, RabbitMQ.Client, SqlClient) | `project.client-package` |
+| Nenhum tipo de serviço, executável, banco ou broker usado no código | `type.client-backend-dependency` |
+| Um `Features/<Serviço>` não usa outro | `type.client-cross-feature` |
+| `Shared`, `Infrastructure` e `Shell` respeitam a tabela de pastas | `type.client-area` |
+| Nenhum código fora das áreas conhecidas; namespace igual à pasta, sem `@namespace` nos componentes | `type.client-unknown-area` e `Web_client_namespaces_match_their_folders` |
+| Subida recusada com gateway inválido ou connection strings; health sanitizado; Dockerfile não-root versionado; Compose sem banco, broker ou serviços; imagem na CI | [`WebClientArchitectureTests`](../../tests/Ouroboros.ArchitectureTests/WebClientArchitectureTests.cs) |
 
 ## Alternativas consideradas
 
@@ -99,7 +127,8 @@ src/Clients/Ouroboros.WebClient/
 - Os modelos HTTP são duplicados no cliente. É o custo aceito para não acoplar o web client aos assemblies dos serviços.
 - Reiniciar o web client encerra as sessões, porque o store de tokens é em memória. Aceito para um projeto de estudo; várias réplicas exigiriam store distribuído.
 - O circuito Interactive Server mantém estado por usuário no servidor e depende da conexão SignalR; queda da conexão interrompe a interação até reconectar.
-- As fronteiras desta decisão serão verificadas por testes de arquitetura e validação de opções na criação do projeto ([#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122)).
+- As fronteiras desta decisão são verificadas por testes de arquitetura e por validação de opções na subida desde a criação do projeto ([#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122)); ver [Verificação](#verificação).
+- O tema escolhido no botão claro/escuro vale para o circuito atual; uma navegação com recarga completa volta ao tema claro. Persistir a preferência é melhoria de interface, fora das fronteiras desta decisão.
 
 ## Referências
 
@@ -110,6 +139,6 @@ src/Clients/Ouroboros.WebClient/
 
 ## Origem
 
-[#121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (decisão de arquitetura e fronteiras do web client).
+[#121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (decisão de arquitetura e fronteiras do web client) e [#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122) (projeto, layout, tema, health, imagem, Compose e regras de arquitetura).
 
 [Voltar à arquitetura](README.md)

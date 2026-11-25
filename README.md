@@ -10,9 +10,12 @@ Cada serviço tem responsabilidade de negócio, processo e implantação própri
 
 Cada serviço persistente possui banco e credencial próprios. Por decisão consciente de aprendizado, todos os bancos compartilham uma instância PostgreSQL em um único container Docker local para economizar recursos. Disponibilidade, CPU, memória e armazenamento são compartilhados.
 
-A organização definida para o monorepo é por serviços em src/Services. Serviços HTTP possuem API própria; consumidores de mensagens podem executar como workers. Gateways são uma etapa posterior e não bloqueiam acesso direto no desenvolvimento.
+A organização definida para o monorepo é por serviços em src/Services. Serviços HTTP possuem API própria; consumidores de mensagens podem executar como workers. Gateways finos, separados por público em src/Gateways, são pontos de entrada opcionais: no desenvolvimento, as APIs também podem ser acessadas diretamente.
+
+A interface de apresentação é um web client Blazor em src/Clients, com MudBlazor. Ele é consumidor externo dos serviços: fala HTTP somente com os gateways e nunca acessa banco, broker ou código dos serviços.
 
 - [Arquitetura](docs/architecture/README.md).
+- [Web client](docs/architecture/web-client.md): decisão, fronteiras e estrutura por serviço; [como executar](docs/development.md#executar-o-web-client).
 - [Estrutura dos serviços](docs/architecture/module-structure.md).
 - [Estado de implementação](docs/implementation-status.md): disponibilidade e entregas pendentes.
 - [Executar o checkout atual](docs/development.md): SDK, banco, testes e comandos.

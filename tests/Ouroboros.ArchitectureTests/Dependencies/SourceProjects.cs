@@ -12,11 +12,15 @@ internal enum ProjectKind
 
     // Código técnico compartilhado, como BuildingBlocks e Hosting.
     Shared,
+
+    // Cliente de apresentação em src/Clients: consumidor externo dos serviços, que só fala HTTP com os gateways.
+    Client,
 }
 
 // Service é o serviço proprietário, deduzido do caminho (src/Services/<Serviço>/<projeto>/...).
-// Um executável fora dessas pastas não pertence a nenhum serviço.
-internal sealed record ProjectInfo(string Name, ProjectKind Kind, string? Service, IReadOnlyList<string> References);
+// Um executável fora dessas pastas não pertence a nenhum serviço. Packages são os PackageReference do projeto.
+internal sealed record ProjectInfo(
+    string Name, ProjectKind Kind, string? Service, IReadOnlyList<string> References, IReadOnlyList<string>? Packages = null);
 
 // Descobre os projetos pela árvore de src, e não por uma lista mantida à mão: um serviço, API ou worker novo
 // entra nas regras assim que o .csproj existe.
@@ -74,8 +78,12 @@ internal sealed class SourceProjects
                 }
             }
 
+            var packages = document.Descendants("PackageReference")
+                .Select(reference => reference.Attribute("Include")?.Value)
+                .OfType<string>()
+                .ToList();
             var relative = Path.GetRelativePath(source, file).Replace('\\', '/').Split('/');
-            projects.Add(new ProjectInfo(NameOf(file), KindOf(document, relative), ServiceOf(relative), references));
+            projects.Add(new ProjectInfo(NameOf(file), KindOf(document, relative), ServiceOf(relative), references, packages));
         }
 
         return new SourceProjects(root, projects, dangling, CompareWithSolution(root, byPath.Keys));
@@ -86,6 +94,11 @@ internal sealed class SourceProjects
 
     private static ProjectKind KindOf(XDocument document, string[] relativePath)
     {
+        if (relativePath is ["Clients", _, ..])
+        {
+            return ProjectKind.Client;
+        }
+
         var sdk = document.Root?.Attribute("Sdk")?.Value ?? "";
         var outputType = document.Descendants("OutputType").FirstOrDefault()?.Value ?? "";
         if (sdk.EndsWith(".Web", StringComparison.Ordinal) || sdk.EndsWith(".Worker", StringComparison.Ordinal)
