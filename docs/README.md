@@ -6,6 +6,7 @@
 - [Correlação por W3C Trace Context](architecture/trace-correlation.md): logs JSON no console dos dois executáveis, com `traceId`/`spanId` ligados ao ProblemDetails e ao envelope das mensagens; [como filtrar os logs](development.md#logs-dos-executáveis).
 - [Pipeline de diagnósticos sanitizados](architecture/diagnostics-pipeline.md): sanitização antes de qualquer destino, coletor e destino dedicado com retenção limitada, independentes dos bancos de negócio; [como subir e consultar](development.md#diagnósticos-no-coletor-local).
 - [Estrutura dos serviços](architecture/module-structure.md).
+- [Web client](architecture/web-client.md): decisão da #121 para a interface de apresentação, um BFF Blazor que só fala com gateways.
 - [Assinatura RS256, JWKS e rotação](architecture/authentication.md): principal, audiências e transição HS256; [geração e operação das chaves](development.md#chave-de-assinatura-dos-tokens).
 - [Paginação por cursor](architecture/cursor-pagination.md): contrato keyset, limites e primeira aplicação na listagem administrativa de parâmetros.
 - [Estado de implementação](implementation-status.md).

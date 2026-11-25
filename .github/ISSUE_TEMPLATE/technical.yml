@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Transversal] Definir onde os endpoints são declarados`.
+        Título no formato `[Módulo] Ação`, com o módulo dono da entrega (`Identity`, `Customers`, `Accounts`, `Transactions`, `Api`, `WebClient` ou `Transversal`) e a ação no infinitivo. Exemplo: `[Transversal] Definir onde os endpoints são declarados`.
         O tipo não entra no título: ele já está na label.
   - type: dropdown
     id: kind
@@ -28,6 +28,7 @@ body:
         - Accounts
         - Transactions
         - Api
+        - WebClient
         - Transversal
     validations:
       required: true

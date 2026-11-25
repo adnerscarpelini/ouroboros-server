@@ -19,6 +19,8 @@ Serviços ficam em src/Services. Cada serviço HTTP possui sua API; Notification
 
 APIs podem ser acessadas diretamente no desenvolvimento, com autorização e restrição de rede administrativa no próprio serviço. Os pontos de entrada opcionais de borda são separados por público em `src/Gateways`: [`Ouroboros.ExternalGateway.Api`](../../src/Gateways/Ouroboros.ExternalGateway.Api) encaminha `/api/v1/identity/*` ao listener público de Identity e [`Ouroboros.AdminGateway.Api`](../../src/Gateways/Ouroboros.AdminGateway.Api) encaminha `/api/v1/admin/identity/*` ao listener administrativo, restrito a loopback por padrão ([#83](https://github.com/adnerscarpelini/ouroboros-server/issues/83); [detalhes](hosts.md#gateways)). Os gateways são finos: não contêm `DbContext`, regras de domínio nem orquestração síncrona entre serviços, repassam `X-Forwarded-For`/`X-Forwarded-Proto` a partir da conexão real, respondem `502`/`504` sanitizados dentro do timeout configurado e nunca substituem a autenticação, a validação de audiência ou a autorização no serviço proprietário.
 
+A interface de apresentação é o [web client](web-client.md), em `src/Clients`: um cliente Blazor com papel de BFF que fala HTTP somente com gateways, sem referência a serviços, banco, broker ou regras de negócio. Ele é consumidor externo, não serviço, e nunca ultrapassa as fronteiras acima.
+
 ## Um banco por módulo/serviço, uma instância local
 
 Cada módulo que constitui serviço persistente possui banco, credencial, connection string e migrations próprios. Todos os bancos ficam em uma única instância PostgreSQL, em um único container Docker local, por decisão consciente de economizar recursos no projeto de aprendizado.
@@ -49,6 +51,7 @@ Backup, validação e preservação de dados são obrigatórios na transferênci
 - [Microsoft: dados por serviço](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/architect-microservice-container-applications/data-sovereignty-per-microservice).
 - [AWS: transactional outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html).
 - [Decisão #69](https://github.com/adnerscarpelini/ouroboros-server/issues/69).
+- [Decisão #121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (web client).
 - [Estado de implementação](../implementation-status.md).
 
 [Voltar à arquitetura](README.md)

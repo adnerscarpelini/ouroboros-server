@@ -22,6 +22,8 @@ tests/
 
 A biblioteca própria organiza Domain, Application, Infrastructure e contratos como pastas, com assembly e namespace raiz `Ouroboros.<Serviço>`. Identity segue esse formato em `src/Services/Identity/Ouroboros.Identity`. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
 
+Fora de `src/Services` ficam os executáveis que não são serviços: os gateways, em `src/Gateways` ([detalhes](hosts.md#gateways)), e o [web client](web-client.md), aprovado para `src/Clients/Ouroboros.WebClient`. O web client não tem domínio nem banco; organiza as telas em `Features/<Serviço>`, com os nomes dos serviços do backend, e fala HTTP somente com gateways.
+
 ## Projetos existentes
 
 | Projeto | Papel |
@@ -61,6 +63,6 @@ Versões centralizadas em Directory.Packages.props. Bibliotecas técnicas devem 
 
 ## Execução e limites
 
-APIs são acessadas diretamente no desenvolvimento, com autorização e restrição administrativa. Gateways são posteriores. Projetos disponíveis: [estado de implementação](../implementation-status.md).
+APIs são acessadas diretamente no desenvolvimento, com autorização e restrição administrativa, ou pelos gateways opcionais por público. O web client acessa somente os gateways. Projetos disponíveis: [estado de implementação](../implementation-status.md).
 
 [Voltar à arquitetura](README.md)

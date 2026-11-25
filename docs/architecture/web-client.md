@@ -1,0 +1,115 @@
+# Web client
+
+## Contexto
+
+O Ouroboros não tem interface gráfica: o sistema só é exercitado por HTTP, testes e comandos. Para apresentar o projeto, é preciso um cliente que qualquer pessoa abra por um link.
+
+O risco de colocar uma interface no monorepo é ela virar atalho para o que a migração para microsserviços removeu: referência a assemblies dos serviços, leitura de banco alheio, publicação direta no broker ou regras de negócio duplicadas. Esta decisão define o web client como **consumidor externo dos serviços**, sujeito às mesmas fronteiras de qualquer cliente fora do sistema.
+
+A disponibilidade do projeto está no [estado de implementação](../implementation-status.md).
+
+## Decisão
+
+### Papel
+
+- O web client é um **cliente de apresentação** com papel de BFF (Backend for Frontend), em `src/Clients/Ouroboros.WebClient`, fora de `src/Services`.
+- **Não é serviço:** não possui domínio, regras de negócio, banco de negócio, migrations nem contratos de integração próprios.
+- **Público inicial:** somente `Customer`, pelo gateway externo. O backoffice (`Admin`) fica fora do web client. Atendê-lo no mesmo processo exigiria expor o [`AdminGateway`](hosts.md#gateways), restrito a loopback por padrão, a um executável voltado à internet; um cliente administrativo será decisão própria.
+
+### Fronteira com os microsserviços
+
+O web client **nunca ultrapassa as fronteiras dos serviços**. Ele se comporta como um navegador ou um integrador externo, com a diferença de guardar os tokens no servidor:
+
+| Permitido | Proibido |
+| --- | --- |
+| HTTP para gateways, por uma única URL base configurável (inicialmente [`Ouroboros.ExternalGateway.Api`](../../src/Gateways/Ouroboros.ExternalGateway.Api)) | URL direta de serviço, inclusive em desenvolvimento |
+| Referência ao projeto `Ouroboros.Observability` | Referência a projetos de `src/Services`, `Ouroboros.BuildingBlocks`, `Ouroboros.Messaging` ou `Ouroboros.Hosting` |
+| Pacotes de UI, HTTP e autenticação por cookie | EF Core, Npgsql, RabbitMQ.Client e qualquer `ConnectionStrings` |
+| Modelos HTTP próprios, espelhando os contratos públicos | `Contracts` dos serviços: são fronteiras de DI internas do proprietário ([estrutura](module-structure.md#visibilidade-dos-tipos)), não schemas HTTP |
+| Identificadores públicos (`ExternalId`) | `Id` interno, entidades ou detalhes de persistência |
+
+- **Sem regra de negócio.** Validação na interface é conveniência de usabilidade. A resposta autoritativa é a do serviço, inclusive o [ProblemDetails](error-responses.md) de recusa.
+- **Sem decisão de autorização.** O token é opaco para o web client: ele não valida JWT nem infere permissões dos claims. Mostrar ou esconder um menu é apresentação; a autorização acontece no serviço proprietário em toda chamada ([autenticação](authentication.md#autorização)).
+- **Indisponibilidade.** `502` e `504` do gateway aparecem como serviço indisponível, com o `traceId` para suporte. O web client não repete chamadas que alteram estado.
+- **Correlação.** As chamadas aos gateways levam o `traceparent` da requisição ([W3C Trace Context](trace-correlation.md)), ligando o clique na interface aos logs dos gateways e dos serviços.
+
+### Tecnologia
+
+- **Blazor Web App com render mode Interactive Server global.** A interface roda no servidor, sobre um circuito SignalR; nenhum código de aplicação nem token vai para o navegador.
+- **Login e logout em SSR estático**, por formulário e endpoint. O cookie de sessão só pode ser emitido numa resposta HTTP, e o circuito interativo não tem uma.
+- **MudBlazor** como biblioteca de componentes (linha 9.x, compatível com .NET 10), com versão centralizada em `Directory.Packages.props` ([pacotes](module-structure.md#pacotes-nuget)).
+
+### Sessão (BFF)
+
+- O login chama `POST /api/v1/identity/sessions` pelo gateway e recebe o access token e o refresh token ([login](../identity/login.md)). Os dois ficam num **store em memória do servidor**, indexado pela sessão do web client.
+- O navegador recebe apenas um **cookie HttpOnly, Secure e SameSite** da autenticação do próprio web client. Tokens nunca aparecem em cookie legível, storage do navegador ou HTML.
+- A renovação usa `POST /api/v1/identity/sessions/refresh` ([renovação](../identity/refresh-session.md)) quando o access token está para expirar, conforme o `accessTokenExpiresAt` devolvido; refresh token recusado encerra a sessão local e leva ao login.
+- O logout chama `POST /api/v1/identity/sessions/logout` ([logout](../identity/logout.md)) e limpa o cookie e o store. O access token já emitido vale até expirar, conforme o contrato de Identity.
+- As chaves de Data Protection, que protegem o cookie, ficam em volume próprio no container, para o cookie continuar válido entre reinícios do processo.
+
+### Estrutura interna
+
+Um único projeto, organizado por funcionalidade, com as pastas de `Features` nomeadas pelos serviços do backend. Quem conhece `src/Services/Identity` encontra as telas em `Features/Identity`.
+
+```text
+src/Clients/Ouroboros.WebClient/
+  Program.cs              # composição: Add<Serviço>Feature()
+  Components/             # App.razor, Routes.razor e _Imports.razor, exigidos pelo Blazor
+  Shell/                  # layout, AppBar, menu, tema e páginas de erro
+  Shared/                 # componentes genéricos, sem serviço dono
+  Infrastructure/         # pipeline HTTP ao gateway, sessão BFF, tradução de ProblemDetails e opções
+  Features/
+    Identity/
+      Pages/              # telas roteáveis
+      Components/         # componentes usados só por Identity
+      Client/             # HttpClient tipado para /api/v1/identity via gateway
+      Models/             # modelos HTTP próprios
+      IdentityFeature.cs  # registro de DI de Identity no web client
+```
+
+| Origem | Pode usar | Não pode usar |
+| --- | --- | --- |
+| `Features/<Serviço>` | O próprio serviço, `Shared` e `Infrastructure` | Outro `Features/<Serviço>` |
+| `Shared` | `Infrastructure` | Qualquer `Features` |
+| `Infrastructure` | Bibliotecas HTTP e de autenticação, `Ouroboros.Observability` | `Features`, `Shared` e `Shell` |
+| `Shell` | `Shared` e rotas em texto para o menu | Tipos de `Features` |
+| `Program.cs` | `Add<Serviço>Feature()` | Lógica de tela |
+
+- **`Features`, não `Domains`.** O web client não tem camada de domínio, e `Domain` já designa a camada de regras dentro de cada serviço (`Ouroboros.Identity.Domain`). Organizar por funcionalidade é o padrão de *feature folders*.
+- **Pasta só para serviço existente.** Uma pasta em `Features` existe quando o serviço expõe HTTP pelo gateway e tem telas. Hoje, apenas Identity; Notifications não tem API de negócio. Pastas de Customers ou da fronteira financeira só surgem quando esses serviços existirem, como na [criação de serviços](module-structure.md#criação-de-novos-serviços).
+- **Isolamento entre serviços.** Uma tela usa um único serviço, como `type.cross-service` nos serviços ([dependências](layer-dependencies.md#regras-de-tipo)). Telas que combinem dados de mais de um serviço não são permitidas até uma decisão própria (área de composição explícita ou agregação no gateway).
+- **Rotas com prefixo do serviço** (`/identity/...`), mostrando o dono da tela como as rotas da API (`/api/v1/identity/...`).
+- **Visibilidade.** Clientes HTTP, modelos e serviços do web client são `internal` por padrão. Componentes Razor são `public` porque o compilador os gera assim; é a exceção documentada.
+
+## Alternativas consideradas
+
+| Alternativa | Motivo de não adotar |
+| --- | --- |
+| WPF | Só Windows e exige instalar o executável e ter os serviços acessíveis: inadequado para apresentação por link |
+| .NET MAUI | Mesmo problema de distribuição; só se justificaria com objetivo mobile |
+| Blazor WebAssembly ou SPA JavaScript | Tokens ou chamadas no navegador exigiriam um BFF de qualquer forma; SPA JavaScript foge da stack .NET do projeto |
+| Fluent UI Blazor | Mantida pela Microsoft, mas a v5 foi reescrita recentemente, com migração a partir da v4; MudBlazor oferece catálogo maior (DataGrid, Charts) em linha estável |
+| Tokens no cookie cifrado | Sobrevive a reinícios, mas a renovação acontece dentro do circuito interativo, que não consegue reescrever o cookie |
+| Um projeto por serviço (Razor Class Library) | Complexidade sem ganho num cliente único; os serviços também organizam camadas como pastas de um projeto |
+| Web client atendendo Customer e Admin | Expõe o público administrativo num executável voltado à internet, contrariando a restrição de loopback do `AdminGateway` |
+
+## Consequências
+
+- O web client depende apenas dos contratos HTTP públicos: uma mudança de contrato em um serviço afeta o web client como afetaria qualquer consumidor externo, e não por compilação.
+- Os modelos HTTP são duplicados no cliente. É o custo aceito para não acoplar o web client aos assemblies dos serviços.
+- Reiniciar o web client encerra as sessões, porque o store de tokens é em memória. Aceito para um projeto de estudo; várias réplicas exigiriam store distribuído.
+- O circuito Interactive Server mantém estado por usuário no servidor e depende da conexão SignalR; queda da conexão interrompe a interação até reconectar.
+- As fronteiras desta decisão serão verificadas por testes de arquitetura e validação de opções na criação do projeto ([#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122)).
+
+## Referências
+
+- [Microsoft: cenários adicionais de segurança em Blazor](https://learn.microsoft.com/aspnet/core/blazor/security/additional-scenarios): tokens mantidos no servidor e obtidos no SSR estático para uso na renderização interativa.
+- [Microsoft: Blazor Web App com OpenID Connect](https://learn.microsoft.com/aspnet/core/blazor/security/blazor-web-app-with-oidc): variantes com e sem o padrão BFF.
+- [Duende: BFF e Blazor](https://docs.duendesoftware.com/bff/fundamentals/blazor/): modelo em que os tokens não saem do servidor; o produto não é adotado.
+- [MudBlazor](https://github.com/MudBlazor/MudBlazor) e [Fluent UI Blazor](https://github.com/microsoft/fluentui-blazor).
+
+## Origem
+
+[#121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (decisão de arquitetura e fronteiras do web client).
+
+[Voltar à arquitetura](README.md)
