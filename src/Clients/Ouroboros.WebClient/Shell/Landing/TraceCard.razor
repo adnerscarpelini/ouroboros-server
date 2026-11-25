@@ -1,0 +1,38 @@
+@* Ilustração do fluxo documentado de uma solicitação de cadastro: o mesmo traceId atravessa o gateway, a API, a
+   publicação da outbox e o worker (docs/architecture/trace-correlation.md). O traceId é o exemplo da especificação W3C. *@
+<figure class="o-trace" aria-labelledby="trace-caption">
+    <div class="o-trace__bar">
+        <span class="o-trace__lights" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span id="trace-caption">Uma solicitação, um trace</span>
+        <span class="o-trace__id o-mono">4bf92f35…0e4736</span>
+    </div>
+    <ol class="o-trace__spans">
+        @foreach (var span in Spans)
+        {
+            <li class="o-span">
+                <span class="o-span__service o-mono">@span.Service</span>
+                <span class="o-span__name">@span.Operation</span>
+                <span class="o-span__track" aria-hidden="true">
+                    <span class="o-span__fill" style="--start: @(span.Start)%; --width: @(span.Width)%; --delay: @(span.Delay)ms"></span>
+                </span>
+            </li>
+        }
+    </ol>
+    <figcaption class="o-trace__foot">
+        <MudIcon Icon="@Icons.Material.Rounded.Link" Size="Size.Small" />
+        <span>O mesmo <span class="o-mono">traceparent</span> liga a API, a publicação e o worker.</span>
+    </figcaption>
+</figure>
+
+@code {
+    private sealed record TraceSpan(string Service, string Operation, int Start, int Width, int Delay);
+
+    private static readonly TraceSpan[] Spans =
+    [
+        new("gateway", "POST /api/v1/identity/registrations", 0, 40, 0),
+        new("identity", "Grava token e intenção no mesmo commit", 6, 28, 120),
+        new("identity", "Publica email-requested v1 com confirmação", 44, 14, 240),
+        new("notifications", "Aceita na inbox e deduplica", 60, 12, 360),
+        new("notifications", "Entrega o e-mail", 74, 24, 480),
+    ];
+}

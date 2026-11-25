@@ -1,10 +1,17 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ouroboros: fintech educacional em .NET, sem dinheiro real, construída como microsserviços com bancos próprios, mensageria confiável e observabilidade." />
+    <meta name="theme-color" content="#09090b" />
     <base href="/" />
+    <link rel="icon" type="image/png" href="@Assets["img/favicon.png"]" />
+    @* Mesmo endereço usado pelo @font-face de app.css (sem fingerprint), para o preload ser aproveitado. *@
+    <link rel="preload" href="fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin />
+    @* Depois do meta theme-color: o script ajusta a cor da barra ao tema antes da primeira pintura. *@
+    <script src="@Assets["js/ouroboros.js"]"></script>
     <ResourcePreloader />
     <link rel="stylesheet" href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />

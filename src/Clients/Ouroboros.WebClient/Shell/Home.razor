@@ -1,38 +1,9 @@
 @page "/"
+@using Ouroboros.WebClient.Shell.Landing
 
-<PageTitle>Ouroboros</PageTitle>
+<PageTitle>Ouroboros · Fintech educacional em microsserviços</PageTitle>
 
-<MudStack Spacing="2" Class="mb-8">
-    <MudText Typo="Typo.overline" Color="Color.Primary">Fintech educacional, sem dinheiro real</MudText>
-    <MudText Typo="Typo.h3" HtmlTag="h1">Ouroboros</MudText>
-    <MudText Typo="Typo.subtitle1" Class="mud-text-secondary">
-        Projeto de estudo em .NET e PostgreSQL, em migração incremental de monólito modular para microsserviços.
-    </MudText>
-</MudStack>
-
-<MudGrid Spacing="4">
-    @foreach (var pillar in Pillars)
-    {
-        <MudItem xs="12" md="4">
-            <MudPaper Class="pa-6 ouroboros-pillar" Elevation="0" Outlined="true">
-                <MudIcon Icon="@pillar.Icon" Color="Color.Primary" Size="Size.Large" Class="mb-3" />
-                <MudText Typo="Typo.h6" HtmlTag="h2" Class="mb-2">@pillar.Title</MudText>
-                <MudText Typo="Typo.body2">@pillar.Description</MudText>
-            </MudPaper>
-        </MudItem>
-    }
-</MudGrid>
-
-@code {
-    private sealed record Pillar(string Icon, string Title, string Description);
-
-    private static readonly Pillar[] Pillars =
-    [
-        new(Icons.Material.Filled.Hub, "Microsserviços",
-            "Cada serviço tem banco, credencial e migrations próprios, com integração por HTTP e mensagens versionadas."),
-        new(Icons.Material.Filled.Security, "Fronteiras protegidas",
-            "Esta interface fala somente com os gateways; a autenticação e a autorização acontecem nos serviços."),
-        new(Icons.Material.Filled.Timeline, "Observabilidade",
-            "Logs, traces e métricas correlacionados pelo W3C Trace Context, da interface até os workers."),
-    ];
-}
+<HeroSection />
+<ArchitectureSection />
+<PillarsSection />
+<ClosingSection />

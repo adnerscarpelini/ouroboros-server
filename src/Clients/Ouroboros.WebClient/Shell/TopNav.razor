@@ -1,0 +1,43 @@
+<header class="o-nav">
+    <div class="o-container o-nav__inner">
+        <a class="o-brand" href="" aria-label="Ouroboros, página inicial">
+            <img src="@Assets["img/logo-mark.png"]" alt="" width="30" height="30" />
+            <span>Ouroboros<span class="o-brand__dot">.</span></span>
+        </a>
+
+        <nav class="o-nav__links" aria-label="Seções">
+            <a class="o-navlink" href="#arquitetura">Arquitetura</a>
+            <a class="o-navlink" href="#pilares">Pilares</a>
+            <a class="o-navlink" href="@ProjectLinks.Documentation" target="_blank" rel="noopener noreferrer">Documentação</a>
+        </nav>
+
+        <div class="o-nav__actions">
+            <button type="button" class="o-iconbtn" @onclick="OnToggleTheme"
+                    aria-label="@(IsDarkMode ? "Usar tema claro" : "Usar tema escuro")"
+                    title="@(IsDarkMode ? "Usar tema claro" : "Usar tema escuro")">
+                <MudIcon Icon="@(IsDarkMode ? Icons.Material.Rounded.LightMode : Icons.Material.Rounded.DarkMode)" Size="Size.Small" />
+            </button>
+
+            <a class="o-btn o-btn--ghost o-btn--sm o-nav__github" href="@ProjectLinks.Repository" target="_blank" rel="noopener noreferrer">
+                <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" />
+                GitHub
+            </a>
+
+            <MudMenu Class="o-nav__menu" Icon="@Icons.Material.Rounded.Menu" AriaLabel="Abrir o menu de navegação"
+                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                <MudMenuItem Href="#arquitetura">Arquitetura</MudMenuItem>
+                <MudMenuItem Href="#pilares">Pilares</MudMenuItem>
+                <MudMenuItem Href="@ProjectLinks.Documentation" Target="_blank" rel="noopener noreferrer">Documentação</MudMenuItem>
+                <MudMenuItem Href="@ProjectLinks.Repository" Target="_blank" rel="noopener noreferrer">GitHub</MudMenuItem>
+            </MudMenu>
+        </div>
+    </div>
+</header>
+
+@code {
+    [Parameter]
+    public bool IsDarkMode { get; set; }
+
+    [Parameter]
+    public EventCallback OnToggleTheme { get; set; }
+}

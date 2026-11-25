@@ -123,8 +123,35 @@ public sealed class WebClientArchitectureTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/html", response.Content.Headers.ContentType?.MediaType);
-        Assert.Contains("<html lang=\"pt-BR\">", body, StringComparison.Ordinal);
+        Assert.Contains("<html lang=\"pt-BR\" data-theme=\"dark\">", body, StringComparison.Ordinal);
         Assert.Contains("Ouroboros", body, StringComparison.Ordinal);
+    }
+
+    // Identidade visual (#124): navegação no topo sem menu lateral, seções da página inicial e fonte servida pelo
+    // próprio web client, sem CDN de fontes em tempo de execução.
+    [Fact]
+    public async Task Home_page_has_top_navigation_sections_and_self_hosted_font()
+    {
+        using var factory = CreateFactory(gateway: new StubGateway(HttpStatusCode.OK));
+        using var client = factory.CreateClient();
+
+        var body = await client.GetStringAsync("/", Cancellation);
+
+        Assert.Contains("class=\"o-nav\"", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("class=\"mud-drawer", body, StringComparison.Ordinal);
+        foreach (var section in new[] { "id=\"hero-title\"", "id=\"arquitetura\"", "id=\"pilares\"", "class=\"o-footer\"" })
+        {
+            Assert.Contains(section, body, StringComparison.Ordinal);
+        }
+
+        Assert.Matches("href=\"fonts/InterVariable[^\"]*\\.woff2\"", body);
+        foreach (var cdn in new[] { "fonts.googleapis.com", "fonts.gstatic.com", "rsms.me" })
+        {
+            Assert.DoesNotContain(cdn, body, StringComparison.Ordinal);
+        }
+
+        using var font = await client.GetAsync("/fonts/InterVariable.woff2", Cancellation);
+        Assert.Equal(HttpStatusCode.OK, font.StatusCode);
     }
 
     [Fact]

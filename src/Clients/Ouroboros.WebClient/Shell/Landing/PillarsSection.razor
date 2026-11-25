@@ -1,0 +1,80 @@
+<section id="pilares" class="o-section o-section--divided" aria-labelledby="pilares-title">
+    <div class="o-container">
+        <header class="o-section__head" data-reveal>
+            <span class="o-eyebrow">Pilares</span>
+            <h2 id="pilares-title" class="o-section__title">Engenharia de verdade, mesmo sem dinheiro de verdade</h2>
+            <p class="o-section__lead">
+                Decisões que se explicam numa entrevista, verificadas por testes e registradas no repositório.
+            </p>
+        </header>
+
+        <div class="o-bento">
+            <article class="o-card o-card--feature" data-reveal>
+                <span class="o-card__icon"><MudIcon Icon="@Icons.Material.Rounded.Shield" /></span>
+                <h3 class="o-card__title">Fronteiras que não se cruzam</h3>
+                <p class="o-card__text">
+                    Cada serviço persistente tem banco, credencial e migrations próprios. Nenhum serviço lê o banco de outro,
+                    e os testes de arquitetura recusam referências entre eles.
+                </p>
+                <ul class="o-ownership" aria-label="Quem é dono de quais dados">
+                    @foreach (var owner in Owners)
+                    {
+                        <li class="o-ownership__row">
+                            <span class="o-ownership__service">@owner.Service</span>
+                            <MudIcon Icon="@Icons.Material.Rounded.ArrowForward" Size="Size.Small" Class="o-ownership__arrow" />
+                            <span class="o-ownership__db o-mono">
+                                <MudIcon Icon="@owner.Icon" Size="Size.Small" />
+                                @owner.Data
+                            </span>
+                        </li>
+                    }
+                </ul>
+                <span class="o-ownership__rule o-mono">project.cross-service · type.client-area</span>
+            </article>
+
+            @foreach (var pillar in Pillars)
+            {
+                <article class="o-card @pillar.SizeClass" data-reveal>
+                    <span class="o-card__icon"><MudIcon Icon="@pillar.Icon" /></span>
+                    <h3 class="o-card__title">@pillar.Title</h3>
+                    <p class="o-card__text">@pillar.Text</p>
+                    <ul class="o-chips">
+                        @foreach (var chip in pillar.Chips)
+                        {
+                            <li class="o-chip o-mono">@chip</li>
+                        }
+                    </ul>
+                </article>
+            }
+        </div>
+    </div>
+</section>
+
+@code {
+    private sealed record DataOwner(string Service, string Data, string Icon);
+
+    private sealed record Pillar(string Icon, string Title, string Text, string[] Chips, string SizeClass);
+
+    private static readonly DataOwner[] Owners =
+    [
+        new("Identity", "ouroboros_identity", Icons.Material.Rounded.Storage),
+        new("Notifications", "ouroboros_notifications", Icons.Material.Rounded.Storage),
+        new("Web client", "nenhum banco: só HTTP", Icons.Material.Rounded.Block),
+    ];
+
+    private static readonly Pillar[] Pillars =
+    [
+        new(Icons.Material.Rounded.Key, "Tokens assinados",
+            "Access tokens RS256 com kid, JWKS público com cache e rotação de chaves sem reiniciar quem valida.",
+            ["RS256", "JWKS", "rotação"], "o-card--third"),
+        new(Icons.Material.Rounded.TaskAlt, "Entrega confiável",
+            "Intenção gravada no mesmo commit, publicação confirmada e inbox com deduplicação no consumidor.",
+            ["outbox", "RabbitMQ", "inbox"], "o-card--third"),
+        new(Icons.Material.Rounded.Insights, "Observabilidade de ponta a ponta",
+            "W3C Trace Context liga gateways, API e worker, com logs JSON sanitizados e exportação por OpenTelemetry.",
+            ["traceparent", "OpenTelemetry", "logs JSON"], "o-card--half"),
+        new(Icons.Material.Rounded.Verified, "Qualidade na esteira",
+            "CI em Linux com testes de arquitetura, PostgreSQL real via Testcontainers e imagens não-root versionadas.",
+            ["xUnit", "Testcontainers", "Docker"], "o-card--half"),
+    ];
+}

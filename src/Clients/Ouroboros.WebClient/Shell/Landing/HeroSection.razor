@@ -1,0 +1,47 @@
+<section class="o-hero" aria-labelledby="hero-title">
+    <div class="o-container o-hero__grid">
+        <div>
+            <span class="o-badge">
+                <span class="o-badge__dot" aria-hidden="true"></span>
+                Fintech educacional · sem dinheiro real
+            </span>
+            <h1 id="hero-title" class="o-hero__title">
+                Um banco que se reconstrói <span class="o-gradient-text">serviço a serviço</span>
+            </h1>
+            <p class="o-hero__lead">
+                O Ouroboros é um projeto de estudo em .NET que sai de um monólito modular rumo a microsserviços:
+                cada serviço com banco próprio, mensageria confiável e observabilidade da interface ao worker.
+            </p>
+            <div class="o-hero__actions">
+                <a class="o-btn o-btn--primary" href="#arquitetura">
+                    Explorar a arquitetura
+                    <MudIcon Icon="@Icons.Material.Rounded.ArrowForward" Size="Size.Small" Class="o-btn__arrow" />
+                </a>
+                <a class="o-btn o-btn--ghost" href="@ProjectLinks.Repository" target="_blank" rel="noopener noreferrer">
+                    <MudIcon Icon="@Icons.Custom.Brands.GitHub" Size="Size.Small" />
+                    Ver o código
+                </a>
+            </div>
+            <ul class="o-hero__meta">
+                @foreach (var item in Highlights)
+                {
+                    <li><MudIcon Icon="@Icons.Material.Rounded.CheckCircle" Size="Size.Small" />@item</li>
+                }
+            </ul>
+        </div>
+
+        <div>
+            <TraceCard />
+        </div>
+    </div>
+</section>
+
+@code {
+    private static readonly string[] Highlights =
+    [
+        "Código aberto",
+        ".NET 10 e C#",
+        "PostgreSQL por serviço",
+        "Testes de arquitetura na CI",
+    ];
+}

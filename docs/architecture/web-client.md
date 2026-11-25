@@ -38,7 +38,7 @@ O web client **nunca ultrapassa as fronteiras dos serviços**. Ele se comporta c
 - **Blazor Web App com render mode Interactive Server global.** A interface roda no servidor, sobre um circuito SignalR; nenhum código de aplicação nem token vai para o navegador.
 - **Login e logout em SSR estático**, por formulário e endpoint. O cookie de sessão só pode ser emitido numa resposta HTTP, e o circuito interativo não tem uma.
 - **MudBlazor** como biblioteca de componentes (linha 9.x, compatível com .NET 10), com versão centralizada em `Directory.Packages.props` ([pacotes](module-structure.md#pacotes-nuget)).
-- **Identidade visual.** A cor de acento é `#ff6200`, a `Primary` dos temas claro e escuro em [`OuroborosTheme`](../../src/Clients/Ouroboros.WebClient/Shell/OuroborosTheme.cs). Texto branco sobre esse laranja tem contraste de cerca de 3:1, abaixo dos 4,5:1 exigidos para texto normal; por isso a AppBar é escura e o laranja marca botões, links, ícones e destaques, não fundos de textos longos.
+- **Identidade visual** ([#124](https://github.com/adnerscarpelini/ouroboros-server/issues/124)): ver [Identidade visual](#identidade-visual).
 
 ### Sessão (BFF)
 
@@ -58,7 +58,7 @@ src/Clients/Ouroboros.WebClient/
   WebClientHost.cs        # composição: infraestrutura, Add<Serviço>Feature(), MudBlazor e pipeline
   _Imports.razor          # usings dos componentes, válidos em todas as pastas
   Components/             # App.razor e Routes.razor, exigidos pelo Blazor
-  Shell/                  # layout, AppBar, menu, tema, página inicial, páginas de erro e reconexão
+  Shell/                  # layout, navegação, rodapé, tema, página inicial (Landing/), erros e reconexão
   Shared/                 # componentes genéricos, sem serviço dono
   Infrastructure/         # pipeline HTTP ao gateway, sessão BFF, tradução de ProblemDetails e opções
   Features/
@@ -87,6 +87,19 @@ Não existem outras pastas de código: um namespace fora dessas áreas é recusa
 - **Rotas com prefixo do serviço** (`/identity/...`), mostrando o dono da tela como as rotas da API (`/api/v1/identity/...`).
 - **Visibilidade.** Clientes HTTP, modelos e serviços do web client são `internal` por padrão. Componentes Razor são `public` porque o compilador os gera assim; é a exceção documentada. O marcador `WebClientEntryPoint` também é público, só para os testes (`WebApplicationFactory`), como nos gateways.
 - **Pastas criadas sob demanda.** `Shared` e as subpastas de `Features/Identity` (`Pages`, `Client`, `Models`) surgem com o primeiro componente ou tela que as use; hoje `Features/Identity` tem apenas o ponto de composição `AddIdentityFeature()`.
+
+### Identidade visual
+
+A [#124](https://github.com/adnerscarpelini/ouroboros-server/issues/124) define a aparência da vitrine do projeto: navegação no topo, tema escuro como padrão e a página inicial como apresentação da arquitetura.
+
+- **Tokens.** Cores, superfícies, bordas, raios, sombras e durações são custom properties em [`wwwroot/app.css`](../../src/Clients/Ouroboros.WebClient/wwwroot/app.css), com um conjunto para `[data-theme="dark"]` (padrão) e outro para `[data-theme="light"]`. [`OuroborosTheme`](../../src/Clients/Ouroboros.WebClient/Shell/OuroborosTheme.cs) repete os valores na paleta MudBlazor, para que menus e popovers da biblioteca sigam a mesma identidade.
+- **Acento `#ff6200` e contraste (WCAG 2.2 AA).** Texto branco sobre esse laranja fica em torno de 3:1, abaixo dos 4,5:1 exigidos para texto normal; por isso os botões de acento usam texto quase preto (cerca de 6,6:1). O acento em texto usa `#ff7a26` no tema escuro (cerca de 7,6:1) e `#c2410c` no claro (cerca de 5:1 sobre `#fafafa`); sobre fundos tingidos de laranja, como o selo do destaque, o tema claro usa `#9a3412`. `#ff6200` como texto aparece só em elementos grandes ou decorativos, como o ponto da marca e o início do gradiente do título.
+- **Foco visível.** Todo link e botão mostra contorno de 2 px no acento (`#ff6200` no escuro, `#c2410c` no claro, ambos acima de 3:1). A regra tem especificidade maior que o `outline: none` do MudBlazor, inclusive nos itens do menu compacto.
+- **Tipografia.** Inter variável servida pelo próprio web client ([`wwwroot/fonts`](../../src/Clients/Ouroboros.WebClient/wwwroot/fonts), licença SIL OFL 1.1 junto do arquivo), com títulos em tamanho fluido (`clamp()`). Nenhuma fonte vem de CDN em tempo de execução.
+- **Tema.** [`js/ouroboros.js`](../../src/Clients/Ouroboros.WebClient/wwwroot/js/ouroboros.js) é carregado no `<head>` e aplica o tema antes da primeira pintura: a escolha salva no `localStorage` do navegador ou, na primeira visita, `prefers-color-scheme`. O botão claro/escuro grava a escolha, e a cor da barra do navegador (`theme-color`) acompanha o tema; não há cookie nem estado no servidor.
+- **Layout.** Navegação fixa e translúcida no topo, com menu compacto (MudBlazor) abaixo de 768 px; não há menu lateral enquanto não existir área logada. Página inicial em [`Shell/Landing`](../../src/Clients/Ouroboros.WebClient/Shell/Landing): destaque com o cartão de um trace de cadastro, fluxo da arquitetura, *bento grid* dos pilares e chamada final. Os textos descrevem apenas fatos documentados, sem métricas que envelheçam.
+- **Movimento.** A entrada das seções ao rolar usa animações guiadas pela rolagem em CSS (`animation-timeline: view()`), sem JavaScript: o conteúdo nunca depende do circuito Blazor para aparecer, e navegadores sem suporte mostram tudo sem animação. Com `prefers-reduced-motion: reduce`, animações, atrasos e transições são desligados. O destaque do topo não tem animação de entrada.
+- **Logo.** [`img/logo-mark.png`](../../src/Clients/Ouroboros.WebClient/wwwroot/img/logo-mark.png) e o favicon derivam do `logo.png` da raiz, com o branco removido por *color to alpha* na resolução original (sem halo nas bordas), para funcionar nos dois temas.
 
 ### Execução, configuração e saúde
 
@@ -128,7 +141,7 @@ As regras desta decisão são verificadas pelos testes de arquitetura ([dependê
 - Reiniciar o web client encerra as sessões, porque o store de tokens é em memória. Aceito para um projeto de estudo; várias réplicas exigiriam store distribuído.
 - O circuito Interactive Server mantém estado por usuário no servidor e depende da conexão SignalR; queda da conexão interrompe a interação até reconectar.
 - As fronteiras desta decisão são verificadas por testes de arquitetura e por validação de opções na subida desde a criação do projeto ([#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122)); ver [Verificação](#verificação).
-- O tema escolhido no botão claro/escuro vale para o circuito atual; uma navegação com recarga completa volta ao tema claro. Persistir a preferência é melhoria de interface, fora das fronteiras desta decisão.
+- A preferência de tema fica só no navegador de cada visitante; ela não acompanha a pessoa entre dispositivos.
 
 ## Referências
 
@@ -139,6 +152,6 @@ As regras desta decisão são verificadas pelos testes de arquitetura ([dependê
 
 ## Origem
 
-[#121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (decisão de arquitetura e fronteiras do web client) e [#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122) (projeto, layout, tema, health, imagem, Compose e regras de arquitetura).
+[#121](https://github.com/adnerscarpelini/ouroboros-server/issues/121) (decisão de arquitetura e fronteiras do web client), [#122](https://github.com/adnerscarpelini/ouroboros-server/issues/122) (projeto, health, imagem, Compose e regras de arquitetura) e [#124](https://github.com/adnerscarpelini/ouroboros-server/issues/124) (identidade visual).
 
 [Voltar à arquitetura](README.md)

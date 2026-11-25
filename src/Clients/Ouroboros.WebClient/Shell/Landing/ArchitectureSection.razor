@@ -1,0 +1,44 @@
+<section id="arquitetura" class="o-section o-section--divided" aria-labelledby="arquitetura-title">
+    <div class="o-container">
+        <header class="o-section__head" data-reveal>
+            <span class="o-eyebrow">Arquitetura</span>
+            <h2 id="arquitetura-title" class="o-section__title">Cada requisição atravessa fronteiras claras</h2>
+            <p class="o-section__lead">
+                A interface fala só com o gateway. Os serviços guardam os próprios dados e conversam por contratos HTTP
+                e mensagens versionadas, nunca pelo banco um do outro.
+            </p>
+        </header>
+
+        <ol class="o-flow" aria-label="Caminho de uma solicitação">
+            @for (var index = 0; index < Nodes.Length; index++)
+            {
+                var node = Nodes[index];
+                <li class="o-flow__item">
+                    <article class="o-node" data-reveal>
+                        <span class="o-node__icon"><MudIcon Icon="@node.Icon" /></span>
+                        <h3 class="o-node__title">@node.Name</h3>
+                        <p class="o-node__text">@node.Role</p>
+                        <span class="o-node__tag o-mono">@node.Tag</span>
+                    </article>
+                    @if (index < Nodes.Length - 1)
+                    {
+                        <span class="o-flow__link" aria-hidden="true"></span>
+                    }
+                </li>
+            }
+        </ol>
+    </div>
+</section>
+
+@code {
+    private sealed record FlowNode(string Icon, string Name, string Role, string Tag);
+
+    private static readonly FlowNode[] Nodes =
+    [
+        new(Icons.Material.Rounded.Web, "Web client", "Blazor no servidor; guarda os tokens e só chama o gateway.", "blazor · bff"),
+        new(Icons.Material.Rounded.Router, "Gateway", "Borda fina por público, sem banco e sem regra de negócio.", "http · borda"),
+        new(Icons.Material.Rounded.Fingerprint, "Identity", "Usuários, sessões e tokens, com banco e credencial próprios.", "api · postgresql"),
+        new(Icons.Material.Rounded.Hub, "RabbitMQ", "Mensagens versionadas, publicadas a partir da outbox.", "amqp · durável"),
+        new(Icons.Material.Rounded.MarkEmailRead, "Notifications", "Worker com inbox, deduplicação e retentativas limitadas.", "worker · inbox"),
+    ];
+}
