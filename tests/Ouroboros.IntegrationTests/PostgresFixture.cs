@@ -17,7 +17,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 {
     private const string TemplateDatabase = "ouroboros_template";
 
-    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18-alpine").Build();
+    private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:18.7-alpine").Build();
 
     // CREATE DATABASE falha se outra sessão estiver usando o modelo; as criações são serializadas.
     private readonly SemaphoreSlim _createLock = new(1, 1);

@@ -11,7 +11,7 @@ namespace Ouroboros.IntegrationTests;
 // própria de teste. Os arquivos do destino são lidos pela API do Docker, sem shell na imagem.
 public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
 {
-    internal const string Image = "otel/opentelemetry-collector-contrib:0.162.0";
+    internal const string Image = "otel/opentelemetry-collector-contrib:0.166.0";
     internal const string StoreFile = "/var/lib/ouroboros-diagnostics/logs.jsonl";
     private INetwork? _network;
     private IVolume? _volume;
@@ -36,7 +36,7 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
         await _volume.CreateAsync(TestContext.Current.CancellationToken);
         _queueVolume = new VolumeBuilder().Build();
         await _queueVolume.CreateAsync(TestContext.Current.CancellationToken);
-        await using (var init = new ContainerBuilder("busybox:1.37.0").WithVolumeMount(_volume, "/data").WithVolumeMount(_queueVolume, "/queue")
+        await using (var init = new ContainerBuilder("busybox:1.38.0").WithVolumeMount(_volume, "/data").WithVolumeMount(_queueVolume, "/queue")
             .WithCommand("sh", "-c", "chown 10001:10001 /data /queue && chmod 0750 /data /queue && echo ready && sleep 600")
             .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("ready")).Build())
         {
@@ -102,7 +102,7 @@ public sealed class DiagnosticsPipelineFixture : IAsyncLifetime
     private ContainerBuilder CollectorBuilder(string configuration, string? text = null) => new ContainerBuilder(Image)
         .WithNetwork(_network!)
         .WithResourceMapping(Encoding.UTF8.GetBytes(text ?? (configuration == "collector.yaml" ? CollectorConfigurationOverride : null)
-            ?? File.ReadAllText(RepositoryRoot.Resolve("config", "observability", configuration))), "/etc/otelcol/" + configuration)
+            ?? File.ReadAllText(RepositoryRoot.Resolve("config", "observability", configuration))), FilePath.Of("/etc/otelcol/" + configuration))
         .WithCommand("--config=/etc/otelcol/" + configuration)
         .WithPortBinding(13133, true)
         .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(request => request.ForPort(13133)));

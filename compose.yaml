@@ -7,7 +7,7 @@ name: ouroboros
 
 services:
   rabbitmq:
-    image: rabbitmq:4.4.0-management
+    image: rabbitmq:4.4.1-management
     hostname: ouroboros-rabbitmq
     restart: unless-stopped
     environment:
@@ -26,7 +26,7 @@ services:
       retries: 20
 
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18.7-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
@@ -47,7 +47,7 @@ services:
   #   docker compose --profile provision run --rm provision-databases
   # É idempotente e funciona em volume novo ou existente. As senhas dos serviços vêm do .env.
   provision-databases:
-    image: postgres:18-alpine
+    image: postgres:18.7-alpine
     profiles: ["provision"]
     depends_on:
       postgres:
@@ -122,7 +122,7 @@ services:
   #   docker compose --profile transfer run --rm transfer-identity <freeze|backup|copy|validate|cutover|rollback|reconcile|unfreeze> [id]
   # Os backups ficam em ./backups (fora do Git).
   transfer-identity:
-    image: postgres:18-alpine
+    image: postgres:18.7-alpine
     profiles: ["transfer"]
     depends_on:
       postgres:
@@ -144,7 +144,7 @@ services:
   # controlada (sem exclusão) o banco original após o cutover (#97). Nunca roda em `docker compose up`:
   #   docker compose --profile decommission run --rm decommission-original-db <inventory|verify-unused|final-backup|rotate-admin-credential|deactivate|reactivate> [id]
   decommission-original-db:
-    image: postgres:18-alpine
+    image: postgres:18.7-alpine
     profiles: ["decommission"]
     depends_on:
       postgres:
@@ -351,7 +351,7 @@ services:
 
   # O web client roda como o usuário sem privilégios 1654; o volume novo nasce do root. Ajusta só o dono do volume.
   web-client-volume-init:
-    image: busybox:1.37.0
+    image: busybox:1.38.0
     profiles: ["webclient"]
     restart: "no"
     command: ["sh", "-c", "chown 1654:1654 /keys && chmod 0700 /keys"]
@@ -362,7 +362,7 @@ services:
   # Observability:Otlp:Endpoint está configurado; o coletor sanitiza de novo e encaminha ao destino dedicado,
   # que grava arquivos rotacionados no volume diagnostics-data. Nenhum deles acessa os bancos de negócio.
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.162.0
+    image: otel/opentelemetry-collector-contrib:0.166.0
     restart: unless-stopped
     logging:
       driver: json-file
@@ -385,7 +385,7 @@ services:
         condition: service_completed_successfully
 
   diagnostics-store:
-    image: otel/opentelemetry-collector-contrib:0.162.0
+    image: otel/opentelemetry-collector-contrib:0.166.0
     restart: unless-stopped
     logging:
       driver: json-file
@@ -405,7 +405,7 @@ services:
 
   # O coletor roda como o usuário sem privilégios 10001; o volume novo nasce do root. Ajusta só o dono do volume.
   diagnostics-volume-init:
-    image: busybox:1.37.0
+    image: busybox:1.38.0
     restart: "no"
     command: ["sh", "-c", "chown 10001:10001 /data /queue && chmod 0750 /data /queue"]
     volumes:

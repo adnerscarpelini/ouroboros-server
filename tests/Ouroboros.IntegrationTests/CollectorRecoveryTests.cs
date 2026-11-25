@@ -66,7 +66,7 @@ public sealed class CollectorRecoveryTests(PostgresFixture postgres) : Integrati
         await WaitAsync(async () => Metric(await pipeline.InternalMetricsAsync(), "otelcol_exporter_send_failed_log_records") > 0);
         var metrics = await pipeline.InternalMetricsAsync();
         Assert.InRange(Metric(metrics, "otelcol_exporter_queue_size"), 0, queueLimit);
-        await using var inspect = new ContainerBuilder("busybox:1.37.0").WithVolumeMount(pipeline.QueueVolume, "/queue")
+        await using var inspect = new ContainerBuilder("busybox:1.38.0").WithVolumeMount(pipeline.QueueVolume, "/queue")
             .WithCommand("sh", "-c", "find /queue -type f -maxdepth 1 -exec stat -c %s {} +; sleep 600")
             .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("[0-9]+")).Build();
         await inspect.StartAsync(Cancellation);
@@ -87,7 +87,7 @@ public sealed class CollectorRecoveryTests(PostgresFixture postgres) : Integrati
         var endpoint = pipeline.OtlpEndpoint;
         await pipeline.Collector.StopAsync(Cancellation);
         var command = fault == "permission" ? "chmod 000 /queue" : "for f in /queue/*; do if [ -f \"$f\" ]; then printf invalid > \"$f\"; fi; done";
-        await using (var mutate = new ContainerBuilder("busybox:1.37.0").WithVolumeMount(pipeline.QueueVolume, "/queue")
+        await using (var mutate = new ContainerBuilder("busybox:1.38.0").WithVolumeMount(pipeline.QueueVolume, "/queue")
             .WithCommand("sh", "-c", command + "; echo ready; sleep 600")
             .WithWaitStrategy(Wait.ForUnixContainer().UntilMessageIsLogged("ready")).Build())
         { await mutate.StartAsync(Cancellation); }

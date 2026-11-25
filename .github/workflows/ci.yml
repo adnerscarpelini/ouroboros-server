@@ -93,7 +93,7 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # PostgreSQL real em container (Testcontainers, imagem postgres:18-alpine). O runner já traz
+  # PostgreSQL real em container (Testcontainers, imagem postgres:18.7-alpine). O runner já traz
   # o Docker; nenhum banco, .env, user-secret ou segredo é necessário.
   integration:
     name: Testes de integração
