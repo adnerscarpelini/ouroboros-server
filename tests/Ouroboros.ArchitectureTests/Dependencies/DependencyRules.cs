@@ -20,12 +20,14 @@ internal enum CodeKind
     Service,
     Executable,
     Shared,
+    Client,
     External,
 }
 
 // Onde um tipo vive na arquitetura. Service só existe para código de serviço; Layer, quando o namespace
-// segue <raiz>.<Camada>.
-internal sealed record CodeLocation(CodeKind Kind, string? Service, Layer? Layer, string Assembly);
+// segue <raiz>.<Camada>. ClientArea só existe no web client: Shell, Shared, Infrastructure, Components ou
+// Features.<Serviço> (ver docs/architecture/web-client.md).
+internal sealed record CodeLocation(CodeKind Kind, string? Service, Layer? Layer, string Assembly, string? ClientArea = null);
 
 internal interface ICodeLocator
 {
@@ -51,6 +53,21 @@ internal static class DependencyRules
     // BCL que o domínio não pode usar mesmo estando em System.*.
     private static readonly string[] DomainForbiddenFramework = ["System.Net.Http", "System.Data"];
 
+    // O web client só fala HTTP com gateways: nenhum projeto de src além da observabilidade técnica.
+    private static readonly string[] ClientAllowedReferences = ["Ouroboros.Observability"];
+
+    // Bancos e broker pertencem aos serviços; o web client não os acessa nem como pacote, nem como tipo.
+    private static readonly string[] ClientForbiddenLibraries =
+    [
+        "Microsoft.EntityFrameworkCore",
+        "Npgsql",
+        "RabbitMQ.Client",
+        "Microsoft.Data.SqlClient",
+        "System.Data",
+    ];
+
+    private const string ClientFeaturesArea = "Features";
+
     public static IReadOnlyList<Violation> CheckProjects(IReadOnlyList<ProjectInfo> projects)
     {
         var byName = projects.ToDictionary(project => project.Name);
@@ -61,6 +78,13 @@ internal static class DependencyRules
             foreach (var reference in project.References.Select(name => byName[name]))
             {
                 violations.AddRange(CheckReference(project, reference));
+            }
+
+            if (project.Kind == ProjectKind.Client)
+            {
+                violations.AddRange((project.Packages ?? [])
+                    .Where(package => ClientForbiddenLibraries.Any(forbidden => IsAssembly(package, forbidden)))
+                    .Select(package => new Violation("project.client-package", project.Name, package)));
             }
         }
 
@@ -86,13 +110,16 @@ internal static class DependencyRules
 
         switch (from.Kind, to.Kind)
         {
-            case (ProjectKind.Shared, ProjectKind.Service or ProjectKind.Executable):
+            case (ProjectKind.Client, _) when !ClientAllowedReferences.Contains(to.Name):
+                yield return new Violation("project.client-reference", from.Name, to.Name);
+                break;
+            case (ProjectKind.Shared, ProjectKind.Service or ProjectKind.Executable or ProjectKind.Client):
                 yield return new Violation("project.shared-depends-on-service", from.Name, to.Name);
                 break;
-            case (ProjectKind.Service, ProjectKind.Executable):
+            case (ProjectKind.Service, ProjectKind.Executable or ProjectKind.Client):
                 yield return new Violation("project.service-depends-on-executable", from.Name, to.Name);
                 break;
-            case (ProjectKind.Executable, ProjectKind.Executable):
+            case (ProjectKind.Executable, ProjectKind.Executable or ProjectKind.Client):
                 yield return new Violation("project.executable-depends-on-executable", from.Name, to.Name);
                 break;
             case (ProjectKind.Service, ProjectKind.Service) when from.Service != to.Service:
@@ -152,9 +179,19 @@ internal static class DependencyRules
     {
         var dependency = Describe(target, to);
 
+        if (from.Kind == CodeKind.Client)
+        {
+            foreach (var violation in CheckClientTypeUse(owner, from, to, dependency))
+            {
+                yield return violation;
+            }
+
+            yield break;
+        }
+
         if (from.Kind is CodeKind.Service or CodeKind.Shared)
         {
-            if (to.Kind == CodeKind.Executable)
+            if (to.Kind is CodeKind.Executable or CodeKind.Client)
             {
                 yield return new Violation("type.depends-on-executable", owner.FullName, dependency);
             }
@@ -176,6 +213,78 @@ internal static class DependencyRules
                 yield return new Violation("layer.application", owner.FullName, dependency);
                 break;
         }
+    }
+
+    // Web client: nenhum tipo de serviço, executável, banco ou broker; dentro do projeto, a matriz de pastas de
+    // docs/architecture/web-client.md (um Features/<Serviço> não usa outro; Shared, Infrastructure e Shell não usam Features).
+    // Um tipo fora das áreas conhecidas é recusado: uma pasta nova não pode servir de ponte entre Features.
+    private static IEnumerable<Violation> CheckClientTypeUse(TypeId owner, CodeLocation from, CodeLocation to, string dependency)
+    {
+        if (from.ClientArea is { } area && !IsKnownClientArea(area))
+        {
+            yield return new Violation("type.client-unknown-area", owner.FullName, area);
+        }
+
+        switch (to.Kind)
+        {
+            case CodeKind.Service or CodeKind.Executable:
+                yield return new Violation("type.client-backend-dependency", owner.FullName, dependency);
+                yield break;
+            case CodeKind.External when ClientForbiddenLibraries.Any(forbidden => IsAssembly(to.Assembly, forbidden)):
+                yield return new Violation("type.client-backend-dependency", owner.FullName, dependency);
+                yield break;
+            case CodeKind.Client when to.Assembly == from.Assembly && from.ClientArea is not null && to.ClientArea is not null:
+                if (IsFeature(from.ClientArea) && IsFeature(to.ClientArea) && from.ClientArea != to.ClientArea)
+                {
+                    yield return new Violation("type.client-cross-feature", owner.FullName, dependency);
+                }
+                else if (!ClientAreaMayUse(from.ClientArea, to.ClientArea))
+                {
+                    yield return new Violation("type.client-area", owner.FullName, dependency);
+                }
+                yield break;
+        }
+    }
+
+    private static bool IsFeature(string area) => area.StartsWith(ClientFeaturesArea + ".", StringComparison.Ordinal);
+
+    // A raiz (composição e ponto de entrada) é a área vazia.
+    private static bool IsKnownClientArea(string area) =>
+        area is "" or "Shell" or "Shared" or "Infrastructure" or "Components" || IsFeature(area);
+
+    // Features não usam a raiz nem Components: a composição usa todas as áreas e, se uma Feature a usasse, viraria
+    // ponte para outra Feature. Shell, Shared e Infrastructure não usam Features, então também não servem de ponte.
+    private static bool ClientAreaMayUse(string from, string to) => from switch
+    {
+        var feature when IsFeature(feature) => to == feature || to is "Shared" or "Infrastructure" or "Shell",
+        "Infrastructure" => to == "Infrastructure",
+        "Shared" => to is "Shared" or "Infrastructure",
+        "Shell" => !IsFeature(to),
+        _ => true,
+    };
+
+    // Área do web client pelo namespace: "" na raiz, Features.<Serviço> ou o primeiro segmento abaixo da raiz
+    // (Shell, Shared, Infrastructure, Components ou uma pasta desconhecida, recusada pela regra type.client-unknown-area).
+    // Código gerado fora da raiz (como __Blazor.*) não tem área.
+    public static string? ClientAreaOf(string @namespace, string root)
+    {
+        if (@namespace == root)
+        {
+            return "";
+        }
+
+        if (!@namespace.StartsWith(root + ".", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var segments = @namespace[(root.Length + 1)..].Split('.');
+        return segments switch
+        {
+            [ClientFeaturesArea, var service, ..] => $"{ClientFeaturesArea}.{service}",
+            [var area, ..] => area,
+            [] => "",
+        };
     }
 
     // Domain: BCL, a base técnica de domínio e o próprio Domain. Não vê Contracts, Application, Infrastructure nem outro serviço.

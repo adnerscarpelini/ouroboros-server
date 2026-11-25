@@ -41,8 +41,14 @@ internal sealed class SourceTree : ICodeLocator
         {
             ProjectKind.Service => CodeKind.Service,
             ProjectKind.Executable => CodeKind.Executable,
+            ProjectKind.Client => CodeKind.Client,
             _ => CodeKind.Shared,
         };
+        if (kind == CodeKind.Client)
+        {
+            return new CodeLocation(kind, null, null, project.Name, DependencyRules.ClientAreaOf(type.Namespace, project.Name));
+        }
+
         // Só bibliotecas seguem <assembly>.<Camada>; os namespaces de um executável (controllers, comandos) são livres.
         var layer = project.Kind == ProjectKind.Executable
             ? null

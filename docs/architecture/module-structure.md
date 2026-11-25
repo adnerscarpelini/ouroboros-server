@@ -22,7 +22,7 @@ tests/
 
 A biblioteca própria organiza Domain, Application, Infrastructure e contratos como pastas, com assembly e namespace raiz `Ouroboros.<Serviço>`. Identity segue esse formato em `src/Services/Identity/Ouroboros.Identity`. Não é necessário criar um projeto por camada. Serviços HTTP possuem API; consumidores de mensagens podem ser workers sem API de negócio.
 
-Fora de `src/Services` ficam os executáveis que não são serviços: os gateways, em `src/Gateways` ([detalhes](hosts.md#gateways)), e o [web client](web-client.md), aprovado para `src/Clients/Ouroboros.WebClient`. O web client não tem domínio nem banco; organiza as telas em `Features/<Serviço>`, com os nomes dos serviços do backend, e fala HTTP somente com gateways.
+Fora de `src/Services` ficam os executáveis que não são serviços: os gateways, em `src/Gateways` ([detalhes](hosts.md#gateways)), e o [web client](web-client.md), em `src/Clients/Ouroboros.WebClient`. O web client não tem domínio nem banco; organiza as telas em `Features/<Serviço>`, com os nomes dos serviços do backend, e fala HTTP somente com gateways.
 
 ## Projetos existentes
 
@@ -35,7 +35,8 @@ Fora de `src/Services` ficam os executáveis que não são serviços: os gateway
 | `src/Ouroboros.Hosting` | Mecanismos técnicos HTTP das APIs, sem papéis, públicos nem regras de negócio; consumidor: `Ouroboros.Identity.Api` |
 | `src/Ouroboros.BuildingBlocks` | Código técnico compartilhado ([BuildingBlocks](building-blocks.md)) |
 | `src/Ouroboros.Messaging` | Biblioteca técnica neutra de envelope opaco, codec/AAD e fábrica RabbitMQ; sem entidades ou referência a serviços, usada pelo receptor Notifications e pelo publicador de Identity ([mensageria](messaging.md)) |
-| `src/Ouroboros.Observability` | Configuração comum de diagnóstico e correlação dos executáveis: OpenTelemetry como provedor do `ILogger`, sanitização, console JSON, exportação OTLP opcional, propagador W3C e identidade do serviço; sem referência a serviços ou bancos, usada pela API de Identity e pelo worker de Notifications ([correlação](trace-correlation.md), [diagnósticos](diagnostics-pipeline.md)) |
+| `src/Ouroboros.Observability` | Configuração comum de diagnóstico e correlação dos executáveis: OpenTelemetry como provedor do `ILogger`, sanitização, console JSON, exportação OTLP opcional, propagador W3C e identidade do serviço; sem referência a serviços ou bancos, usada pela API de Identity, pelo worker de Notifications, pelos gateways e pelo web client ([correlação](trace-correlation.md), [diagnósticos](diagnostics-pipeline.md)) |
+| `src/Clients/Ouroboros.WebClient` | Web client Blazor Interactive Server com MudBlazor: layout, tema, página inicial e health; fala HTTP somente com o gateway externo e referencia apenas `Ouroboros.Observability` ([web client](web-client.md)) |
 
 A configuração do coletor e do destino de diagnósticos fica em `config/observability/`, fora de `src`, usada pelo Compose ([pipeline de diagnósticos](diagnostics-pipeline.md#topologia-e-recursos)).
 

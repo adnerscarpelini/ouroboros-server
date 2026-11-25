@@ -1,0 +1,24 @@
+@page "/error"
+@using System.Diagnostics
+
+<PageTitle>Erro</PageTitle>
+
+<MudStack Spacing="3" AlignItems="AlignItems.Start">
+    <MudText Typo="Typo.h4" HtmlTag="h1">Não foi possível concluir a solicitação</MudText>
+    <MudText>Ocorreu um erro inesperado. Tente novamente em instantes.</MudText>
+    @if (!string.IsNullOrEmpty(TraceId))
+    {
+        <MudText Typo="Typo.body2">Identificador para suporte: <code>@TraceId</code></MudText>
+    }
+</MudStack>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    [PersistentState]
+    public string? TraceId { get; set; }
+
+    protected override void OnInitialized() =>
+        TraceId ??= Activity.Current?.TraceId.ToString() ?? HttpContext?.TraceIdentifier;
+}

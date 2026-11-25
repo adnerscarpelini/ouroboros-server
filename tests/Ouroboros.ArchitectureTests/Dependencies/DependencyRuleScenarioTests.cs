@@ -5,6 +5,7 @@ using Ouroboros.ArchitectureTests.Dependencies.Scenarios.Orders.Domain;
 using Ouroboros.ArchitectureTests.Dependencies.Scenarios.Orders.Infrastructure;
 using Ouroboros.ArchitectureTests.Dependencies.Scenarios.Payments.Application;
 using Ouroboros.ArchitectureTests.Dependencies.Scenarios.Shared;
+using WebClient = Ouroboros.ArchitectureTests.Dependencies.Scenarios.WebClient;
 
 namespace Ouroboros.ArchitectureTests.Dependencies;
 
@@ -33,6 +34,14 @@ public sealed class DependencyRuleScenarioTests
         { typeof(CallsOrders), "type.cross-service", typeof(OrderService).FullName! },
         { typeof(CallsHost), "type.depends-on-executable", typeof(HostEntry).FullName! },
         { typeof(SharedUsesService), "type.shared-depends-on-service", typeof(OrderService).FullName! },
+        { typeof(WebClient.Features.Orders.OrdersPageUsesPayments), "type.client-cross-feature", typeof(WebClient.Features.Payments.PaymentsClient).FullName! },
+        { typeof(WebClient.Features.Orders.OrdersPageUsesService), "type.client-backend-dependency", typeof(OrderService).FullName! },
+        { typeof(WebClient.Infrastructure.InfrastructureUsesData), "type.client-backend-dependency", "[assembly] System.Data.Common" },
+        { typeof(WebClient.Shared.SharedUsesFeature), "type.client-area", typeof(WebClient.Features.Payments.PaymentsClient).FullName! },
+        { typeof(WebClient.Infrastructure.InfrastructureUsesShared), "type.client-area", typeof(WebClient.Shared.StatusBadge).FullName! },
+        { typeof(WebClient.Shell.ShellUsesFeature), "type.client-area", typeof(WebClient.Features.Payments.PaymentsClient).FullName! },
+        { typeof(WebClient.Misc.FeatureBridge), "type.client-unknown-area", "Misc" },
+        { typeof(WebClient.Features.Orders.OrdersPageUsesRoot), "type.client-area", typeof(WebClient.RootComposition).FullName! },
     };
 
     [Theory]
@@ -55,6 +64,9 @@ public sealed class DependencyRuleScenarioTests
     [InlineData(typeof(DomainAllowed))]
     [InlineData(typeof(ApplicationAllowed))]
     [InlineData(typeof(InfrastructureAllowed))]
+    [InlineData(typeof(WebClient.Features.Orders.OrdersPageAllowed))]
+    [InlineData(typeof(WebClient.Shell.ShellAllowed))]
+    [InlineData(typeof(WebClient.RootComposition))]
     public void Allowed_dependencies_pass(Type owner)
     {
         Assert.DoesNotContain(ScenarioViolations, violation => violation.Subject == owner.FullName);
@@ -154,6 +166,53 @@ public sealed class DependencyRuleScenarioTests
         ]));
     }
 
+    // O web client só referencia a observabilidade técnica: serviços, executáveis, BuildingBlocks, Messaging, Hosting
+    // e pacotes de banco ou broker são recusados, e nenhum projeto pode referenciá-lo.
+    [Fact]
+    public void Web_client_references_only_observability_and_no_project_references_it()
+    {
+        var violations = DependencyRules.CheckProjects(
+        [
+            Project("Ouroboros.Observability", ProjectKind.Shared, null),
+            Project("Ouroboros.Hosting", ProjectKind.Shared, null),
+            Project("Ouroboros.Messaging", ProjectKind.Shared, null),
+            Project(DependencyRules.BuildingBlocks, ProjectKind.Shared, null),
+            Project("Ouroboros.Orders", ProjectKind.Service, "Orders", "Ouroboros.WebClient"),
+            Project("Ouroboros.Orders.Api", ProjectKind.Executable, "Orders", "Ouroboros.Orders"),
+            new ProjectInfo(
+                "Ouroboros.WebClient", ProjectKind.Client, null,
+                ["Ouroboros.Observability", "Ouroboros.Hosting", "Ouroboros.Messaging", DependencyRules.BuildingBlocks, "Ouroboros.Orders.Api"],
+                ["MudBlazor", "Npgsql", "Microsoft.EntityFrameworkCore.Design", "RabbitMQ.Client"]),
+        ]);
+
+        Assert.Equal(
+            [
+                new Violation("project.client-package", "Ouroboros.WebClient", "Microsoft.EntityFrameworkCore.Design"),
+                new Violation("project.client-package", "Ouroboros.WebClient", "Npgsql"),
+                new Violation("project.client-package", "Ouroboros.WebClient", "RabbitMQ.Client"),
+                new Violation("project.client-reference", "Ouroboros.WebClient", DependencyRules.BuildingBlocks),
+                new Violation("project.client-reference", "Ouroboros.WebClient", "Ouroboros.Hosting"),
+                new Violation("project.client-reference", "Ouroboros.WebClient", "Ouroboros.Messaging"),
+                new Violation("project.client-reference", "Ouroboros.WebClient", "Ouroboros.Orders.Api"),
+                new Violation("project.service-depends-on-executable", "Ouroboros.Orders", "Ouroboros.WebClient"),
+            ],
+            violations.Where(violation => violation.Rule != "project.cycle"));
+    }
+
+    [Fact]
+    public void Web_client_areas_come_from_the_namespace()
+    {
+        const string Root = "Ouroboros.WebClient";
+
+        Assert.Equal("Features.Identity", DependencyRules.ClientAreaOf("Ouroboros.WebClient.Features.Identity.Pages", Root));
+        Assert.Equal("Shell", DependencyRules.ClientAreaOf("Ouroboros.WebClient.Shell", Root));
+        Assert.Equal("Infrastructure", DependencyRules.ClientAreaOf("Ouroboros.WebClient.Infrastructure", Root));
+        Assert.Equal("", DependencyRules.ClientAreaOf("Ouroboros.WebClient", Root));
+        Assert.Equal("Features", DependencyRules.ClientAreaOf("Ouroboros.WebClient.Features", Root));
+        Assert.Equal("Misc", DependencyRules.ClientAreaOf("Ouroboros.WebClient.Misc.Bridge", Root));
+        Assert.Null(DependencyRules.ClientAreaOf("__Blazor.Ouroboros.WebClient.Shell", Root));
+    }
+
     [Fact]
     public void A_violation_outside_the_transition_list_is_new()
     {
@@ -191,6 +250,11 @@ public sealed class DependencyRuleScenarioTests
             }
 
             var service = type.Namespace[(ScenarioRoot.Length + 1)..].Split('.')[0];
+            if (service == "WebClient")
+            {
+                return new CodeLocation(CodeKind.Client, null, null, type.Assembly, DependencyRules.ClientAreaOf(type.Namespace, $"{ScenarioRoot}.WebClient"));
+            }
+
             if (service is "Host" or "Shared")
             {
                 return new CodeLocation(service == "Host" ? CodeKind.Executable : CodeKind.Shared, null, null, type.Assembly);
