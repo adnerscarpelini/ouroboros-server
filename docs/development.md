@@ -4,7 +4,7 @@ Este guia contém comandos dos projetos disponíveis. A organização Services e
 
 ## Requisitos
 
-- .NET SDK 10.0.402, fixado em `global.json`.
+- .NET SDK 10.0.404, fixado em `global.json`.
 - Visual Studio compatível com .NET 10 e SLNX, se for usar o Visual Studio.
 - Docker com Docker Compose, para PostgreSQL, RabbitMQ e o coletor de diagnósticos de desenvolvimento; os testes de integração também exigem o Docker em execução.
 - PowerShell 7 (`pwsh`) para provisionar o RabbitMQ e para sua fixture de teste, inclusive em Linux.
@@ -1177,7 +1177,7 @@ docker run --rm --entrypoint sh ouroboros-identity-api:0.1.0-local -c 'id -u'
 docker run --rm --entrypoint sh ouroboros-notifications-worker:0.1.0-local -c 'id -u; test -w /app/.local/notifications-emails'
 ```
 
-O build usa SDK `10.0.402` e runtime `aspnet:10.0.13-alpine3.24`; ambos os processos executam como UID `1654` (`USER $APP_UID`), com pickup padrão gravável no worker e rótulos OCI `org.opencontainers.image.version` iguais a `<APP_VERSION>-<SOURCE_REVISION>`. Cada Dockerfile copia somente o próprio serviço e bibliotecas técnicas, sem assemblies do outro serviço, e tem `.dockerignore` próprio para excluir `.env`, `*.pem`, `*.key`, `.local`, `backups`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
+O build usa SDK `10.0.404` e runtime `aspnet:10.0.15-alpine3.24`; ambos os processos executam como UID `1654` (`USER $APP_UID`), com pickup padrão gravável no worker e rótulos OCI `org.opencontainers.image.version` iguais a `<APP_VERSION>-<SOURCE_REVISION>`. Cada Dockerfile copia somente o próprio serviço e bibliotecas técnicas, sem assemblies do outro serviço, e tem `.dockerignore` próprio para excluir `.env`, `*.pem`, `*.key`, `.local`, `backups`, `bin` e `obj`. Mantenha os segredos fora do contexto, mesmo com essas exclusões.
 
 Para executar os dois serviços em containers com chaves externas, migrations explícitas e probes de readiness, use o fluxo completo em [Executar os serviços com Docker Compose](#executar-os-serviços-com-docker-compose), que utiliza `scripts/messaging/new-compose-keys.ps1` para gerar os manifestos com os caminhos internos `/run/ouroboros-keys/identity/...` e `/run/ouroboros-keys/notifications/...`. Se montar manualmente sem esse script, ajuste `privateKeyPath` e `keyPath` nos manifestos para o caminho absoluto interno do container e conceda leitura dos arquivos e travessia do diretório ao UID `1654`, preservando escrita exclusiva da operação. A CI constrói ambas as imagens a cada PR/push; publicação em registro e deploy ficam fora do escopo.
 
