@@ -36,7 +36,7 @@ public sealed class RabbitMqFixture : IAsyncLifetime
     private IContainer CreateContainer()
     {
         _amqpPort = FreeTcpPort();
-        return new ContainerBuilder("rabbitmq:4.4.0-management")
+        return new ContainerBuilder("rabbitmq:4.4.1-management")
             .WithEnvironment("RABBITMQ_DEFAULT_USER", "test_operator")
             .WithEnvironment("RABBITMQ_DEFAULT_PASS", _adminPassword)
             .WithEnvironment("RABBITMQ_DEFAULT_VHOST", "ouroboros")

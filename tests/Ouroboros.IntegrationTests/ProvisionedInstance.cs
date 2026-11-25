@@ -25,7 +25,7 @@ public sealed class ProvisionedInstance : IAsyncLifetime
     private PostgreSqlContainer _container = CreateContainer();
 
     private static PostgreSqlContainer CreateContainer() =>
-        new PostgreSqlBuilder("postgres:18-alpine")
+        new PostgreSqlBuilder("postgres:18.7-alpine")
             .WithPortBinding(FreeTcpPort(), 5432)
             .WithCommand("-c", "log_statement=all", "-c", "log_min_duration_statement=0", "-c", "log_min_error_statement=debug1",
                 "-c", "log_parameter_max_length=0", "-c", "log_parameter_max_length_on_error=0")
