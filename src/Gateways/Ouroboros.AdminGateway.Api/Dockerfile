@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.404 AS build
 ARG APP_VERSION=0.1.0
 ARG SOURCE_REVISION=local
 WORKDIR /source
@@ -8,7 +8,7 @@ COPY src/Ouroboros.Observability/ src/Ouroboros.Observability/
 COPY src/Gateways/Ouroboros.AdminGateway.Api/ src/Gateways/Ouroboros.AdminGateway.Api/
 RUN dotnet publish src/Gateways/Ouroboros.AdminGateway.Api/Ouroboros.AdminGateway.Api.csproj -c Release -o /out /p:UseAppHost=false /p:Version=${APP_VERSION} /p:SourceRevisionId=${SOURCE_REVISION}
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-alpine3.24
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-alpine3.24
 ARG APP_VERSION=0.1.0
 ARG SOURCE_REVISION=local
 LABEL org.opencontainers.image.title="ouroboros-admin-gateway-api" \
